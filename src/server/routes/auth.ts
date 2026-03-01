@@ -2,7 +2,7 @@ import { Router, type Request, type Response, type NextFunction } from 'express'
 import passport from 'passport';
 import bcrypt from 'bcrypt';
 import type Database from 'better-sqlite3';
-import type { AuthConfig } from '../../config/auth.js';
+import type { AuthConfig, AuthMode } from '../../config/auth.js';
 import { authRateLimiter } from '../middleware/security.js';
 import {
   generateApiKey,
@@ -10,6 +10,21 @@ import {
   getKeyIdentifiers,
 } from '../middleware/apiKey.js';
 import { type ApiKey, toApiKeyResponse } from '../../db/schemas/users.js';
+
+/**
+ * Get the current auth mode from the database settings.
+ * This is called dynamically to support auth mode changes after setup.
+ */
+function getCurrentAuthMode(db: Database.Database): AuthMode {
+  try {
+    const result = db.prepare<[], { value: string }>(
+      `SELECT value FROM settings WHERE key = 'auth_mode'`,
+    ).get();
+    return (result?.value as AuthMode) || 'none';
+  } catch {
+    return 'none';
+  }
+}
 
 /**
  * Create auth routes for login, logout, session, and API key management.
@@ -23,18 +38,21 @@ export function createAuthRoutes(db: Database.Database, config: AuthConfig): Rou
 
   // --- Login ---
   router.post('/login', (req: Request, res: Response, next: NextFunction): void => {
-    if (config.mode === 'none') {
+    // Get current auth mode dynamically from database
+    const authMode = getCurrentAuthMode(db);
+
+    if (authMode === 'none') {
       res.json({ success: true, message: 'Auth disabled' });
       return;
     }
 
-    if (config.mode === 'basic') {
+    if (authMode === 'basic') {
       // Basic auth doesn't use login endpoint — it's header-based
       res.status(400).json({ error: 'Basic auth uses Authorization header, not login endpoint' });
       return;
     }
 
-    if (config.mode === 'forms') {
+    if (authMode === 'forms') {
       passport.authenticate('local', (err: Error | null, user: Express.User | false, info: { message: string }) => {
         if (err) return next(err);
         if (!user) {
@@ -53,7 +71,7 @@ export function createAuthRoutes(db: Database.Database, config: AuthConfig): Rou
       return;
     }
 
-    if (config.mode === 'oidc') {
+    if (authMode === 'oidc') {
       // OIDC login redirects to the identity provider
       passport.authenticate('openidconnect')(req, res, next);
       return;
@@ -77,7 +95,10 @@ export function createAuthRoutes(db: Database.Database, config: AuthConfig): Rou
 
   // --- Session info ---
   router.get('/session', (req: Request, res: Response): void => {
-    if (config.mode === 'none') {
+    // Get current auth mode dynamically from database
+    const authMode = getCurrentAuthMode(db);
+
+    if (authMode === 'none') {
       res.json({ authenticated: true, mode: 'none' });
       return;
     }
@@ -91,16 +112,25 @@ export function createAuthRoutes(db: Database.Database, config: AuthConfig): Rou
       return;
     }
 
+    // Check basic auth
+    if (authMode === 'basic' && (req as any)._basicAuthValid) {
+      res.json({
+        authenticated: true,
+        mode: 'basic',
+      });
+      return;
+    }
+
     if (req.isAuthenticated?.() && req.user) {
       res.json({
         authenticated: true,
-        mode: config.mode,
+        mode: authMode,
         user: { id: req.user.id, username: req.user.username, displayName: req.user.displayName },
       });
       return;
     }
 
-    res.json({ authenticated: false, mode: config.mode });
+    res.json({ authenticated: false, mode: authMode });
   });
 
   // --- OIDC callback ---
@@ -150,6 +180,54 @@ export function createAuthRoutes(db: Database.Database, config: AuthConfig): Rou
     db.prepare('UPDATE api_keys SET revoked_at = datetime(\'now\') WHERE id = ? AND revoked_at IS NULL')
       .run(id);
     res.json({ success: true });
+  });
+
+  // --- API Key Rotation ---
+  // Revokes the current key and generates a new one
+  router.post('/api-keys/rotate', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { keyId } = req.body as { keyId?: number };
+
+      if (!keyId) {
+        res.status(400).json({ error: 'keyId is required' });
+        return;
+      }
+
+      // Check the key exists and is not already revoked
+      const existingKey = db.prepare<[number], ApiKey>(
+        'SELECT * FROM api_keys WHERE id = ? AND revoked_at IS NULL',
+      ).get(keyId);
+
+      if (!existingKey) {
+        res.status(404).json({ error: 'API key not found or already revoked' });
+        return;
+      }
+
+      // Revoke the old key
+      db.prepare('UPDATE api_keys SET revoked_at = datetime(\'now\') WHERE id = ?')
+        .run(keyId);
+
+      // Generate new key
+      const newKey = generateApiKey();
+      const keyHash = await hashApiKey(newKey, config.apiKeyBcryptRounds);
+      const { prefix, last4 } = getKeyIdentifiers(newKey);
+
+      const result = db.prepare(
+        `INSERT INTO api_keys (name, key_hash, key_prefix, key_last4, user_id, scopes)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      ).run(existingKey.name, keyHash, prefix, last4, existingKey.user_id, existingKey.scopes);
+
+      res.status(201).json({
+        id: result.lastInsertRowid,
+        name: existingKey.name,
+        key: newKey, // Only time the full key is returned
+        maskedKey: `${'•'.repeat(8)}${last4}`,
+        message: 'API key rotated. Save the new key — it will not be shown again.',
+        revokedKeyId: keyId,
+      });
+    } catch (err) {
+      next(err);
+    }
   });
 
   return router;

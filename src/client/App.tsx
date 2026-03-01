@@ -1,5 +1,7 @@
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { useAuth } from './hooks/useAuth';
+import { api } from './lib/api';
 import Layout from './components/Layout';
 import Dashboard from './pages/Dashboard';
 import Instances from './pages/Instances';
@@ -8,6 +10,11 @@ import Scheduler from './pages/Scheduler';
 import Activity from './pages/Activity';
 import Settings from './pages/Settings';
 import Login from './pages/Login';
+import Setup from './pages/Setup';
+
+interface SetupStatus {
+  needsSetup: boolean;
+}
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { session, isLoading } = useAuth();
@@ -27,28 +34,65 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+/**
+ * Check setup status and redirect to /setup if needed.
+ * Wraps the entire app to ensure setup is checked on every route.
+ */
+function SetupGuard({ children }: { children: React.ReactNode }) {
+  const location = useLocation();
+  const { data: setupStatus, isLoading } = useQuery({
+    queryKey: ['setup', 'status'],
+    queryFn: () => api.get<SetupStatus>('/setup/status'),
+    staleTime: 60_000,
+    retry: false,
+  });
+
+  if (isLoading) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-gray-950">
+        <div className="text-gray-400">Loading...</div>
+      </div>
+    );
+  }
+
+  // Redirect to setup if needed (unless already on setup page)
+  if (setupStatus?.needsSetup && location.pathname !== '/setup') {
+    return <Navigate to="/setup" replace />;
+  }
+
+  // Redirect away from setup if already completed
+  if (!setupStatus?.needsSetup && location.pathname === '/setup') {
+    return <Navigate to="/" replace />;
+  }
+
+  return <>{children}</>;
+}
+
 export default function App() {
   return (
-    <Routes>
-      <Route path="/login" element={<Login />} />
-      <Route
-        path="/*"
-        element={
-          <ProtectedRoute>
-            <Layout>
-              <Routes>
-                <Route path="/" element={<Dashboard />} />
-                <Route path="/instances" element={<Instances />} />
-                <Route path="/filters" element={<Filters />} />
-                <Route path="/scheduler" element={<Scheduler />} />
-                <Route path="/activity" element={<Activity />} />
-                <Route path="/settings" element={<Settings />} />
-              </Routes>
-            </Layout>
-          </ProtectedRoute>
-        }
-      />
-    </Routes>
+    <SetupGuard>
+      <Routes>
+        <Route path="/setup" element={<Setup />} />
+        <Route path="/login" element={<Login />} />
+        <Route
+          path="/*"
+          element={
+            <ProtectedRoute>
+              <Layout>
+                <Routes>
+                  <Route path="/" element={<Dashboard />} />
+                  <Route path="/instances" element={<Instances />} />
+                  <Route path="/filters" element={<Filters />} />
+                  <Route path="/scheduler" element={<Scheduler />} />
+                  <Route path="/activity" element={<Activity />} />
+                  <Route path="/settings" element={<Settings />} />
+                </Routes>
+              </Layout>
+            </ProtectedRoute>
+          }
+        />
+      </Routes>
+    </SetupGuard>
   );
 }
 

@@ -16,6 +16,37 @@ export default function Login() {
     return null;
   }
 
+  // Basic auth mode - show message instead of form
+  if (!isLoading && session?.mode === 'basic') {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-gray-950">
+        <div className="w-full max-w-sm rounded-xl border border-gray-800 bg-gray-900 p-8">
+          <div className="mb-6 text-center">
+            <span className="text-4xl">🎬</span>
+            <h1 className="mt-2 text-2xl font-bold text-gray-100">Filtarr</h1>
+            <p className="mt-1 text-sm text-gray-500">Basic Authentication</p>
+          </div>
+
+          <div className="space-y-4 text-center">
+            <p className="text-gray-400">
+              This instance uses HTTP Basic Authentication.
+            </p>
+            <p className="text-sm text-gray-500">
+              Your browser should prompt you for credentials automatically.
+              If you're not being prompted, try refreshing the page.
+            </p>
+            <button
+              onClick={() => window.location.reload()}
+              className="w-full rounded-lg bg-blue-600 px-4 py-2 font-medium text-white hover:bg-blue-700"
+            >
+              Refresh Page
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setSubmitting(true);

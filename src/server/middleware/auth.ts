@@ -9,6 +9,21 @@ import type { AuthConfig, AuthMode } from '../../config/auth.js';
 import type { User } from '../../db/schemas/users.js';
 import { apiKeyMiddleware } from './apiKey.js';
 
+/**
+ * Get the current auth mode from the database settings.
+ * This is called on each request to support dynamic auth mode changes (e.g., after setup).
+ */
+function getCurrentAuthMode(db: Database.Database): AuthMode {
+  try {
+    const result = db.prepare<[], { value: string }>(
+      `SELECT value FROM settings WHERE key = 'auth_mode'`,
+    ).get();
+    return (result?.value as AuthMode) || 'none';
+  } catch {
+    return 'none';
+  }
+}
+
 declare global {
   namespace Express {
     interface User {
@@ -24,9 +39,15 @@ declare global {
  * 1. API key (req.apiKey set by apiKeyMiddleware)
  * 2. Session (req.isAuthenticated() from passport)
  * 3. Basic auth header
+ *
+ * Note: Auth mode is read dynamically from the database on each request
+ * to support hot-reloading after setup completion.
  */
-function requireAuth(authMode: AuthMode) {
+function requireAuth(db: Database.Database) {
   return (req: Request, res: Response, next: NextFunction): void => {
+    // Dynamically get auth mode from database (supports setup completion without restart)
+    const authMode = getCurrentAuthMode(db);
+
     // Auth mode "none" — allow all requests
     if (authMode === 'none') {
       next();
@@ -46,13 +67,15 @@ function requireAuth(authMode: AuthMode) {
     }
 
     // Basic auth
-    if (authMode === 'basic' && req.headers.authorization?.startsWith('Basic ')) {
-      // Basic auth is validated in the apiKey middleware chain; if we get here
-      // it means basic auth was already validated
+    if (authMode === 'basic') {
       if ((req as any)._basicAuthValid) {
         next();
         return;
       }
+      // Return 401 with WWW-Authenticate header for browser native prompt
+      res.setHeader('WWW-Authenticate', 'Basic realm="Filtarr"');
+      res.status(401).json({ error: 'Authentication required' });
+      return;
     }
 
     res.status(401).json({ error: 'Authentication required' });
@@ -61,9 +84,9 @@ function requireAuth(authMode: AuthMode) {
 
 /**
  * Basic auth validation middleware.
- * Validates Authorization: Basic <base64> header against configured credentials.
+ * Validates Authorization: Basic <base64> header against credentials from database.
  */
-function basicAuthMiddleware(username: string, passwordHash: string) {
+function basicAuthMiddleware(db: Database.Database) {
   return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     const authHeader = req.headers.authorization;
     if (!authHeader?.startsWith('Basic ')) {
@@ -82,7 +105,12 @@ function basicAuthMiddleware(username: string, passwordHash: string) {
       const providedUser = decoded.substring(0, colonIndex);
       const providedPass = decoded.substring(colonIndex + 1);
 
-      if (providedUser === username && await bcrypt.compare(providedPass, passwordHash)) {
+      // Look up user in database
+      const user = db.prepare<[string], { username: string; password_hash: string }>(
+        'SELECT username, password_hash FROM users WHERE username = ?',
+      ).get(providedUser);
+
+      if (user && await bcrypt.compare(providedPass, user.password_hash)) {
         (req as any)._basicAuthValid = true;
       }
     } catch {
@@ -173,6 +201,10 @@ function configurePassportLocal(db: Database.Database): void {
  *
  * SECURITY: Auth is applied at the Router level, not per-route.
  * This prevents accidentally exposing endpoints (Huntarr vulnerability).
+ *
+ * Note: All auth middlewares are always configured so that the auth mode
+ * can be changed dynamically (e.g., after setup completion) without requiring
+ * a server restart.
  */
 export function createAuthMiddleware(
   db: Database.Database,
@@ -183,46 +215,19 @@ export function createAuthMiddleware(
   // Always apply API key middleware first (works in all modes)
   router.use(apiKeyMiddleware(db));
 
-  // Mode-specific middleware
-  switch (config.mode) {
-    case 'basic': {
-      if (!config.basic) {
-        throw new Error('Basic auth config required when mode is "basic"');
-      }
-      // Hash the configured password for comparison
-      const passwordHash = bcrypt.hashSync(config.basic.password, 12);
-      router.use(basicAuthMiddleware(config.basic.username, passwordHash));
-      break;
-    }
+  // Always apply basic auth middleware (validates if Authorization header present)
+  router.use(basicAuthMiddleware(db));
 
-    case 'forms': {
-      router.use(sessionMiddleware(config));
-      configurePassportLocal(db);
-      router.use(passport.initialize());
-      router.use(passport.session());
-      break;
-    }
-
-    case 'oidc': {
-      if (!config.oidc) {
-        throw new Error('OIDC config required when mode is "oidc"');
-      }
-      // OIDC uses sessions too
-      router.use(sessionMiddleware(config));
-      router.use(passport.initialize());
-      router.use(passport.session());
-      // Note: OIDC strategy is configured in auth routes
-      break;
-    }
-
-    case 'none':
-    default:
-      // No additional middleware needed
-      break;
-  }
+  // Always apply session middleware for forms/oidc auth support
+  // This is needed so that sessions work after setup completion with forms mode
+  router.use(sessionMiddleware(config));
+  configurePassportLocal(db);
+  router.use(passport.initialize());
+  router.use(passport.session());
 
   // The requireAuth middleware checks if the request is authenticated
-  const authCheck = requireAuth(config.mode);
+  // It dynamically reads auth mode from DB to support setup completion without restart
+  const authCheck = requireAuth(db);
 
   return { authRouter: router, requireAuth: authCheck };
 }

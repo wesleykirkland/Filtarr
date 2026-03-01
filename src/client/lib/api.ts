@@ -1,7 +1,10 @@
 const BASE = '/api/v1';
 
 export class ApiError extends Error {
-  constructor(public status: number, message: string) {
+  constructor(
+    public status: number,
+    message: string,
+  ) {
     super(message);
     this.name = 'ApiError';
   }
@@ -14,6 +17,9 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   });
 
   if (!res.ok) {
+    if (res.status === 401) {
+      window.dispatchEvent(new Event('auth:401'));
+    }
     const body = await res.json().catch(() => ({ error: res.statusText }));
     throw new ApiError(res.status, body.error?.message || body.error || res.statusText);
   }
@@ -30,4 +36,3 @@ export const api = {
     request<T>(path, { method: 'PUT', body: body ? JSON.stringify(body) : undefined }),
   delete: <T>(path: string) => request<T>(path, { method: 'DELETE' }),
 };
-

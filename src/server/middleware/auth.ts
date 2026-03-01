@@ -1,4 +1,10 @@
-import { type Request, type Response, type NextFunction, type RequestHandler, Router } from 'express';
+import {
+  type Request,
+  type Response,
+  type NextFunction,
+  type RequestHandler,
+  Router,
+} from 'express';
 import session from 'express-session';
 import passport from 'passport';
 import { Strategy as LocalStrategy } from 'passport-local';
@@ -15,9 +21,9 @@ import { apiKeyMiddleware } from './apiKey.js';
  */
 function getCurrentAuthMode(db: Database.Database): AuthMode {
   try {
-    const result = db.prepare<[], { value: string }>(
-      `SELECT value FROM settings WHERE key = 'auth_mode'`,
-    ).get();
+    const result = db
+      .prepare<[], { value: string }>(`SELECT value FROM settings WHERE key = 'auth_mode'`)
+      .get();
     return (result?.value as AuthMode) || 'none';
   } catch {
     return 'none';
@@ -106,11 +112,14 @@ function basicAuthMiddleware(db: Database.Database) {
       const providedPass = decoded.substring(colonIndex + 1);
 
       // Look up user in database
-      const user = db.prepare<[string], { username: string; password_hash: string }>(
-        'SELECT username, password_hash FROM users WHERE username = ?',
-      ).get(providedUser);
+      const user = db
+        .prepare<
+          [string],
+          { username: string; password_hash: string }
+        >('SELECT username, password_hash FROM users WHERE username = ?')
+        .get(providedUser);
 
-      if (user && await bcrypt.compare(providedPass, user.password_hash)) {
+      if (user && (await bcrypt.compare(providedPass, user.password_hash))) {
         (req as any)._basicAuthValid = true;
       }
     } catch {
@@ -144,46 +153,49 @@ function sessionMiddleware(config: AuthConfig): RequestHandler {
  * Configure passport with local strategy for forms auth.
  */
 function configurePassportLocal(db: Database.Database): void {
-  passport.use(new LocalStrategy(async (username, password, done) => {
-    try {
-      const user = db.prepare<[string], User>(
-        'SELECT * FROM users WHERE username = ?',
-      ).get(username);
+  passport.use(
+    new LocalStrategy(async (username, password, done) => {
+      try {
+        const user = db
+          .prepare<[string], User>('SELECT * FROM users WHERE username = ?')
+          .get(username);
 
-      if (!user) {
-        return done(null, false, { message: 'Invalid credentials' });
-      }
+        if (!user) {
+          return done(null, false, { message: 'Invalid credentials' });
+        }
 
-      // Check account lockout
-      if (user.locked_until && new Date(user.locked_until) > new Date()) {
-        return done(null, false, { message: 'Account temporarily locked' });
-      }
+        // Check account lockout
+        if (user.locked_until && new Date(user.locked_until) > new Date()) {
+          return done(null, false, { message: 'Account temporarily locked' });
+        }
 
-      const valid = await bcrypt.compare(password, user.password_hash);
-      if (!valid) {
-        // Increment failed attempts
-        const newAttempts = user.failed_attempts + 1;
-        const lockUntil = newAttempts >= 5
-          ? new Date(Date.now() + 15 * 60 * 1000).toISOString() // Lock 15 min
-          : null;
+        const valid = await bcrypt.compare(password, user.password_hash);
+        if (!valid) {
+          // Increment failed attempts
+          const newAttempts = user.failed_attempts + 1;
+          const lockUntil =
+            newAttempts >= 5
+              ? new Date(Date.now() + 15 * 60 * 1000).toISOString() // Lock 15 min
+              : null;
 
+          db.prepare(
+            "UPDATE users SET failed_attempts = ?, locked_until = ?, updated_at = datetime('now') WHERE id = ?",
+          ).run(newAttempts, lockUntil, user.id);
+
+          return done(null, false, { message: 'Invalid credentials' });
+        }
+
+        // Reset failed attempts on success
         db.prepare(
-          'UPDATE users SET failed_attempts = ?, locked_until = ?, updated_at = datetime(\'now\') WHERE id = ?',
-        ).run(newAttempts, lockUntil, user.id);
+          "UPDATE users SET failed_attempts = 0, locked_until = NULL, updated_at = datetime('now') WHERE id = ?",
+        ).run(user.id);
 
-        return done(null, false, { message: 'Invalid credentials' });
+        return done(null, { id: user.id, username: user.username, displayName: user.display_name });
+      } catch (err) {
+        return done(err);
       }
-
-      // Reset failed attempts on success
-      db.prepare(
-        'UPDATE users SET failed_attempts = 0, locked_until = NULL, updated_at = datetime(\'now\') WHERE id = ?',
-      ).run(user.id);
-
-      return done(null, { id: user.id, username: user.username, displayName: user.display_name });
-    } catch (err) {
-      return done(err);
-    }
-  }));
+    }),
+  );
 
   passport.serializeUser((user, done) => done(null, user.id));
 
@@ -231,4 +243,3 @@ export function createAuthMiddleware(
 
   return { authRouter: router, requireAuth: authCheck };
 }
-

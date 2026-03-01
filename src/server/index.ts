@@ -1,34 +1,40 @@
 import { loadConfig } from '../config/index.js';
+import { logger } from './lib/logger.js';
 import { getDatabase, closeDatabase } from '../db/index.js';
 import { createApp } from './app.js';
+import { startInstanceValidator, stopInstanceValidator } from './cron/instanceValidator.js';
 
 function main(): void {
   const config = loadConfig();
-  console.log(`Filtarr starting in ${config.nodeEnv} mode...`);
+  logger.info(`Filtarr starting in ${config.nodeEnv} mode...`);
 
   // Initialize database (runs migrations on first start)
-  getDatabase();
-  console.log('Database initialized.');
+  const db = getDatabase();
+  logger.info('Database initialized.');
+
+  // Start background services
+  startInstanceValidator(db);
 
   const app = createApp();
 
   const server = app.listen(config.port, config.host, () => {
-    console.log(`Filtarr listening on http://${config.host}:${config.port}`);
-    console.log(`Health check: http://localhost:${config.port}/api/v1/health`);
+    logger.info(`Filtarr listening on http://${config.host}:${config.port}`);
+    logger.info(`Health check: http://localhost:${config.port}/api/v1/health`);
   });
 
   // Graceful shutdown
   const shutdown = (signal: string) => {
-    console.log(`\nReceived ${signal}, shutting down gracefully...`);
+    logger.info(`Received ${signal}, shutting down gracefully...`);
+    stopInstanceValidator();
     server.close(() => {
       closeDatabase();
-      console.log('Server closed.');
+      logger.info('Server closed.');
       process.exit(0);
     });
 
     // Force exit after 10 seconds
     setTimeout(() => {
-      console.error('Forced shutdown after timeout');
+      logger.fatal('Forced shutdown after timeout');
       process.exit(1);
     }, 10_000);
   };
@@ -38,4 +44,3 @@ function main(): void {
 }
 
 main();
-

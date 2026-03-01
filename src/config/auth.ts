@@ -28,8 +28,8 @@ export const AuthConfigSchema = z.object({
   forms: FormsAuthConfigSchema.optional(),
   oidc: OidcAuthConfigSchema.optional(),
   apiKeyBcryptRounds: z.number().int().min(10).max(14).default(12),
-  rateLimitAuth: z.number().int().positive().default(5),       // attempts per minute on auth endpoints
-  rateLimitGeneral: z.number().int().positive().default(100),   // requests per minute general API
+  rateLimitAuth: z.number().int().positive().default(5), // attempts per minute on auth endpoints
+  rateLimitGeneral: z.number().int().positive().default(100), // requests per minute general API
   corsOrigin: z.union([z.string(), z.array(z.string())]).default('same-origin'),
 });
 
@@ -70,7 +70,8 @@ export function loadAuthConfigFromEnv(): Partial<AuthConfig> {
       issuerUrl: env['FILTARR_OIDC_ISSUER'],
       clientId: env['FILTARR_OIDC_CLIENT_ID'] || '',
       clientSecret: env['FILTARR_OIDC_CLIENT_SECRET'] || '',
-      callbackUrl: env['FILTARR_OIDC_CALLBACK_URL'] || 'http://localhost:9898/api/v1/auth/oidc/callback',
+      callbackUrl:
+        env['FILTARR_OIDC_CALLBACK_URL'] || 'http://localhost:9898/api/v1/auth/oidc/callback',
       scopes: (env['FILTARR_OIDC_SCOPES'] || 'openid,profile,email').split(','),
     };
   }
@@ -82,4 +83,3 @@ export function loadAuthConfigFromEnv(): Partial<AuthConfig> {
 
   return config;
 }
-

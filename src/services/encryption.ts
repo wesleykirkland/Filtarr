@@ -11,10 +11,9 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 
 const ALGORITHM = 'aes-256-gcm';
-const IV_LENGTH = 12;       // 96 bits for GCM
-const TAG_LENGTH = 16;      // 128 bits auth tag
-const KEY_LENGTH = 32;      // 256 bits
-const SALT_LENGTH = 16;
+const IV_LENGTH = 12; // 96 bits for GCM
+const TAG_LENGTH = 16; // 128 bits auth tag
+const KEY_LENGTH = 32; // 256 bits
 const PBKDF2_ITERATIONS = 100_000;
 
 let _derivedKey: Buffer | null = null;
@@ -63,10 +62,7 @@ export function encrypt(plaintext: string, dataDir?: string): string {
   const iv = randomBytes(IV_LENGTH);
   const cipher = createCipheriv(ALGORITHM, key, iv);
 
-  const encrypted = Buffer.concat([
-    cipher.update(plaintext, 'utf-8'),
-    cipher.final(),
-  ]);
+  const encrypted = Buffer.concat([cipher.update(plaintext, 'utf-8'), cipher.final()]);
 
   const authTag = cipher.getAuthTag();
 
@@ -92,10 +88,7 @@ export function decrypt(encryptedHex: string, dataDir?: string): string {
   const decipher = createDecipheriv(ALGORITHM, key, iv);
   decipher.setAuthTag(authTag);
 
-  const decrypted = Buffer.concat([
-    decipher.update(ciphertext),
-    decipher.final(),
-  ]);
+  const decrypted = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
 
   return decrypted.toString('utf-8');
 }

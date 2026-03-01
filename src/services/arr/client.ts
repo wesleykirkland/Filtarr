@@ -7,6 +7,8 @@
  * mapping. App-specific clients extend this class.
  */
 
+import { Agent } from 'undici';
+
 import {
   type ArrClientOptions,
   ArrApiError,
@@ -32,6 +34,7 @@ export class ArrClient {
   protected readonly apiKey: string;
   protected readonly timeout: number;
   protected readonly maxRetries: number;
+  protected readonly skipSslVerify: boolean;
 
   constructor(options: ArrClientOptions) {
     // Normalize URL: remove trailing slash
@@ -39,11 +42,15 @@ export class ArrClient {
     this.apiKey = options.apiKey;
     this.timeout = options.timeout ?? DEFAULT_TIMEOUT;
     this.maxRetries = options.maxRetries ?? DEFAULT_MAX_RETRIES;
+    this.skipSslVerify = options.skipSslVerify ?? false;
   }
 
   // ── Core HTTP Methods ───────────────────────────────────────────────────
 
-  protected async get<T>(path: string, params?: Record<string, string | number | boolean>): Promise<T> {
+  protected async get<T>(
+    path: string,
+    params?: Record<string, string | number | boolean>,
+  ): Promise<T> {
     const url = this.buildUrl(path, params);
     return this.requestWithRetry<T>('GET', url);
   }
@@ -58,7 +65,10 @@ export class ArrClient {
     return this.requestWithRetry<T>('PUT', url, body);
   }
 
-  protected async delete<T = void>(path: string, params?: Record<string, string | number | boolean>): Promise<T> {
+  protected async delete<T = void>(
+    path: string,
+    params?: Record<string, string | number | boolean>,
+  ): Promise<T> {
     const url = this.buildUrl(path, params);
     return this.requestWithRetry<T>('DELETE', url);
   }
@@ -103,7 +113,8 @@ export class ArrClient {
   /** DELETE /api/v3/queue/{id} with options */
   async deleteQueueItem(id: number, options: DeleteQueueOptions = {}): Promise<void> {
     const params: Record<string, string | number | boolean> = {};
-    if (options.removeFromClient !== undefined) params['removeFromClient'] = options.removeFromClient;
+    if (options.removeFromClient !== undefined)
+      params['removeFromClient'] = options.removeFromClient;
     if (options.blocklist !== undefined) params['blocklist'] = options.blocklist;
     if (options.skipRedownload !== undefined) params['skipRedownload'] = options.skipRedownload;
     if (options.changeCategory !== undefined) params['changeCategory'] = options.changeCategory;
@@ -170,7 +181,8 @@ export class ArrClient {
       }
     }
 
-    throw lastError!;
+    if (lastError) throw lastError;
+    throw new Error('Unknown error during retries');
   }
 
   private async request<T>(method: string, url: string, body?: unknown): Promise<T> {
@@ -180,7 +192,7 @@ export class ArrClient {
     try {
       const headers: Record<string, string> = {
         'X-Api-Key': this.apiKey,
-        'Accept': 'application/json',
+        Accept: 'application/json',
       };
 
       const init: RequestInit = {
@@ -194,7 +206,18 @@ export class ArrClient {
         init.body = JSON.stringify(body);
       }
 
-      const response = await fetch(url, init);
+      // NOTE: Using undici dispatcher directly via global or custom fetch
+      // Node 18+ native fetch uses undici under the hood.
+      // Instead of changing the global dispatcher, we provide it to fetch.
+      const dispatcher = this.skipSslVerify
+        ? new Agent({
+          connect: {
+            rejectUnauthorized: false,
+          },
+        })
+        : undefined;
+
+      const response = await fetch(url, { ...init, dispatcher } as RequestInit & { dispatcher?: unknown });
 
       if (!response.ok) {
         const responseBody = await response.text().catch(() => '');
@@ -218,10 +241,7 @@ export class ArrClient {
       }
 
       if (error instanceof DOMException && error.name === 'AbortError') {
-        throw new ArrConnectionError(
-          `Request timed out after ${this.timeout}ms`,
-          url,
-        );
+        throw new ArrConnectionError(`Request timed out after ${this.timeout}ms`, url);
       }
 
       throw new ArrConnectionError(

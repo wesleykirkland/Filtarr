@@ -10,10 +10,7 @@ function getVersion(): string {
   try {
     const __dirname = path.dirname(fileURLToPath(import.meta.url));
     // Walk up to find package.json (works from src/ or dist/)
-    const dirs = [
-      path.resolve(__dirname, '../../..'),
-      path.resolve(__dirname, '../..'),
-    ];
+    const dirs = [path.resolve(__dirname, '../../..'), path.resolve(__dirname, '../..')];
     for (const dir of dirs) {
       const pkgPath = path.join(dir, 'package.json');
       if (fs.existsSync(pkgPath)) {
@@ -34,4 +31,3 @@ router.get('/health', (_req, res) => {
 });
 
 export default router;
-

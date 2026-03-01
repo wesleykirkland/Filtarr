@@ -34,4 +34,3 @@ export function closeDatabase(): void {
     _db = null;
   }
 }
-

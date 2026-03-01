@@ -1,4 +1,4 @@
-import { createContext, useContext, useCallback } from 'react';
+import { createContext, useContext, useCallback, useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
 
@@ -20,6 +20,16 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const queryClient = useQueryClient();
+
+  useEffect(() => {
+    const handleAuthError = () => {
+      queryClient.clear();
+      // Optional: force a reload or redirect, but clearing cache will make the protected route component do the redirect eventually when the session query fails.
+    };
+
+    window.addEventListener('auth:401', handleAuthError);
+    return () => window.removeEventListener('auth:401', handleAuthError);
+  }, [queryClient]);
 
   const { data: session, isLoading } = useQuery({
     queryKey: ['auth', 'session'],

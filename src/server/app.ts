@@ -9,9 +9,10 @@ import { createAuthMiddleware } from './middleware/auth.js';
 import { getDatabase } from '../db/index.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import type { AuthMode, AuthConfig } from '../config/auth.js';
+import type { Database } from 'better-sqlite3';
 
 /** Get the current auth configuration from database settings */
-function getAuthConfig(db: import('better-sqlite3').Database): AuthConfig {
+function getAuthConfig(db: Database): AuthConfig {
   const mode = getStoredAuthMode(db);
   const config: AuthConfig = {
     mode,
@@ -45,10 +46,13 @@ export function createApp(): express.Application {
   // Unauthenticated routes — setup and health check
   // SECURITY: These routes are intentionally unauthenticated
   app.use('/api/v1', systemRoutes);
-  app.use('/api/v1/setup', createSetupRoutes(db, (authMode: AuthMode) => {
-    // Runtime config update callback
-    console.log(`Setup completed with auth mode: ${authMode}`);
-  }));
+  app.use(
+    '/api/v1/setup',
+    createSetupRoutes(db, (authMode: AuthMode) => {
+      // Runtime config update callback
+      console.log(`Setup completed with auth mode: ${authMode}`);
+    }),
+  );
 
   // Get current auth configuration from database
   const authConfig = getAuthConfig(db);
@@ -65,9 +69,13 @@ export function createApp(): express.Application {
 
   // Protected routes - require authentication
   app.use('/api/v1/instances', requireAuth, createInstancesRouter(db));
-  app.use('/api/v1/settings', requireAuth, createSettingsRoutes(db, (authMode: AuthMode) => {
-    console.log(`Auth mode changed to: ${authMode}`);
-  }));
+  app.use(
+    '/api/v1/settings',
+    requireAuth,
+    createSettingsRoutes(db, (authMode: AuthMode) => {
+      console.log(`Auth mode changed to: ${authMode}`);
+    }),
+  );
 
   // Serve client static files (built by Vite into dist/client/)
   const clientDir = path.resolve(process.cwd(), 'dist', 'client');
@@ -84,4 +92,3 @@ export function createApp(): express.Application {
 
   return app;
 }
-

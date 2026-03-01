@@ -6,7 +6,7 @@ import type { ApiKey } from '../../db/schemas/users.js';
 
 const API_KEY_HEADER = 'x-api-key';
 const API_KEY_BYTE_LENGTH = 32; // 256-bit keys
-const API_KEY_PREFIX = 'flt_';  // Filtarr API key prefix for easy identification
+const API_KEY_PREFIX = 'flt_'; // Filtarr API key prefix for easy identification
 
 export interface ApiKeyContext {
   apiKeyId: number;
@@ -60,18 +60,21 @@ async function validateApiKey(
   const { prefix } = getKeyIdentifiers(providedKey);
 
   // Find candidate keys by prefix (narrows bcrypt comparisons)
-  const candidates = db.prepare<[string], ApiKey>(
-    `SELECT * FROM api_keys
+  const candidates = db
+    .prepare<[string], ApiKey>(
+      `SELECT * FROM api_keys
      WHERE key_prefix = ? AND revoked_at IS NULL
      AND (expires_at IS NULL OR expires_at > datetime('now'))`,
-  ).all(prefix);
+    )
+    .all(prefix);
 
   for (const candidate of candidates) {
     const matches = await bcrypt.compare(providedKey, candidate.key_hash);
     if (matches) {
       // Update last_used_at
-      db.prepare('UPDATE api_keys SET last_used_at = datetime(\'now\') WHERE id = ?')
-        .run(candidate.id);
+      db.prepare("UPDATE api_keys SET last_used_at = datetime('now') WHERE id = ?").run(
+        candidate.id,
+      );
 
       return {
         apiKeyId: candidate.id,
@@ -131,7 +134,9 @@ export async function createInitialApiKey(
   db: Database.Database,
   bcryptRounds: number = 12,
 ): Promise<string> {
-  const existingKeys = db.prepare('SELECT COUNT(*) as count FROM api_keys').get() as { count: number };
+  const existingKeys = db.prepare('SELECT COUNT(*) as count FROM api_keys').get() as {
+    count: number;
+  };
   if (existingKeys.count > 0) {
     return ''; // Keys already exist, skip
   }
@@ -147,11 +152,10 @@ export async function createInitialApiKey(
 
   console.log('');
   console.log('='.repeat(60));
-  console.log('  FILTARR INITIAL API KEY (save this — it won\'t be shown again)');
+  console.log("  FILTARR INITIAL API KEY (save this — it won't be shown again)");
   console.log(`  API Key: ${key}`);
   console.log('='.repeat(60));
   console.log('');
 
   return key;
 }
-

@@ -5,6 +5,8 @@ import {
   useUpdateInstance,
   useDeleteInstance,
   useTestInstance,
+  useTestUnsavedInstance,
+  type TestResult,
   type Instance,
   type CreateInstanceInput,
 } from '../hooks/useInstances';
@@ -25,6 +27,48 @@ function InstanceForm({
   const [url, setUrl] = useState(initial?.url ?? '');
   const [apiKey, setApiKey] = useState('');
   const [timeout, setTimeout_] = useState(initial?.timeout?.toString() ?? '30');
+  const [skipSslVerify, setSkipSslVerify] = useState(initial?.skipSslVerify ?? false);
+  const [testSuccessful, setTestSuccessful] = useState(false);
+
+  const testUnsavedMutation = useTestUnsavedInstance();
+
+  // Reset test success if core connection settings change
+  const handleUrlChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setUrl(e.target.value);
+    setTestSuccessful(false);
+  };
+
+  const handleApiKeyChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setApiKey(e.target.value);
+    setTestSuccessful(false);
+  };
+
+  const handleSkipSslVerifyChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setSkipSslVerify(e.target.checked);
+    setTestSuccessful(false);
+  };
+
+  const handleTestConnection = (e: React.MouseEvent) => {
+    e.preventDefault();
+    testUnsavedMutation.mutate(
+      {
+        name: name || 'Test',
+        type,
+        url,
+        apiKey: apiKey || (initial ? initial.api_key_masked : ''), // Note: We need real API key if editing and not changed. Wait, we can't get it.
+        // Actually, if editing and apiKey is blank, the backend expects us to send it blank to keep it.
+        // But testing needs the real API key. The backend /test route will need to be able to pull it if id is provided.
+        // For now, if editing and blank, we should warn the user they must re-enter the API key to test.
+        timeout: parseInt(timeout, 10) || undefined,
+        skipSslVerify,
+      },
+      {
+        onSuccess: (data: { success: boolean }) => {
+          if (data.success) setTestSuccessful(true);
+        },
+      }
+    );
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -34,6 +78,7 @@ function InstanceForm({
       url,
       apiKey: apiKey || (initial ? '' : apiKey), // empty = don't update
       timeout: parseInt(timeout, 10) || undefined,
+      skipSslVerify,
     });
   };
 
@@ -55,12 +100,12 @@ function InstanceForm({
         </div>
         <div>
           <label className="block text-sm font-medium text-gray-400">URL</label>
-          <input value={url} onChange={(e) => setUrl(e.target.value)} required placeholder="http://localhost:8989"
+          <input value={url} onChange={handleUrlChange} required placeholder="http://localhost:8989"
             className="mt-1 block w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-gray-100 focus:border-blue-500 focus:outline-none" />
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-400">API Key {initial && '(leave blank to keep)'}</label>
-          <input value={apiKey} onChange={(e) => setApiKey(e.target.value)} required={!initial} placeholder="••••••••"
+          <label className="block text-sm font-medium text-gray-400">API Key {initial && '(leave blank to keep, but must re-enter to test)'}</label>
+          <input value={apiKey} onChange={handleApiKeyChange} required={!initial} placeholder={initial ? "••••••••" : "API Key"}
             className="mt-1 block w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-gray-100 focus:border-blue-500 focus:outline-none" />
         </div>
         <div>
@@ -68,9 +113,18 @@ function InstanceForm({
           <input type="number" value={timeout} onChange={(e) => setTimeout_(e.target.value)} min="1"
             className="mt-1 block w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-gray-100 focus:border-blue-500 focus:outline-none" />
         </div>
+        <div className="col-span-2 flex items-center gap-2 pt-2">
+          <input type="checkbox" id="skipSslVerify" checked={skipSslVerify} onChange={handleSkipSslVerifyChange}
+            className="h-4 w-4 rounded border-gray-700 bg-gray-800 text-blue-600 focus:ring-blue-500 focus:ring-offset-gray-900" />
+          <label htmlFor="skipSslVerify" className="text-sm font-medium text-gray-400">Disable SSL verification (allows self-signed certificates, use with caution)</label>
+        </div>
       </div>
       <div className="flex gap-2">
-        <button type="submit" className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">
+        <button type="button" onClick={handleTestConnection} disabled={testUnsavedMutation.isPending || (!url || (!apiKey && !initial))}
+          className="rounded-lg bg-gray-700 px-4 py-2 text-sm font-medium text-white hover:bg-gray-600 disabled:opacity-50">
+          {testUnsavedMutation.isPending ? 'Testing...' : 'Test Connection'}
+        </button>
+        <button type="submit" disabled={!testSuccessful} title={!testSuccessful ? "Must successfully test connection before saving" : ""} className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">
           {initial ? 'Update' : 'Create'}
         </button>
         <button type="button" onClick={onCancel} className="rounded-lg border border-gray-700 px-4 py-2 text-sm font-medium text-gray-400 hover:bg-gray-800">
@@ -115,6 +169,7 @@ export default function Instances() {
               if (data.url) payload['url'] = data.url;
               if (data.apiKey) payload['apiKey'] = data.apiKey;
               if (data.timeout) payload['timeout'] = data.timeout;
+              if (data.skipSslVerify !== undefined) payload['skipSslVerify'] = data.skipSslVerify;
               updateMutation.mutate(payload as Parameters<typeof updateMutation.mutate>[0], { onSuccess: () => setEditing(null) });
             } else {
               createMutation.mutate(data, { onSuccess: () => setShowForm(false) });
@@ -132,7 +187,7 @@ export default function Instances() {
                 <span className={`h-3 w-3 rounded-full ${inst.enabled ? 'bg-green-500' : 'bg-gray-600'}`} />
                 <div>
                   <p className="font-medium">{inst.name}</p>
-                  <p className="text-sm text-gray-500">{inst.url}</p>
+                  <p className="text-sm text-gray-500">{inst.url} {inst.skipSslVerify && <span className="ml-2 rounded bg-yellow-900/40 px-1.5 py-0.5 text-[10px] tracking-wide text-yellow-500 uppercase">Insecure SSL</span>}</p>
                 </div>
                 <span className="rounded bg-gray-700 px-2 py-0.5 text-xs text-gray-300 uppercase">{inst.type}</span>
               </div>

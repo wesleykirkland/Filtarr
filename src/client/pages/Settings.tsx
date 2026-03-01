@@ -38,6 +38,10 @@ interface ChangeAuthModeResponse {
   message: string;
 }
 
+interface AppSettingsResponse {
+  validationIntervalMinutes: number;
+}
+
 export default function Settings() {
   const { session } = useAuth();
   const navigate = useNavigate();
@@ -62,6 +66,44 @@ export default function Settings() {
     queryKey: ['api-keys'],
     queryFn: () => api.get<ApiKeyResponse[]>('/auth/api-keys'),
   });
+
+  const { data: appSettings } = useQuery({
+    queryKey: ['settings', 'app'],
+    queryFn: () => api.get<AppSettingsResponse>('/settings/app'),
+  });
+
+  const [validationInterval, setValidationInterval] = useState('60');
+
+  // Sync validationInterval to fetched state once
+  useQuery({
+    queryKey: ['settings', 'app', 'sync'],
+    queryFn: () => {
+      if (appSettings) setValidationInterval(appSettings.validationIntervalMinutes.toString());
+      return null;
+    },
+    enabled: !!appSettings && validationInterval === '60', // only fire if still default
+  });
+
+  const updateAppSettingsMutation = useMutation({
+    mutationFn: (data: { validationIntervalMinutes: number }) =>
+      api.put<{ success: boolean; message: string }>('/settings/app', data),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['settings', 'app'] });
+      toast('success', data.message);
+    },
+    onError: (err: Error) => {
+      toast('error', err.message);
+    },
+  });
+
+  const handleSaveGeneralSettings = () => {
+    const val = parseInt(validationInterval, 10);
+    if (isNaN(val) || val < 1) {
+      toast('error', 'Validation interval must be at least 1 minute');
+      return;
+    }
+    updateAppSettingsMutation.mutate({ validationIntervalMinutes: val });
+  };
 
   const changeAuthModeMutation = useMutation({
     mutationFn: (data: { authMode: AuthMode; username?: string; password?: string }) =>
@@ -158,9 +200,8 @@ export default function Settings() {
               {(['none', 'basic', 'forms'] as const).map((mode) => (
                 <label
                   key={mode}
-                  className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 ${
-                    selectedAuthMode === mode ? 'border-blue-500 bg-blue-500/10' : 'border-gray-700'
-                  }`}
+                  className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 ${selectedAuthMode === mode ? 'border-blue-500 bg-blue-500/10' : 'border-gray-700'
+                    }`}
                 >
                   <input
                     type="radio"
@@ -342,10 +383,38 @@ export default function Settings() {
 
       {/* General Settings */}
       <div className="rounded-xl border border-gray-800 bg-gray-900 p-6">
-        <h3 className="text-lg font-semibold">General</h3>
-        <p className="mt-2 text-sm text-gray-500">
-          Additional settings will be available as more features are added.
-        </p>
+        <h3 className="text-lg font-semibold">General configuration</h3>
+
+        <div className="mt-4 space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-400">
+              Instance Validation Interval (Minutes)
+            </label>
+            <p className="mb-2 text-xs text-gray-500">
+              How often Filtarr will automatically test all enabled instances in the background.
+            </p>
+            <input
+              type="number"
+              min="1"
+              value={validationInterval}
+              onChange={(e) => setValidationInterval(e.target.value)}
+              className="mt-1 block w-full max-w-sm rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-gray-100 focus:border-blue-500 focus:outline-none"
+            />
+          </div>
+
+          <div className="pt-2">
+            <button
+              onClick={handleSaveGeneralSettings}
+              disabled={
+                updateAppSettingsMutation.isPending ||
+                appSettings?.validationIntervalMinutes.toString() === validationInterval
+              }
+              className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+            >
+              {updateAppSettingsMutation.isPending ? 'Saving...' : 'Save Settings'}
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );

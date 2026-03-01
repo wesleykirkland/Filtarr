@@ -18,10 +18,7 @@ export function runMigrations(db: Database.Database): void {
   const migrationsDir = path.join(__dirname, 'migrations');
 
   // In dev (tsx), look at src; in prod (compiled), look at dist
-  const dirs = [
-    migrationsDir,
-    path.resolve(__dirname, '../../src/db/migrations'),
-  ];
+  const dirs = [migrationsDir, path.resolve(__dirname, '../../src/db/migrations')];
 
   let resolvedDir: string | null = null;
   for (const d of dirs) {
@@ -57,4 +54,3 @@ export function runMigrations(db: Database.Database): void {
     db.prepare('INSERT INTO _migrations (name) VALUES (?)').run(file);
   }
 }
-

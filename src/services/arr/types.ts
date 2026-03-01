@@ -14,6 +14,7 @@ export interface ArrInstanceConfig {
   apiKey: string;
   timeout: number;
   enabled: boolean;
+  skipSslVerify: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -26,6 +27,7 @@ export interface ArrInstanceResponse {
   apiKey: string; // masked: "••••••••abcd"
   timeout: number;
   enabled: boolean;
+  skipSslVerify: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -69,12 +71,25 @@ export interface HealthResource {
 // ── Queue ────────────────────────────────────────────────────────────────────
 
 export type QueueStatus =
-  | 'unknown' | 'queued' | 'paused' | 'downloading' | 'completed'
-  | 'failed' | 'warning' | 'delay' | 'downloadClientUnavailable' | 'fallback';
+  | 'unknown'
+  | 'queued'
+  | 'paused'
+  | 'downloading'
+  | 'completed'
+  | 'failed'
+  | 'warning'
+  | 'delay'
+  | 'downloadClientUnavailable'
+  | 'fallback';
 
 export type TrackedDownloadState =
-  | 'downloading' | 'importPending' | 'importing' | 'imported'
-  | 'failedPending' | 'failed' | 'ignored';
+  | 'downloading'
+  | 'importPending'
+  | 'importing'
+  | 'imported'
+  | 'failedPending'
+  | 'failed'
+  | 'ignored';
 
 export interface StatusMessage {
   title: string;
@@ -274,8 +289,9 @@ export interface AlbumResource {
 export interface ArrClientOptions {
   baseUrl: string;
   apiKey: string;
-  timeout?: number;   // ms, default 30000
+  timeout?: number; // ms, default 30000
   maxRetries?: number; // default 3
+  skipSslVerify?: boolean;
 }
 
 // ── API Errors ───────────────────────────────────────────────────────────────

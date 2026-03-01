@@ -39,9 +39,11 @@ export function authRateLimiter(maxAttempts: number = 5): RequestHandler {
     legacyHeaders: false,
     keyGenerator: (req) => {
       // Use X-Forwarded-For if behind a reverse proxy, otherwise remote IP
-      return (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim()
-        || req.socket.remoteAddress
-        || 'unknown';
+      return (
+        (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() ||
+        req.socket.remoteAddress ||
+        'unknown'
+      );
     },
   });
 }
@@ -58,9 +60,11 @@ export function generalRateLimiter(maxRequests: number = 100): RequestHandler {
     standardHeaders: true,
     legacyHeaders: false,
     keyGenerator: (req) => {
-      return (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim()
-        || req.socket.remoteAddress
-        || 'unknown';
+      return (
+        (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() ||
+        req.socket.remoteAddress ||
+        'unknown'
+      );
     },
   });
 }
@@ -121,4 +125,3 @@ export function applySecurityMiddleware(app: Express, config: AuthConfig): void 
   // General rate limiting on all API routes
   app.use('/api/', generalRateLimiter(config.rateLimitGeneral));
 }
-

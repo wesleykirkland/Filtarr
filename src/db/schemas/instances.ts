@@ -17,6 +17,7 @@ interface InstanceRow {
   api_key_encrypted: string;
   timeout: number;
   enabled: number; // SQLite boolean
+  skip_ssl_verify: number; // SQLite boolean
   created_at: string;
   updated_at: string;
 }
@@ -30,6 +31,7 @@ export interface CreateInstanceInput {
   apiKey: string;
   timeout?: number;
   enabled?: boolean;
+  skipSslVerify?: boolean;
 }
 
 export interface UpdateInstanceInput {
@@ -39,6 +41,7 @@ export interface UpdateInstanceInput {
   apiKey?: string;
   timeout?: number;
   enabled?: boolean;
+  skipSslVerify?: boolean;
 }
 
 // ── Query functions ─────────────────────────────────────────────────────────
@@ -52,6 +55,7 @@ function rowToConfig(row: InstanceRow): ArrInstanceConfig {
     apiKey: decrypt(row.api_key_encrypted),
     timeout: row.timeout,
     enabled: row.enabled === 1,
+    skipSslVerify: row.skip_ssl_verify === 1,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -67,6 +71,7 @@ function rowToResponse(row: InstanceRow): ArrInstanceResponse {
     apiKey: maskApiKey(decryptedKey),
     timeout: row.timeout,
     enabled: row.enabled === 1,
+    skipSslVerify: row.skip_ssl_verify === 1,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -80,19 +85,25 @@ export function getAllInstances(db: Database): ArrInstanceResponse[] {
 
 /** Get a single instance by ID (API-safe, masked key) */
 export function getInstanceById(db: Database, id: number): ArrInstanceResponse | null {
-  const row = db.prepare('SELECT * FROM arr_instances WHERE id = ?').get(id) as InstanceRow | undefined;
+  const row = db.prepare('SELECT * FROM arr_instances WHERE id = ?').get(id) as
+    | InstanceRow
+    | undefined;
   return row ? rowToResponse(row) : null;
 }
 
 /** Get a single instance with decrypted API key (internal use only) */
 export function getInstanceConfigById(db: Database, id: number): ArrInstanceConfig | null {
-  const row = db.prepare('SELECT * FROM arr_instances WHERE id = ?').get(id) as InstanceRow | undefined;
+  const row = db.prepare('SELECT * FROM arr_instances WHERE id = ?').get(id) as
+    | InstanceRow
+    | undefined;
   return row ? rowToConfig(row) : null;
 }
 
 /** Get all enabled instances with decrypted API keys (internal use only) */
 export function getEnabledInstanceConfigs(db: Database): ArrInstanceConfig[] {
-  const rows = db.prepare('SELECT * FROM arr_instances WHERE enabled = 1 ORDER BY name').all() as InstanceRow[];
+  const rows = db
+    .prepare('SELECT * FROM arr_instances WHERE enabled = 1 ORDER BY name')
+    .all() as InstanceRow[];
   return rows.map(rowToConfig);
 }
 
@@ -100,8 +111,8 @@ export function getEnabledInstanceConfigs(db: Database): ArrInstanceConfig[] {
 export function createInstance(db: Database, input: CreateInstanceInput): ArrInstanceResponse {
   const encryptedKey = encrypt(input.apiKey);
   const stmt = db.prepare(`
-    INSERT INTO arr_instances (name, type, url, api_key_encrypted, timeout, enabled)
-    VALUES (?, ?, ?, ?, ?, ?)
+    INSERT INTO arr_instances (name, type, url, api_key_encrypted, timeout, enabled, skip_ssl_verify)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
   `);
 
   const result = stmt.run(
@@ -111,25 +122,54 @@ export function createInstance(db: Database, input: CreateInstanceInput): ArrIns
     encryptedKey,
     input.timeout ?? 30000,
     input.enabled !== false ? 1 : 0,
+    input.skipSslVerify ? 1 : 0,
   );
 
-  return getInstanceById(db, result.lastInsertRowid as number)!;
+  return getInstanceById(db, Number(result.lastInsertRowid)) as ArrInstanceResponse;
 }
 
 /** Update an existing instance */
-export function updateInstance(db: Database, id: number, input: UpdateInstanceInput): ArrInstanceResponse | null {
-  const existing = db.prepare('SELECT * FROM arr_instances WHERE id = ?').get(id) as InstanceRow | undefined;
+export function updateInstance(
+  db: Database,
+  id: number,
+  input: UpdateInstanceInput,
+): ArrInstanceResponse | null {
+  const existing = db.prepare('SELECT * FROM arr_instances WHERE id = ?').get(id) as
+    | InstanceRow
+    | undefined;
   if (!existing) return null;
 
   const updates: string[] = [];
   const values: unknown[] = [];
 
-  if (input.name !== undefined) { updates.push('name = ?'); values.push(input.name); }
-  if (input.type !== undefined) { updates.push('type = ?'); values.push(input.type); }
-  if (input.url !== undefined) { updates.push('url = ?'); values.push(input.url.replace(/\/+$/, '')); }
-  if (input.apiKey !== undefined) { updates.push('api_key_encrypted = ?'); values.push(encrypt(input.apiKey)); }
-  if (input.timeout !== undefined) { updates.push('timeout = ?'); values.push(input.timeout); }
-  if (input.enabled !== undefined) { updates.push('enabled = ?'); values.push(input.enabled ? 1 : 0); }
+  if (input.name !== undefined) {
+    updates.push('name = ?');
+    values.push(input.name);
+  }
+  if (input.type !== undefined) {
+    updates.push('type = ?');
+    values.push(input.type);
+  }
+  if (input.url !== undefined) {
+    updates.push('url = ?');
+    values.push(input.url.replace(/\/+$/, ''));
+  }
+  if (input.apiKey !== undefined) {
+    updates.push('api_key_encrypted = ?');
+    values.push(encrypt(input.apiKey));
+  }
+  if (input.timeout !== undefined) {
+    updates.push('timeout = ?');
+    values.push(input.timeout);
+  }
+  if (input.enabled !== undefined) {
+    updates.push('enabled = ?');
+    values.push(input.enabled ? 1 : 0);
+  }
+  if (input.skipSslVerify !== undefined) {
+    updates.push('skip_ssl_verify = ?');
+    values.push(input.skipSslVerify ? 1 : 0);
+  }
 
   if (updates.length === 0) return getInstanceById(db, id);
 

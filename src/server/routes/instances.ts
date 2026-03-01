@@ -25,23 +25,33 @@ import {
   type CreateInstanceInput,
   type UpdateInstanceInput,
 } from '../../db/schemas/instances.js';
-import { ArrClient } from '../../services/arr/client.js';
+import type { ArrClient } from '../../services/arr/client.js';
 import { SonarrClient } from '../../services/arr/sonarr.js';
 import { RadarrClient } from '../../services/arr/radarr.js';
 import { LidarrClient } from '../../services/arr/lidarr.js';
 import type { ArrType } from '../../services/arr/types.js';
+import { logger } from '../lib/logger.js';
 
 const VALID_ARR_TYPES: ArrType[] = ['sonarr', 'radarr', 'lidarr'];
 
 /**
  * Create a typed Arr client for the given instance type.
  */
-function createArrClient(type: ArrType, url: string, apiKey: string, timeout?: number): ArrClient {
-  const options = { baseUrl: url, apiKey, timeout };
+export function createArrClient(
+  type: ArrType,
+  url: string,
+  apiKey: string,
+  timeout?: number,
+  skipSslVerify?: boolean,
+): ArrClient {
+  const options = { baseUrl: url, apiKey, timeout, skipSslVerify };
   switch (type) {
-    case 'sonarr': return new SonarrClient(options);
-    case 'radarr': return new RadarrClient(options);
-    case 'lidarr': return new LidarrClient(options);
+    case 'sonarr':
+      return new SonarrClient(options);
+    case 'radarr':
+      return new RadarrClient(options);
+    case 'lidarr':
+      return new LidarrClient(options);
   }
 }
 
@@ -57,7 +67,8 @@ export function createInstancesRouter(db: Database): Router {
     try {
       const instances = getAllInstances(db);
       res.json(instances);
-    } catch (error) {
+    } catch (err) {
+      logger.error({ err }, 'Failed to list instances');
       res.status(500).json({ error: 'Failed to list instances' });
     }
   });
@@ -78,7 +89,8 @@ export function createInstancesRouter(db: Database): Router {
       }
 
       res.json(instance);
-    } catch (error) {
+    } catch (err) {
+      logger.error({ err, id: req.params['id'] }, 'Failed to get instance');
       res.status(500).json({ error: 'Failed to get instance' });
     }
   });
@@ -114,13 +126,24 @@ export function createInstancesRouter(db: Database): Router {
         return;
       }
 
-      const instance = createInstance(db, { name, type, url, apiKey, timeout, enabled });
+      const instance = createInstance(db, {
+        name,
+        type,
+        url,
+        apiKey,
+        timeout,
+        enabled,
+        skipSslVerify: req.body.skipSslVerify,
+      });
+      logger.info({ instanceId: instance.id }, 'Created new Arr instance');
       res.status(201).json(instance);
-    } catch (error) {
-      if (error instanceof Error && error.message.includes('UNIQUE constraint')) {
-        res.status(409).json({ error: 'An instance with this name and type already exists' });
+    } catch (err: unknown) {
+      const dbErr = err as { code?: string };
+      if (dbErr.code === 'SQLITE_CONSTRAINT_UNIQUE') {
+        res.status(409).json({ error: 'Instance name already exists' });
         return;
       }
+      logger.error({ err }, 'Failed to create instance');
       res.status(500).json({ error: 'Failed to create instance' });
     }
   });
@@ -146,7 +169,9 @@ export function createInstancesRouter(db: Database): Router {
         input.type = body.type;
       }
       if (body.url !== undefined) {
-        try { new URL(body.url); } catch {
+        try {
+          new URL(body.url);
+        } catch {
           res.status(400).json({ error: 'url must be a valid URL' });
           return;
         }
@@ -155,6 +180,7 @@ export function createInstancesRouter(db: Database): Router {
       if (body.apiKey !== undefined) input.apiKey = body.apiKey;
       if (body.timeout !== undefined) input.timeout = body.timeout;
       if (body.enabled !== undefined) input.enabled = body.enabled;
+      if (body.skipSslVerify !== undefined) input.skipSslVerify = body.skipSslVerify;
 
       const instance = updateInstance(db, id, input);
       if (!instance) {
@@ -162,8 +188,10 @@ export function createInstancesRouter(db: Database): Router {
         return;
       }
 
+      logger.info({ instanceId: instance.id }, 'Updated Arr instance');
       res.json(instance);
-    } catch (error) {
+    } catch (err) {
+      logger.error({ err, id: req.params['id'] }, 'Failed to update instance');
       res.status(500).json({ error: 'Failed to update instance' });
     }
   });
@@ -183,9 +211,57 @@ export function createInstancesRouter(db: Database): Router {
         return;
       }
 
+      logger.info({ instanceId: id }, 'Deleted Arr instance');
       res.status(204).send();
-    } catch (error) {
+    } catch (err) {
+      logger.error({ err, id: req.params['id'] }, 'Failed to delete instance');
       res.status(500).json({ error: 'Failed to delete instance' });
+    }
+  });
+
+  // POST /api/v1/instances/test — Test connection to an unsaved instance
+  router.post('/test', async (req: Request, res: Response): Promise<void> => {
+    try {
+      const { type, url, apiKey, timeout, skipSslVerify } = req.body;
+
+      // Basic validation for required fields
+      if (!type || !VALID_ARR_TYPES.includes(type)) {
+        res.status(400).json({ error: `type must be one of: ${VALID_ARR_TYPES.join(', ')}` });
+        return;
+      }
+      if (!url || typeof url !== 'string') {
+        res.status(400).json({ error: 'url is required and must be a string' });
+        return;
+      }
+      if (!apiKey || typeof apiKey !== 'string') {
+        res.status(400).json({ error: 'apiKey is required and must be a string' });
+        return;
+      }
+
+      // Validate URL format
+      try {
+        new URL(url);
+      } catch {
+        res.status(400).json({ error: 'url must be a valid URL' });
+        return;
+      }
+
+      const client = createArrClient(
+        type as ArrType,
+        url,
+        apiKey,
+        timeout,
+        skipSslVerify,
+      );
+      const result = await client.testConnection();
+
+      res.json(result);
+    } catch (error) {
+      logger.error({ err: error }, 'Failed to test unsaved instance connection');
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : 'Connection test failed',
+      });
     }
   });
 
@@ -204,7 +280,13 @@ export function createInstancesRouter(db: Database): Router {
         return;
       }
 
-      const client = createArrClient(config.type, config.url, config.apiKey, config.timeout);
+      const client = createArrClient(
+        config.type,
+        config.url,
+        config.apiKey,
+        config.timeout,
+        config.skipSslVerify,
+      );
       const result = await client.testConnection();
 
       res.json(result);

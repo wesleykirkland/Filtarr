@@ -29,10 +29,10 @@ export interface ApiKey {
   id: number;
   name: string;
   key_hash: string;
-  key_prefix: string;   // first 8 chars for identification
-  key_last4: string;     // last 4 chars for display
+  key_prefix: string; // first 8 chars for identification
+  key_last4: string; // last 4 chars for display
   user_id: number | null;
-  scopes: string;        // JSON array of allowed scopes
+  scopes: string; // JSON array of allowed scopes
   expires_at: string | null;
   last_used_at: string | null;
   created_at: string;
@@ -43,7 +43,7 @@ export interface ApiKey {
 export interface ApiKeyResponse {
   id: number;
   name: string;
-  maskedKey: string;     // "••••••••abcd" (last 4 chars only)
+  maskedKey: string; // "••••••••abcd" (last 4 chars only)
   scopes: string[];
   expiresAt: string | null;
   lastUsedAt: string | null;
@@ -117,4 +117,3 @@ DROP TABLE IF EXISTS api_keys;
 DROP TABLE IF EXISTS sessions;
 DROP TABLE IF EXISTS users;
 `;
-

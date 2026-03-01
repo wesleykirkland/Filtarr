@@ -18,9 +18,9 @@ interface SetupRequest {
  */
 function needsSetup(db: Database.Database): boolean {
   try {
-    const result = db.prepare<[], { value: string }>(
-      `SELECT value FROM settings WHERE key = 'setup_complete'`,
-    ).get();
+    const result = db
+      .prepare<[], { value: string }>(`SELECT value FROM settings WHERE key = 'setup_complete'`)
+      .get();
     return result?.value !== 'true';
   } catch {
     // Table might not exist yet
@@ -89,10 +89,12 @@ export function createSetupRoutes(
         let userId: number | null = null;
         if (authMode !== 'none') {
           const passwordHash = await bcrypt.hash(password, 12);
-          const result = db.prepare(
-            `INSERT INTO users (username, password_hash, display_name)
+          const result = db
+            .prepare(
+              `INSERT INTO users (username, password_hash, display_name)
              VALUES (?, ?, ?)`,
-          ).run(username, passwordHash, 'Administrator');
+            )
+            .run(username, passwordHash, 'Administrator');
           userId = Number(result.lastInsertRowid);
         }
 
@@ -141,12 +143,11 @@ export function createSetupRoutes(
  */
 export function getStoredAuthMode(db: Database.Database): AuthMode {
   try {
-    const result = db.prepare<[], { value: string }>(
-      `SELECT value FROM settings WHERE key = 'auth_mode'`,
-    ).get();
+    const result = db
+      .prepare<[], { value: string }>(`SELECT value FROM settings WHERE key = 'auth_mode'`)
+      .get();
     return (result?.value as AuthMode) || 'none';
   } catch {
     return 'none';
   }
 }
-

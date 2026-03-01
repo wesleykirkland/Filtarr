@@ -1,0 +1,11 @@
+@import "tailwindcss";
+
+/* Dark mode default, light mode via class toggle */
+:root {
+  color-scheme: dark;
+}
+
+.light {
+  color-scheme: light;
+}
+

@@ -10,6 +10,7 @@ import {
   type Instance,
   type CreateInstanceInput,
 } from '../hooks/useInstances';
+import { Modal } from '../components/Modal';
 
 const ARR_TYPES = ['sonarr', 'radarr', 'lidarr'] as const;
 
@@ -83,8 +84,7 @@ function InstanceForm({
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4 rounded-xl border border-gray-800 bg-gray-900 p-6">
-      <h3 className="text-lg font-semibold">{initial ? 'Edit Instance' : 'Add Instance'}</h3>
+    <form onSubmit={handleSubmit} className="space-y-4">
       <div className="grid gap-4 sm:grid-cols-2">
         <div>
           <label className="block text-sm font-medium text-gray-400">Name</label>
@@ -158,26 +158,32 @@ export default function Instances() {
         )}
       </div>
 
-      {(showForm || editing) && (
-        <InstanceForm
-          initial={editing ?? undefined}
-          onSubmit={(data) => {
-            if (editing) {
-              const payload: Record<string, unknown> = { id: editing.id };
-              if (data.name) payload['name'] = data.name;
-              if (data.type) payload['type'] = data.type;
-              if (data.url) payload['url'] = data.url;
-              if (data.apiKey) payload['apiKey'] = data.apiKey;
-              if (data.timeout) payload['timeout'] = data.timeout;
-              if (data.skipSslVerify !== undefined) payload['skipSslVerify'] = data.skipSslVerify;
-              updateMutation.mutate(payload as Parameters<typeof updateMutation.mutate>[0], { onSuccess: () => setEditing(null) });
-            } else {
-              createMutation.mutate(data, { onSuccess: () => setShowForm(false) });
-            }
-          }}
-          onCancel={() => { setShowForm(false); setEditing(null); }}
-        />
-      )}
+      <Modal
+        title={editing ? 'Edit Instance' : 'Add Instance'}
+        isOpen={showForm || editing !== null}
+        onClose={() => { setShowForm(false); setEditing(null); }}
+      >
+        {(showForm || editing !== null) && (
+          <InstanceForm
+            initial={editing ?? undefined}
+            onSubmit={(data) => {
+              if (editing) {
+                const payload: Record<string, unknown> = { id: editing.id };
+                if (data.name) payload['name'] = data.name;
+                if (data.type) payload['type'] = data.type;
+                if (data.url) payload['url'] = data.url;
+                if (data.apiKey) payload['apiKey'] = data.apiKey;
+                if (data.timeout) payload['timeout'] = data.timeout;
+                if (data.skipSslVerify !== undefined) payload['skipSslVerify'] = data.skipSslVerify;
+                updateMutation.mutate(payload as Parameters<typeof updateMutation.mutate>[0], { onSuccess: () => setEditing(null) });
+              } else {
+                createMutation.mutate(data, { onSuccess: () => setShowForm(false) });
+              }
+            }}
+            onCancel={() => { setShowForm(false); setEditing(null); }}
+          />
+        )}
+      </Modal>
 
       {instances && instances.length > 0 ? (
         <div className="space-y-3">

@@ -78,11 +78,9 @@ export function createSettingsRoutes(
         // If switching TO basic/forms and no admin exists, require username/password
         if (authMode !== 'none' && !hasAdmin) {
           if (!username || username.length < 1) {
-            res
-              .status(400)
-              .json({
-                error: 'Username is required when enabling authentication without existing users',
-              });
+            res.status(400).json({
+              error: 'Username is required when enabling authentication without existing users',
+            });
             return;
           }
           if (!password || password.length < 8) {
@@ -124,7 +122,10 @@ export function createSettingsRoutes(
   router.get('/app', (_req: Request, res: Response): void => {
     try {
       const result = db
-        .prepare<[], { value: string }>(`SELECT value FROM settings WHERE key = 'validation_interval_minutes'`)
+        .prepare<
+          [],
+          { value: string }
+        >(`SELECT value FROM settings WHERE key = 'validation_interval_minutes'`)
         .get();
       const interval = parseInt(result?.value || '60', 10);
       res.json({

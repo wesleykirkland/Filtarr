@@ -42,6 +42,14 @@ interface AppSettingsResponse {
   validationIntervalMinutes: number;
 }
 
+interface Directory {
+  id: number;
+  path: string;
+  recursive: boolean;
+  enabled: boolean;
+  createdAt: string;
+}
+
 export default function Settings() {
   const { session } = useAuth();
   const navigate = useNavigate();
@@ -49,6 +57,13 @@ export default function Settings() {
   const [confirmRotate, setConfirmRotate] = useState<number | null>(null);
   const [newKey, setNewKey] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+
+  // Directories state
+  const [newDirPath, setNewDirPath] = useState('');
+  const [newDirRecursive, setNewDirRecursive] = useState(true);
+  const [editingDir, setEditingDir] = useState<Directory | null>(null);
+  const [editDirPath, setEditDirPath] = useState('');
+  const [editDirRecursive, setEditDirRecursive] = useState(true);
 
   // Auth mode change state
   const [showAuthModeChange, setShowAuthModeChange] = useState(false);
@@ -105,6 +120,50 @@ export default function Settings() {
     updateAppSettingsMutation.mutate({ validationIntervalMinutes: val });
   };
 
+  // Directories queries
+  const { data: directories } = useQuery<Directory[]>({
+    queryKey: ['directories'],
+    queryFn: () => api.get('/directories'),
+  });
+
+  const createDirMutation = useMutation({
+    mutationFn: (body: { path: string; recursive: boolean }) => api.post('/directories', body),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['directories'] });
+      setNewDirPath('');
+      setNewDirRecursive(true);
+      toast('success', 'Directory added');
+    },
+    onError: (e: Error) => toast('error', e.message),
+  });
+
+  const updateDirMutation = useMutation({
+    mutationFn: ({ id, ...body }: { id: number; path: string; recursive: boolean }) =>
+      api.put(`/directories/${id}`, body),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['directories'] });
+      setEditingDir(null);
+      toast('success', 'Directory updated');
+    },
+    onError: (e: Error) => toast('error', e.message),
+  });
+
+  const toggleDirMutation = useMutation({
+    mutationFn: ({ id, enabled }: { id: number; enabled: boolean }) =>
+      api.put(`/directories/${id}`, { enabled }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['directories'] }),
+    onError: (e: Error) => toast('error', e.message),
+  });
+
+  const deleteDirMutation = useMutation({
+    mutationFn: (id: number) => api.delete(`/directories/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['directories'] });
+      toast('success', 'Directory removed');
+    },
+    onError: (e: Error) => toast('error', e.message),
+  });
+
   const changeAuthModeMutation = useMutation({
     mutationFn: (data: { authMode: AuthMode; username?: string; password?: string }) =>
       api.put<ChangeAuthModeResponse>('/settings/auth-mode', data),
@@ -160,8 +219,168 @@ export default function Settings() {
     <div className="space-y-6">
       <h2 className="text-2xl font-bold">Settings</h2>
 
+      {/* Watched Directories */}
+      <div className="rounded-xl border dark:border-gray-800 border-gray-200 dark:bg-gray-900 bg-white shadow-sm p-6">
+        <h3 className="text-lg font-semibold dark:text-gray-100 text-gray-900">
+          Watched Directories
+        </h3>
+        <p className="mt-1 text-sm dark:text-gray-500 text-gray-600 max-w-xl">
+          Map local file system paths that Filtarr should monitor. These should be the same paths
+          your Arr instances write downloads to.
+        </p>
+
+        {/* Add directory form */}
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!newDirPath.trim()) return;
+            createDirMutation.mutate({ path: newDirPath.trim(), recursive: newDirRecursive });
+          }}
+          className="mt-4 flex flex-wrap items-end gap-3"
+        >
+          <div className="flex-1 min-w-48">
+            <label className="block text-xs font-medium dark:text-gray-400 text-gray-700">
+              Path
+            </label>
+            <input
+              value={newDirPath}
+              onChange={(e) => setNewDirPath(e.target.value)}
+              placeholder="/downloads/complete"
+              className="mt-1 block w-full rounded-lg border dark:border-gray-700 border-gray-300 dark:bg-gray-800 bg-white px-3 py-2 dark:text-gray-100 text-gray-900 focus:border-blue-500 focus:outline-none text-sm"
+            />
+          </div>
+          <div className="flex items-center gap-2 pb-2">
+            <input
+              type="checkbox"
+              id="newDirRecursive"
+              checked={newDirRecursive}
+              onChange={(e) => setNewDirRecursive(e.target.checked)}
+              className="h-4 w-4 rounded dark:border-gray-700 border-gray-300 dark:bg-gray-800 bg-white text-blue-600"
+            />
+            <label htmlFor="newDirRecursive" className="text-sm dark:text-gray-400 text-gray-600">
+              Recursive
+            </label>
+          </div>
+          <button
+            type="submit"
+            disabled={createDirMutation.isPending || !newDirPath.trim()}
+            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+          >
+            {createDirMutation.isPending ? 'Adding...' : 'Add Directory'}
+          </button>
+        </form>
+
+        {/* Directory list */}
+        <div className="mt-4 space-y-2">
+          {!directories || directories.length === 0 ? (
+            <p className="text-sm dark:text-gray-500 text-gray-600 py-2">
+              No directories configured. Add one above.
+            </p>
+          ) : (
+            directories.map((dir) => (
+              <div
+                key={dir.id}
+                className="rounded-lg border dark:border-gray-700 border-gray-200 dark:bg-gray-800/50 bg-gray-50 px-4 py-3"
+              >
+                {editingDir?.id === dir.id ? (
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      updateDirMutation.mutate({
+                        id: dir.id,
+                        path: editDirPath,
+                        recursive: editDirRecursive,
+                      });
+                    }}
+                    className="flex flex-wrap items-center gap-3"
+                  >
+                    <input
+                      value={editDirPath}
+                      onChange={(e) => setEditDirPath(e.target.value)}
+                      className="flex-1 min-w-40 rounded-lg border dark:border-gray-700 border-gray-300 dark:bg-gray-800 bg-white px-3 py-1.5 text-sm dark:text-gray-100 text-gray-900 focus:border-blue-500 focus:outline-none"
+                    />
+                    <div className="flex items-center gap-1.5">
+                      <input
+                        type="checkbox"
+                        id={`editRec-${dir.id}`}
+                        checked={editDirRecursive}
+                        onChange={(e) => setEditDirRecursive(e.target.checked)}
+                        className="h-4 w-4 rounded"
+                      />
+                      <label
+                        htmlFor={`editRec-${dir.id}`}
+                        className="text-xs dark:text-gray-400 text-gray-600"
+                      >
+                        Recursive
+                      </label>
+                    </div>
+                    <button
+                      type="submit"
+                      className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700"
+                    >
+                      Save
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEditingDir(null)}
+                      className="rounded-lg border dark:border-gray-700 border-gray-300 px-3 py-1.5 text-xs font-medium dark:text-gray-400 text-gray-600 dark:hover:bg-gray-800 hover:bg-gray-100"
+                    >
+                      Cancel
+                    </button>
+                  </form>
+                ) : (
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <button
+                        onClick={() =>
+                          toggleDirMutation.mutate({ id: dir.id, enabled: !dir.enabled })
+                        }
+                        className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${dir.enabled ? 'bg-blue-600' : 'dark:bg-gray-700 bg-gray-300'}`}
+                      >
+                        <span
+                          className={`inline-block h-4 w-4 rounded-full bg-white shadow transform transition-transform ${dir.enabled ? 'translate-x-4' : 'translate-x-0'}`}
+                        />
+                      </button>
+                      <div className="min-w-0">
+                        <p className="font-mono text-sm dark:text-gray-100 text-gray-900 truncate">
+                          {dir.path}
+                        </p>
+                        <p className="text-xs dark:text-gray-500 text-gray-600">
+                          {dir.recursive ? 'Recursive' : 'Top-level only'}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex gap-2 flex-shrink-0">
+                      <button
+                        onClick={() => {
+                          setEditingDir(dir);
+                          setEditDirPath(dir.path);
+                          setEditDirRecursive(dir.recursive);
+                        }}
+                        className="rounded-lg border dark:border-gray-700 border-gray-300 px-3 py-1.5 text-xs font-medium dark:text-gray-400 text-gray-700 dark:hover:bg-gray-800 hover:bg-gray-100"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => {
+                          if (confirm(`Remove directory: ${dir.path}?`))
+                            deleteDirMutation.mutate(dir.id);
+                        }}
+                        className="rounded-lg border dark:border-red-900 border-red-200 px-3 py-1.5 text-xs font-medium dark:text-red-400 text-red-600 dark:hover:bg-red-900/30 hover:bg-red-50"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+
       {/* Auth Configuration */}
-      <div className="rounded-xl border border-gray-800 bg-gray-900 p-6">
+      <div className="rounded-xl border dark:border-gray-800 border-gray-200 dark:bg-gray-900 bg-white shadow-sm p-6">
         <div className="flex items-center justify-between">
           <h3 className="text-lg font-semibold">Authentication</h3>
           {!showAuthModeChange && (
@@ -170,7 +389,7 @@ export default function Settings() {
                 setSelectedAuthMode(authModeData?.authMode ?? 'none');
                 setShowAuthModeChange(true);
               }}
-              className="rounded-lg border border-gray-700 px-3 py-1.5 text-xs font-medium text-gray-400 hover:bg-gray-800"
+              className="rounded-lg border dark:border-gray-700 border-gray-300 px-3 py-1.5 text-xs font-medium dark:text-gray-400 text-gray-600 dark:hover:bg-gray-800 hover:bg-gray-100"
             >
               Change
             </button>
@@ -179,16 +398,18 @@ export default function Settings() {
 
         {!showAuthModeChange ? (
           <div className="mt-4 space-y-3">
-            <div className="flex items-center justify-between rounded-lg bg-gray-800/50 px-4 py-3">
-              <span className="text-sm text-gray-400">Auth Mode</span>
-              <span className="rounded bg-gray-700 px-2 py-0.5 text-sm font-medium text-gray-300 uppercase">
+            <div className="flex items-center justify-between rounded-lg dark:bg-gray-800/50 bg-gray-50 border dark:border-transparent border-gray-200 px-4 py-3">
+              <span className="text-sm dark:text-gray-400 text-gray-600">Auth Mode</span>
+              <span className="rounded dark:bg-gray-700 bg-gray-200 px-2 py-0.5 text-sm font-medium dark:text-gray-300 text-gray-700 uppercase">
                 {authModeData?.authMode ?? session?.mode ?? 'unknown'}
               </span>
             </div>
             {session?.user && (
-              <div className="flex items-center justify-between rounded-lg bg-gray-800/50 px-4 py-3">
-                <span className="text-sm text-gray-400">Logged in as</span>
-                <span className="text-sm font-medium">{session.user.displayName || session.user.username}</span>
+              <div className="flex items-center justify-between rounded-lg dark:bg-gray-800/50 bg-gray-50 border dark:border-transparent border-gray-200 px-4 py-3">
+                <span className="text-sm dark:text-gray-400 text-gray-600">Logged in as</span>
+                <span className="text-sm font-medium">
+                  {session.user.displayName || session.user.username}
+                </span>
               </div>
             )}
           </div>
@@ -200,8 +421,11 @@ export default function Settings() {
               {(['none', 'basic', 'forms'] as const).map((mode) => (
                 <label
                   key={mode}
-                  className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 ${selectedAuthMode === mode ? 'border-blue-500 bg-blue-500/10' : 'border-gray-700'
-                    }`}
+                  className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 ${
+                    selectedAuthMode === mode
+                      ? 'border-blue-500 dark:bg-blue-500/10 bg-blue-50'
+                      : 'dark:border-gray-700 border-gray-300 dark:hover:bg-gray-800/50 hover:bg-gray-50'
+                  }`}
                 >
                   <input
                     type="radio"
@@ -212,8 +436,14 @@ export default function Settings() {
                     className="mt-0.5"
                   />
                   <div>
-                    <div className="font-medium text-gray-100 capitalize">{mode === 'none' ? 'No Authentication' : mode === 'forms' ? 'Forms (Login Page)' : 'Basic (Browser Prompt)'}</div>
-                    <div className="text-xs text-gray-500">
+                    <div className="font-medium dark:text-gray-100 text-gray-900 capitalize">
+                      {mode === 'none'
+                        ? 'No Authentication'
+                        : mode === 'forms'
+                          ? 'Forms (Login Page)'
+                          : 'Basic (Browser Prompt)'}
+                    </div>
+                    <div className="text-xs dark:text-gray-500 text-gray-600">
                       {mode === 'none' && '⚠️ Anyone can access Filtarr'}
                       {mode === 'basic' && 'HTTP Basic auth (browser login prompt)'}
                       {mode === 'forms' && 'Username/password login form'}
@@ -225,25 +455,31 @@ export default function Settings() {
 
             {/* Show credential fields if switching to auth mode without existing users */}
             {selectedAuthMode !== 'none' && !authModeData?.hasAdminUser && (
-              <div className="space-y-3 rounded-lg border border-gray-700 bg-gray-800/50 p-4">
-                <p className="text-sm text-yellow-400">Create admin account:</p>
+              <div className="space-y-3 rounded-lg border dark:border-gray-700 border-gray-300 dark:bg-gray-800/50 bg-gray-50 p-4">
+                <p className="text-sm text-yellow-600 dark:text-yellow-400">
+                  Create admin account:
+                </p>
                 <div>
-                  <label className="block text-xs font-medium text-gray-400">Username</label>
+                  <label className="block text-xs font-medium dark:text-gray-400 text-gray-700">
+                    Username
+                  </label>
                   <input
                     type="text"
                     value={authUsername}
                     onChange={(e) => setAuthUsername(e.target.value)}
-                    className="mt-1 block w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-100 focus:border-blue-500 focus:outline-none"
+                    className="mt-1 block w-full rounded-lg border dark:border-gray-700 border-gray-300 dark:bg-gray-800 bg-white px-3 py-2 text-sm dark:text-gray-100 text-gray-900 focus:border-blue-500 focus:outline-none"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-400">Password</label>
+                  <label className="block text-xs font-medium dark:text-gray-400 text-gray-700">
+                    Password
+                  </label>
                   <input
                     type="password"
                     value={authPassword}
                     onChange={(e) => setAuthPassword(e.target.value)}
                     placeholder="Min 8 characters"
-                    className="mt-1 block w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-100 focus:border-blue-500 focus:outline-none"
+                    className="mt-1 block w-full rounded-lg border dark:border-gray-700 border-gray-300 dark:bg-gray-800 bg-white px-3 py-2 text-sm dark:text-gray-100 text-gray-900 focus:border-blue-500 focus:outline-none"
                   />
                 </div>
               </div>
@@ -266,7 +502,7 @@ export default function Settings() {
                   </button>
                   <button
                     onClick={() => setConfirmAuthChange(false)}
-                    className="rounded-lg border border-gray-700 px-4 py-2 text-sm font-medium text-gray-400 hover:bg-gray-800"
+                    className="rounded-lg border dark:border-gray-700 border-gray-300 px-4 py-2 text-sm font-medium dark:text-gray-400 text-gray-700 dark:hover:bg-gray-800 hover:bg-gray-100"
                   >
                     Cancel
                   </button>
@@ -283,7 +519,7 @@ export default function Settings() {
                 </button>
                 <button
                   onClick={() => setShowAuthModeChange(false)}
-                  className="rounded-lg border border-gray-700 px-4 py-2 text-sm font-medium text-gray-400 hover:bg-gray-800"
+                  className="rounded-lg border dark:border-gray-700 border-gray-300 px-4 py-2 text-sm font-medium dark:text-gray-400 text-gray-700 dark:hover:bg-gray-800 hover:bg-gray-100"
                 >
                   Cancel
                 </button>
@@ -294,9 +530,9 @@ export default function Settings() {
       </div>
 
       {/* API Keys */}
-      <div className="rounded-xl border border-gray-800 bg-gray-900 p-6">
+      <div className="rounded-xl border dark:border-gray-800 border-gray-200 dark:bg-gray-900 bg-white shadow-sm p-6">
         <h3 className="text-lg font-semibold">API Keys</h3>
-        <p className="mt-1 text-sm text-gray-500">
+        <p className="mt-1 text-sm dark:text-gray-500 text-gray-600">
           Manage API keys for programmatic access to Filtarr.
         </p>
 
@@ -311,11 +547,11 @@ export default function Settings() {
                 type="text"
                 readOnly
                 value={newKey}
-                className="block w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 font-mono text-sm text-gray-100"
+                className="block w-full rounded-lg border dark:border-gray-700 border-gray-300 dark:bg-gray-800 bg-white px-3 py-2 font-mono text-sm dark:text-gray-100 text-gray-900"
               />
               <button
                 onClick={() => copyKey(newKey)}
-                className="rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-gray-400 hover:bg-gray-700"
+                className="rounded-lg border dark:border-gray-700 border-gray-300 dark:bg-gray-800 bg-white px-3 py-2 dark:text-gray-400 text-gray-600 dark:hover:bg-gray-700 hover:bg-gray-100"
               >
                 {copied ? '✓' : '📋'}
               </button>
@@ -335,15 +571,21 @@ export default function Settings() {
             <p className="text-sm text-gray-500">Loading API keys...</p>
           ) : apiKeys && apiKeys.length > 0 ? (
             apiKeys.map((key) => (
-              <div key={key.id} className="flex items-center justify-between rounded-lg bg-gray-800/50 px-4 py-3">
+              <div
+                key={key.id}
+                className="flex items-center justify-between rounded-lg dark:bg-gray-800/50 bg-gray-50 border dark:border-transparent border-gray-200 px-4 py-3"
+              >
                 <div className="flex-1">
                   <div className="flex items-center gap-2">
-                    <span className="font-medium">{key.name}</span>
-                    <span className="font-mono text-sm text-gray-500">{key.maskedKey}</span>
+                    <span className="font-medium text-gray-900 dark:text-gray-100">{key.name}</span>
+                    <span className="font-mono text-sm dark:text-gray-500 text-gray-600">
+                      {key.maskedKey}
+                    </span>
                   </div>
-                  <div className="mt-1 text-xs text-gray-500">
+                  <div className="mt-1 text-xs dark:text-gray-500 text-gray-600">
                     Created: {new Date(key.createdAt).toLocaleDateString()}
-                    {key.lastUsedAt && ` • Last used: ${new Date(key.lastUsedAt).toLocaleDateString()}`}
+                    {key.lastUsedAt &&
+                      ` • Last used: ${new Date(key.lastUsedAt).toLocaleDateString()}`}
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
@@ -359,7 +601,7 @@ export default function Settings() {
                       </button>
                       <button
                         onClick={() => setConfirmRotate(null)}
-                        className="rounded-lg border border-gray-700 px-3 py-1.5 text-xs font-medium text-gray-400 hover:bg-gray-800"
+                        className="rounded-lg border dark:border-gray-700 border-gray-300 px-3 py-1.5 text-xs font-medium dark:text-gray-400 text-gray-700 dark:hover:bg-gray-800 hover:bg-gray-100"
                       >
                         Cancel
                       </button>
@@ -367,7 +609,7 @@ export default function Settings() {
                   ) : (
                     <button
                       onClick={() => setConfirmRotate(key.id)}
-                      className="rounded-lg border border-gray-700 px-3 py-1.5 text-xs font-medium text-gray-400 hover:bg-gray-800"
+                      className="rounded-lg border dark:border-gray-700 border-gray-300 px-3 py-1.5 text-xs font-medium dark:text-gray-400 text-gray-700 dark:hover:bg-gray-800 hover:bg-gray-100"
                     >
                       Rotate
                     </button>
@@ -382,15 +624,17 @@ export default function Settings() {
       </div>
 
       {/* General Settings */}
-      <div className="rounded-xl border border-gray-800 bg-gray-900 p-6">
-        <h3 className="text-lg font-semibold">General configuration</h3>
+      <div className="rounded-xl border dark:border-gray-800 border-gray-200 dark:bg-gray-900 bg-white shadow-sm p-6">
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+          General configuration
+        </h3>
 
         <div className="mt-4 space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-400">
+            <label className="block text-sm font-medium dark:text-gray-400 text-gray-700">
               Instance Validation Interval (Minutes)
             </label>
-            <p className="mb-2 text-xs text-gray-500">
+            <p className="mb-2 text-xs dark:text-gray-500 text-gray-600">
               How often Filtarr will automatically test all enabled instances in the background.
             </p>
             <input
@@ -398,7 +642,7 @@ export default function Settings() {
               min="1"
               value={validationInterval}
               onChange={(e) => setValidationInterval(e.target.value)}
-              className="mt-1 block w-full max-w-sm rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-gray-100 focus:border-blue-500 focus:outline-none"
+              className="mt-1 block w-full max-w-sm rounded-lg border dark:border-gray-700 border-gray-300 dark:bg-gray-800 bg-white px-3 py-2 dark:text-gray-100 text-gray-900 focus:border-blue-500 focus:outline-none"
             />
           </div>
 
@@ -419,4 +663,3 @@ export default function Settings() {
     </div>
   );
 }
-

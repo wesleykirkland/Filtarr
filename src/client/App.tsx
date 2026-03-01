@@ -11,6 +11,7 @@ import Activity from './pages/Activity';
 import Settings from './pages/Settings';
 import Login from './pages/Login';
 import Setup from './pages/Setup';
+import { ThemeProvider, useTheme } from './contexts/ThemeContext';
 
 interface SetupStatus {
   needsSetup: boolean;
@@ -19,10 +20,14 @@ interface SetupStatus {
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { session, isLoading } = useAuth();
 
+  const { darkMode } = useTheme();
+
   if (isLoading) {
     return (
-      <div className="flex h-screen items-center justify-center bg-gray-950">
-        <div className="text-gray-400">Loading...</div>
+      <div
+        className={`flex h-screen items-center justify-center ${darkMode ? 'bg-gray-950 text-gray-400' : 'bg-gray-50 text-gray-500'}`}
+      >
+        <div>Loading...</div>
       </div>
     );
   }
@@ -47,10 +52,14 @@ function SetupGuard({ children }: { children: React.ReactNode }) {
     retry: false,
   });
 
+  const { darkMode } = useTheme();
+
   if (isLoading) {
     return (
-      <div className="flex h-screen items-center justify-center bg-gray-950">
-        <div className="text-gray-400">Loading...</div>
+      <div
+        className={`flex h-screen items-center justify-center ${darkMode ? 'bg-gray-950 text-gray-400' : 'bg-gray-50 text-gray-500'}`}
+      >
+        <div>Loading...</div>
       </div>
     );
   }
@@ -70,29 +79,30 @@ function SetupGuard({ children }: { children: React.ReactNode }) {
 
 export default function App() {
   return (
-    <SetupGuard>
-      <Routes>
-        <Route path="/setup" element={<Setup />} />
-        <Route path="/login" element={<Login />} />
-        <Route
-          path="/*"
-          element={
-            <ProtectedRoute>
-              <Layout>
-                <Routes>
-                  <Route path="/" element={<Dashboard />} />
-                  <Route path="/instances" element={<Instances />} />
-                  <Route path="/filters" element={<Filters />} />
-                  <Route path="/scheduler" element={<Scheduler />} />
-                  <Route path="/activity" element={<Activity />} />
-                  <Route path="/settings" element={<Settings />} />
-                </Routes>
-              </Layout>
-            </ProtectedRoute>
-          }
-        />
-      </Routes>
-    </SetupGuard>
+    <ThemeProvider>
+      <SetupGuard>
+        <Routes>
+          <Route path="/setup" element={<Setup />} />
+          <Route path="/login" element={<Login />} />
+          <Route
+            path="/*"
+            element={
+              <ProtectedRoute>
+                <Layout>
+                  <Routes>
+                    <Route path="/" element={<Dashboard />} />
+                    <Route path="/instances" element={<Instances />} />
+                    <Route path="/filters" element={<Filters />} />
+                    <Route path="/scheduler" element={<Scheduler />} />
+                    <Route path="/activity" element={<Activity />} />
+                    <Route path="/settings" element={<Settings />} />
+                  </Routes>
+                </Layout>
+              </ProtectedRoute>
+            }
+          />
+        </Routes>
+      </SetupGuard>
+    </ThemeProvider>
   );
 }
-

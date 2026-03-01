@@ -25,7 +25,9 @@ export function ToastContainer() {
 
   useEffect(() => {
     addToastFn = addToast;
-    return () => { addToastFn = null; };
+    return () => {
+      addToastFn = null;
+    };
   }, [addToast]);
 
   if (toasts.length === 0) return null;
@@ -36,9 +38,11 @@ export function ToastContainer() {
         <div
           key={t.id}
           className={`rounded-lg px-4 py-3 text-sm font-medium shadow-lg ${
-            t.type === 'success' ? 'bg-green-600 text-white' :
-            t.type === 'error' ? 'bg-red-600 text-white' :
-            'bg-blue-600 text-white'
+            t.type === 'success'
+              ? 'bg-green-600 text-white'
+              : t.type === 'error'
+                ? 'bg-red-600 text-white'
+                : 'bg-blue-600 text-white'
           }`}
         >
           {t.message}
@@ -47,4 +51,3 @@ export function ToastContainer() {
     </div>
   );
 }
-

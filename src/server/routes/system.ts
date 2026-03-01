@@ -30,4 +30,42 @@ router.get('/health', (_req, res) => {
   res.json({ status: 'ok', version });
 });
 
+// GET /api/v1/system/browse?path=/some/dir
+// Returns subdirectories at the given path for the filesystem picker UI
+router.get('/browse', (req, res) => {
+  try {
+    const requestedPath = (req.query['path'] as string) || '/';
+    const resolved = path.resolve(requestedPath);
+
+    if (!fs.existsSync(resolved)) {
+      res.status(404).json({ error: 'Path does not exist' });
+      return;
+    }
+
+    const stat = fs.statSync(resolved);
+    if (!stat.isDirectory()) {
+      res.status(400).json({ error: 'Path is not a directory' });
+      return;
+    }
+
+    const entries = fs.readdirSync(resolved, { withFileTypes: true });
+    const dirs = entries
+      .filter((e) => e.isDirectory() && !e.name.startsWith('.'))
+      .map((e) => ({
+        name: e.name,
+        path: path.join(resolved, e.name),
+        isDir: true,
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+
+    res.json({
+      current: resolved,
+      parent: resolved !== '/' ? path.dirname(resolved) : null,
+      entries: dirs,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : 'Browse failed' });
+  }
+});
+
 export default router;

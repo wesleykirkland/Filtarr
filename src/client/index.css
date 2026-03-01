@@ -1,4 +1,9 @@
-@import "tailwindcss";
+@import 'tailwindcss';
+
+@theme {
+  --color-brand: #3b82f6;
+  --variant-dark: .dark &;
+}
 
 /* Dark mode default, light mode via class toggle */
 :root {
@@ -9,3 +14,6 @@
   color-scheme: light;
 }
 
+.dark {
+  color-scheme: dark;
+}

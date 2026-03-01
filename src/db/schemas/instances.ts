@@ -18,6 +18,8 @@ interface InstanceRow {
   timeout: number;
   enabled: number; // SQLite boolean
   skip_ssl_verify: number; // SQLite boolean
+  remote_path: string | null;
+  local_path: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -32,6 +34,8 @@ export interface CreateInstanceInput {
   timeout?: number;
   enabled?: boolean;
   skipSslVerify?: boolean;
+  remotePath?: string | null;
+  localPath?: string | null;
 }
 
 export interface UpdateInstanceInput {
@@ -42,6 +46,8 @@ export interface UpdateInstanceInput {
   timeout?: number;
   enabled?: boolean;
   skipSslVerify?: boolean;
+  remotePath?: string | null;
+  localPath?: string | null;
 }
 
 // ── Query functions ─────────────────────────────────────────────────────────
@@ -56,6 +62,8 @@ function rowToConfig(row: InstanceRow): ArrInstanceConfig {
     timeout: row.timeout,
     enabled: row.enabled === 1,
     skipSslVerify: row.skip_ssl_verify === 1,
+    remotePath: row.remote_path,
+    localPath: row.local_path,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -72,6 +80,8 @@ function rowToResponse(row: InstanceRow): ArrInstanceResponse {
     timeout: row.timeout,
     enabled: row.enabled === 1,
     skipSslVerify: row.skip_ssl_verify === 1,
+    remotePath: row.remote_path,
+    localPath: row.local_path,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -111,8 +121,8 @@ export function getEnabledInstanceConfigs(db: Database): ArrInstanceConfig[] {
 export function createInstance(db: Database, input: CreateInstanceInput): ArrInstanceResponse {
   const encryptedKey = encrypt(input.apiKey);
   const stmt = db.prepare(`
-    INSERT INTO arr_instances (name, type, url, api_key_encrypted, timeout, enabled, skip_ssl_verify)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO arr_instances (name, type, url, api_key_encrypted, timeout, enabled, skip_ssl_verify, remote_path, local_path)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   const result = stmt.run(
@@ -123,6 +133,8 @@ export function createInstance(db: Database, input: CreateInstanceInput): ArrIns
     input.timeout ?? 30000,
     input.enabled !== false ? 1 : 0,
     input.skipSslVerify ? 1 : 0,
+    input.remotePath ?? null,
+    input.localPath ?? null,
   );
 
   return getInstanceById(db, Number(result.lastInsertRowid)) as ArrInstanceResponse;
@@ -169,6 +181,14 @@ export function updateInstance(
   if (input.skipSslVerify !== undefined) {
     updates.push('skip_ssl_verify = ?');
     values.push(input.skipSslVerify ? 1 : 0);
+  }
+  if (input.remotePath !== undefined) {
+    updates.push('remote_path = ?');
+    values.push(input.remotePath);
+  }
+  if (input.localPath !== undefined) {
+    updates.push('local_path = ?');
+    values.push(input.localPath);
   }
 
   if (updates.length === 0) return getInstanceById(db, id);

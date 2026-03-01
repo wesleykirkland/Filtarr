@@ -12,4 +12,3 @@ describe('GET /api/v1/health', () => {
     expect(res.body).toHaveProperty('version', '0.1.0');
   });
 });
-

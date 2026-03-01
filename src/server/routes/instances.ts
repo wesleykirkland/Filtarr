@@ -134,6 +134,8 @@ export function createInstancesRouter(db: Database): Router {
         timeout,
         enabled,
         skipSslVerify: req.body.skipSslVerify,
+        remotePath: req.body.remotePath,
+        localPath: req.body.localPath,
       });
       logger.info({ instanceId: instance.id }, 'Created new Arr instance');
       res.status(201).json(instance);
@@ -181,6 +183,8 @@ export function createInstancesRouter(db: Database): Router {
       if (body.timeout !== undefined) input.timeout = body.timeout;
       if (body.enabled !== undefined) input.enabled = body.enabled;
       if (body.skipSslVerify !== undefined) input.skipSslVerify = body.skipSslVerify;
+      if (body.remotePath !== undefined) input.remotePath = body.remotePath;
+      if (body.localPath !== undefined) input.localPath = body.localPath;
 
       const instance = updateInstance(db, id, input);
       if (!instance) {
@@ -246,13 +250,7 @@ export function createInstancesRouter(db: Database): Router {
         return;
       }
 
-      const client = createArrClient(
-        type as ArrType,
-        url,
-        apiKey,
-        timeout,
-        skipSslVerify,
-      );
+      const client = createArrClient(type as ArrType, url, apiKey, timeout, skipSslVerify);
       const result = await client.testConnection();
 
       res.json(result);

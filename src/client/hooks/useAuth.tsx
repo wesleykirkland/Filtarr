@@ -38,10 +38,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     staleTime: 60_000,
   });
 
-  const login = useCallback(async (username: string, password: string) => {
-    await api.post('/auth/login', { username, password });
-    await queryClient.invalidateQueries({ queryKey: ['auth', 'session'] });
-  }, [queryClient]);
+  const login = useCallback(
+    async (username: string, password: string) => {
+      await api.post('/auth/login', { username, password });
+      await queryClient.invalidateQueries({ queryKey: ['auth', 'session'] });
+    },
+    [queryClient],
+  );
 
   const logout = useCallback(async () => {
     await api.post('/auth/logout');
@@ -60,4 +63,3 @@ export function useAuth(): AuthContextValue {
   if (!ctx) throw new Error('useAuth must be used within AuthProvider');
   return ctx;
 }
-

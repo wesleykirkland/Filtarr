@@ -2,6 +2,9 @@ import express from 'express';
 import path from 'node:path';
 import systemRoutes from './routes/system.js';
 import { createInstancesRouter } from './routes/instances.js';
+import { createDirectoriesRoutes } from './routes/directories.js';
+import { createFiltersRoutes } from './routes/filters.js';
+import { createJobsRoutes } from './routes/jobs.js';
 import { createSetupRoutes, getStoredAuthMode } from './routes/setup.js';
 import { createAuthRoutes } from './routes/auth.js';
 import { createSettingsRoutes } from './routes/settings.js';
@@ -69,6 +72,9 @@ export function createApp(): express.Application {
 
   // Protected routes - require authentication
   app.use('/api/v1/instances', requireAuth, createInstancesRouter(db));
+  app.use('/api/v1/directories', requireAuth, createDirectoriesRoutes(db));
+  app.use('/api/v1/filters', requireAuth, createFiltersRoutes(db));
+  app.use('/api/v1/jobs', requireAuth, createJobsRoutes(db));
   app.use(
     '/api/v1/settings',
     requireAuth,

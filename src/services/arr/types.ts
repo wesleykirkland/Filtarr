@@ -15,6 +15,8 @@ export interface ArrInstanceConfig {
   timeout: number;
   enabled: boolean;
   skipSslVerify: boolean;
+  remotePath?: string | null;
+  localPath?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -28,6 +30,8 @@ export interface ArrInstanceResponse {
   timeout: number;
   enabled: boolean;
   skipSslVerify: boolean;
+  remotePath?: string | null;
+  localPath?: string | null;
   createdAt: string;
   updatedAt: string;
 }

@@ -211,13 +211,15 @@ export class ArrClient {
       // Instead of changing the global dispatcher, we provide it to fetch.
       const dispatcher = this.skipSslVerify
         ? new Agent({
-          connect: {
-            rejectUnauthorized: false,
-          },
-        })
+            connect: {
+              rejectUnauthorized: false,
+            },
+          })
         : undefined;
 
-      const response = await fetch(url, { ...init, dispatcher } as RequestInit & { dispatcher?: unknown });
+      const response = await fetch(url, { ...init, dispatcher } as RequestInit & {
+        dispatcher?: unknown;
+      });
 
       if (!response.ok) {
         const responseBody = await response.text().catch(() => '');

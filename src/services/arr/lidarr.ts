@@ -14,7 +14,7 @@ import type {
   PagingResource,
   QueueResource,
   DeleteQueueOptions,
-  BlocklistResource
+  BlocklistResource,
 } from './types.js';
 
 export class LidarrClient extends ArrClient {
@@ -61,21 +61,15 @@ export class LidarrClient extends ArrClient {
   }
 
   override async getQueue(page = 1, pageSize = 20) {
-    return this.get<PagingResource<QueueResource>>(
-      '/api/v1/queue',
-      {
-        page,
-        pageSize,
-        sortKey: 'timeleft',
-        sortDirection: 'ascending',
-      },
-    );
+    return this.get<PagingResource<QueueResource>>('/api/v1/queue', {
+      page,
+      pageSize,
+      sortKey: 'timeleft',
+      sortDirection: 'ascending',
+    });
   }
 
-  override async deleteQueueItem(
-    id: number,
-    options: DeleteQueueOptions = {},
-  ) {
+  override async deleteQueueItem(id: number, options: DeleteQueueOptions = {}) {
     const params: Record<string, string | number | boolean> = {};
     if (options.removeFromClient !== undefined)
       params['removeFromClient'] = options.removeFromClient;
@@ -85,14 +79,11 @@ export class LidarrClient extends ArrClient {
   }
 
   override async getBlocklist(page = 1, pageSize = 20) {
-    return this.get<PagingResource<BlocklistResource>>(
-      '/api/v1/blocklist',
-      {
-        page,
-        pageSize,
-        sortKey: 'date',
-        sortDirection: 'descending',
-      },
-    );
+    return this.get<PagingResource<BlocklistResource>>('/api/v1/blocklist', {
+      page,
+      pageSize,
+      sortKey: 'date',
+      sortDirection: 'descending',
+    });
   }
 }

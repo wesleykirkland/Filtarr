@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { toast } from '../components/Toast';
 
@@ -13,6 +14,7 @@ interface SetupResponse {
 
 export default function Setup() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [step, setStep] = useState<Step>('welcome');
   const [authMode, setAuthMode] = useState<AuthMode>('forms');
   const [username, setUsername] = useState('admin');
@@ -45,10 +47,24 @@ export default function Setup() {
       });
       setApiKey(res.apiKey);
       setStep('complete');
+
+      // Invalidate setup status so SetupGuard knows setup is complete
+      await queryClient.invalidateQueries({ queryKey: ['setup', 'status'] });
     } catch (err) {
       toast('error', err instanceof Error ? err.message : 'Setup failed');
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  /** Redirect based on auth mode after user acknowledges API key */
+  const handleContinue = () => {
+    if (authMode === 'forms') {
+      // Forms auth requires login with the new credentials
+      navigate('/login', { replace: true });
+    } else {
+      // 'none' or 'basic' - go to dashboard (basic will prompt via browser)
+      navigate('/', { replace: true });
     }
   };
 
@@ -273,10 +289,10 @@ export default function Setup() {
             </div>
 
             <button
-              onClick={() => navigate('/', { replace: true })}
+              onClick={handleContinue}
               className="w-full rounded-lg bg-blue-600 px-4 py-3 font-medium text-white hover:bg-blue-700"
             >
-              Continue to Dashboard
+              {authMode === 'forms' ? 'Continue to Login' : 'Continue to Dashboard'}
             </button>
           </div>
         )}

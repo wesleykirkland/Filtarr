@@ -4,6 +4,7 @@ import systemRoutes from './routes/system.js';
 import { createInstancesRouter } from './routes/instances.js';
 import { createSetupRoutes, getStoredAuthMode } from './routes/setup.js';
 import { createAuthRoutes } from './routes/auth.js';
+import { createSettingsRoutes } from './routes/settings.js';
 import { createAuthMiddleware } from './middleware/auth.js';
 import { getDatabase } from '../db/index.js';
 import { errorHandler } from './middleware/errorHandler.js';
@@ -64,6 +65,9 @@ export function createApp(): express.Application {
 
   // Protected routes - require authentication
   app.use('/api/v1/instances', requireAuth, createInstancesRouter(db));
+  app.use('/api/v1/settings', requireAuth, createSettingsRoutes(db, (authMode: AuthMode) => {
+    console.log(`Auth mode changed to: ${authMode}`);
+  }));
 
   // Serve client static files (built by Vite into dist/client/)
   const clientDir = path.resolve(process.cwd(), 'dist', 'client');

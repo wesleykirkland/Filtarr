@@ -183,13 +183,15 @@ export function createAuthRoutes(db: Database.Database, config: AuthConfig): Rou
   });
 
   // --- API Key Rotation ---
-  // Revokes the current key and generates a new one
+  // Revokes the current (or specified) key and generates a new one
   router.post('/api-keys/rotate', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const { keyId } = req.body as { keyId?: number };
+      // Use provided keyId, or fall back to the current API key being used for auth
+      const { keyId: providedKeyId } = req.body as { keyId?: number };
+      const keyId = providedKeyId ?? req.apiKey?.apiKeyId;
 
       if (!keyId) {
-        res.status(400).json({ error: 'keyId is required' });
+        res.status(400).json({ error: 'keyId is required (or authenticate with an API key to rotate it)' });
         return;
       }
 
@@ -203,24 +205,32 @@ export function createAuthRoutes(db: Database.Database, config: AuthConfig): Rou
         return;
       }
 
-      // Revoke the old key
-      db.prepare('UPDATE api_keys SET revoked_at = datetime(\'now\') WHERE id = ?')
-        .run(keyId);
-
-      // Generate new key
+      // Generate new key BEFORE revoking old one (atomic-ish operation)
       const newKey = generateApiKey();
       const keyHash = await hashApiKey(newKey, config.apiKeyBcryptRounds);
       const { prefix, last4 } = getKeyIdentifiers(newKey);
 
-      const result = db.prepare(
-        `INSERT INTO api_keys (name, key_hash, key_prefix, key_last4, user_id, scopes)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-      ).run(existingKey.name, keyHash, prefix, last4, existingKey.user_id, existingKey.scopes);
+      // Use a transaction to ensure atomicity
+      const rotateKey = db.transaction(() => {
+        // Revoke the old key
+        db.prepare('UPDATE api_keys SET revoked_at = datetime(\'now\') WHERE id = ?')
+          .run(keyId);
+
+        // Insert new key
+        const result = db.prepare(
+          `INSERT INTO api_keys (name, key_hash, key_prefix, key_last4, user_id, scopes)
+           VALUES (?, ?, ?, ?, ?, ?)`,
+        ).run(existingKey.name, keyHash, prefix, last4, existingKey.user_id, existingKey.scopes);
+
+        return result;
+      });
+
+      const result = rotateKey();
 
       res.status(201).json({
         id: result.lastInsertRowid,
         name: existingKey.name,
-        key: newKey, // Only time the full key is returned
+        apiKey: newKey, // Only time the full key is returned
         maskedKey: `${'•'.repeat(8)}${last4}`,
         message: 'API key rotated. Save the new key — it will not be shown again.',
         revokedKeyId: keyId,

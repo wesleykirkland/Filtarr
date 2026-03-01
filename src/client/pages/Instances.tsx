@@ -9,7 +9,7 @@ import {
   type CreateInstanceInput,
 } from '../hooks/useInstances';
 
-const ARR_TYPES = ['sonarr', 'radarr', 'lidarr', 'readarr'] as const;
+const ARR_TYPES = ['sonarr', 'radarr', 'lidarr'] as const;
 
 function InstanceForm({
   initial,

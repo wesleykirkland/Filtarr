@@ -2,7 +2,7 @@
  * Base Arr API client with configurable timeout, automatic retry with
  * exponential backoff, and typed responses.
  *
- * All Arr apps (Sonarr, Radarr, Lidarr, Readarr) share the same v3 API
+ * All Arr apps (Sonarr, Radarr, Lidarr) share the same v3 API
  * structure. This base client handles authentication, retries, and error
  * mapping. App-specific clients extend this class.
  */

@@ -29,10 +29,9 @@ import { ArrClient } from '../../services/arr/client.js';
 import { SonarrClient } from '../../services/arr/sonarr.js';
 import { RadarrClient } from '../../services/arr/radarr.js';
 import { LidarrClient } from '../../services/arr/lidarr.js';
-import { ReadarrClient } from '../../services/arr/readarr.js';
 import type { ArrType } from '../../services/arr/types.js';
 
-const VALID_ARR_TYPES: ArrType[] = ['sonarr', 'radarr', 'lidarr', 'readarr'];
+const VALID_ARR_TYPES: ArrType[] = ['sonarr', 'radarr', 'lidarr'];
 
 /**
  * Create a typed Arr client for the given instance type.
@@ -43,7 +42,6 @@ function createArrClient(type: ArrType, url: string, apiKey: string, timeout?: n
     case 'sonarr': return new SonarrClient(options);
     case 'radarr': return new RadarrClient(options);
     case 'lidarr': return new LidarrClient(options);
-    case 'readarr': return new ReadarrClient(options);
   }
 }
 

@@ -1,10 +1,10 @@
 /**
- * Shared TypeScript types for Arr API v3 (Sonarr, Radarr, Lidarr, Readarr).
+ * Shared TypeScript types for Arr API v3 (Sonarr, Radarr, Lidarr).
  */
 
 // ── Instance Types ──────────────────────────────────────────────────────────
 
-export type ArrType = 'sonarr' | 'radarr' | 'lidarr' | 'readarr';
+export type ArrType = 'sonarr' | 'radarr' | 'lidarr';
 
 export interface ArrInstanceConfig {
   id: number;
@@ -105,8 +105,6 @@ export interface QueueResource {
   movieId?: number;
   artistId?: number;
   albumId?: number;
-  authorId?: number;
-  bookId?: number;
 }
 
 export interface PagingResource<T> {
@@ -148,7 +146,6 @@ export interface BlocklistResource {
   seriesId?: number;
   movieId?: number;
   artistId?: number;
-  authorId?: number;
   episodeIds?: number[];
   sourceTitle: string;
   languages: Language[];
@@ -267,34 +264,6 @@ export interface AlbumResource {
   title: string;
   artistId: number;
   foreignAlbumId: string;
-  monitored: boolean;
-  releaseDate: string;
-  images: MediaImage[];
-}
-
-// ── Author/Book (Readarr) ────────────────────────────────────────────────────
-
-export interface AuthorResource {
-  id: number;
-  authorName: string;
-  sortName: string;
-  status: string;
-  overview: string;
-  path: string;
-  qualityProfileId: number;
-  metadataProfileId: number;
-  monitored: boolean;
-  foreignAuthorId: string;
-  added: string;
-  images: MediaImage[];
-  tags: number[];
-}
-
-export interface BookResource {
-  id: number;
-  title: string;
-  authorId: number;
-  foreignBookId: string;
   monitored: boolean;
   releaseDate: string;
   images: MediaImage[];

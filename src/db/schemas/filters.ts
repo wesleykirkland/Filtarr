@@ -125,7 +125,7 @@ export function updateFilter(
      SET name = ?, description = ?, trigger_source = ?, rule_type = ?, rule_payload = ?,
          action_type = ?, action_payload = ?, target_path = ?,
          notify_on_match = ?, notify_webhook_url = ?,
-         enabled = ?, sort_order = ?, updated_at = datetime('now')
+         instance_id = ?, enabled = ?, sort_order = ?, updated_at = datetime('now')
      WHERE id = ?`,
   ).run(
     name,

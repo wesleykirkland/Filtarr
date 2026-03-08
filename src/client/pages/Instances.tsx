@@ -33,22 +33,28 @@ function InstanceForm({
   const [remotePath, setRemotePath] = useState(initial?.remotePath ?? '');
   const [localPath, setLocalPath] = useState(initial?.localPath ?? '');
   const [testStatus, setTestStatus] = useState<'idle' | 'success' | 'error'>('idle');
+  const [testError, setTestError] = useState<string | null>(null);
 
   const testUnsavedMutation = useTestUnsavedInstance();
 
+  const resetTestState = () => {
+    setTestStatus('idle');
+    setTestError(null);
+  };
+
   const handleUrlChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setUrl(e.target.value);
-    setTestStatus('idle');
+    resetTestState();
   };
 
   const handleApiKeyChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setApiKey(e.target.value);
-    setTestStatus('idle');
+    resetTestState();
   };
 
   const handleSkipSslVerifyChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setSkipSslVerify(e.target.checked);
-    setTestStatus('idle');
+    resetTestState();
   };
 
   const handleTestConnection = (e: React.MouseEvent) => {
@@ -71,12 +77,15 @@ function InstanceForm({
         onSuccess: (data: { success: boolean; error?: string }) => {
           if (data.success) {
             setTestStatus('success');
+            setTestError(null);
           } else {
             setTestStatus('error');
+            setTestError(data.error || 'Connection failed');
           }
         },
-        onError: () => {
+        onError: (error: Error) => {
           setTestStatus('error');
+          setTestError(error.message || 'Connection failed');
         },
       },
     );
@@ -122,7 +131,10 @@ function InstanceForm({
           ) : (
             <select
               value={type}
-              onChange={(e) => setType(e.target.value)}
+              onChange={(e) => {
+                setType(e.target.value);
+                resetTestState();
+              }}
               className="mt-1 block w-full rounded-lg border dark:border-gray-700 border-gray-300 dark:bg-gray-800 bg-white px-3 py-2 dark:text-gray-100 text-gray-900 focus:border-blue-500 focus:outline-none"
             >
               {ARR_TYPES.map((t) => (
@@ -162,7 +174,10 @@ function InstanceForm({
           <input
             type="number"
             value={timeout}
-            onChange={(e) => setTimeout_(e.target.value)}
+            onChange={(e) => {
+              setTimeout_(e.target.value);
+              resetTestState();
+            }}
             min="1"
             className="mt-1 block w-full rounded-lg border dark:border-gray-700 border-gray-300 dark:bg-gray-800 bg-white px-3 py-2 dark:text-gray-100 text-gray-900 focus:border-blue-500 focus:outline-none"
           />
@@ -223,13 +238,12 @@ function InstanceForm({
           type="button"
           onClick={handleTestConnection}
           disabled={testUnsavedMutation.isPending || !url || (!apiKey && !initial)}
-          className={`rounded-lg px-4 py-2 text-sm font-medium text-white disabled:opacity-50 transition-colors ${
-            testStatus === 'error'
-              ? 'bg-red-600 hover:bg-red-700'
-              : testStatus === 'success'
-                ? 'bg-green-600 hover:bg-green-700'
-                : 'bg-gray-700 hover:bg-gray-600'
-          }`}
+          className={`rounded-lg px-4 py-2 text-sm font-medium text-white disabled:opacity-50 transition-colors ${testStatus === 'error'
+            ? 'bg-red-600 hover:bg-red-700'
+            : testStatus === 'success'
+              ? 'bg-green-600 hover:bg-green-700'
+              : 'bg-gray-700 hover:bg-gray-600'
+            }`}
         >
           {testUnsavedMutation.isPending
             ? 'Testing...'
@@ -265,6 +279,9 @@ function InstanceForm({
           Cancel
         </button>
       </div>
+      {testError && (
+        <p className="text-sm font-medium text-red-600 dark:text-red-400">{testError}</p>
+      )}
     </form>
   );
 }

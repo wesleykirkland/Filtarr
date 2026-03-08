@@ -17,6 +17,12 @@ interface AppSettings {
   validationIntervalMinutes: number;
 }
 
+interface NotificationSettings {
+  slackEnabled: boolean;
+  slackWebhookUrl: string;
+  webhookEnabled: boolean;
+}
+
 /**
  * Get the current auth mode from the database settings.
  */
@@ -158,6 +164,71 @@ export function createSettingsRoutes(
       });
     } catch {
       res.status(500).json({ error: 'Failed to update app settings' });
+    }
+  });
+
+  // GET /api/v1/settings/notifications — get global notification settings
+  router.get('/notifications', (_req: Request, res: Response): void => {
+    try {
+      const slackEnabled =
+        db
+          .prepare<[], { value: string }>(`SELECT value FROM settings WHERE key = 'slack_enabled'`)
+          .get()?.value === '1';
+      const slackWebhookUrl =
+        db
+          .prepare<[], { value: string }>(
+            `SELECT value FROM settings WHERE key = 'slack_webhook_url'`,
+          )
+          .get()?.value || '';
+      const webhookEnabled =
+        db
+          .prepare<[], { value: string }>(
+            `SELECT value FROM settings WHERE key = 'webhook_enabled'`,
+          )
+          .get()?.value !== '0'; // defaults to enabled for backward compat
+
+      res.json({
+        slackEnabled,
+        slackWebhookUrl,
+        webhookEnabled,
+      });
+    } catch {
+      res.status(500).json({ error: 'Failed to fetch notification settings' });
+    }
+  });
+
+  // PUT /api/v1/settings/notifications — update global notification settings
+  router.put('/notifications', (req: Request, res: Response): void => {
+    try {
+      const { slackEnabled, slackWebhookUrl, webhookEnabled } = req.body as NotificationSettings;
+
+      if (typeof slackEnabled === 'boolean') {
+        db.prepare(
+          `INSERT OR REPLACE INTO settings (key, value, updated_at)
+           VALUES ('slack_enabled', ?, datetime('now'))`,
+        ).run(slackEnabled ? '1' : '0');
+      }
+
+      if (slackWebhookUrl !== undefined) {
+        db.prepare(
+          `INSERT OR REPLACE INTO settings (key, value, updated_at)
+           VALUES ('slack_webhook_url', ?, datetime('now'))`,
+        ).run(slackWebhookUrl || '');
+      }
+
+      if (typeof webhookEnabled === 'boolean') {
+        db.prepare(
+          `INSERT OR REPLACE INTO settings (key, value, updated_at)
+           VALUES ('webhook_enabled', ?, datetime('now'))`,
+        ).run(webhookEnabled ? '1' : '0');
+      }
+
+      res.json({
+        success: true,
+        message: 'Notification settings saved successfully',
+      });
+    } catch {
+      res.status(500).json({ error: 'Failed to update notification settings' });
     }
   });
 

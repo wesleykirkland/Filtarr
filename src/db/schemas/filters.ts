@@ -13,6 +13,7 @@ export interface FilterRow {
   is_built_in: number;
   notify_on_match: number;
   notify_webhook_url: string | null;
+  notify_slack: number;
   instance_id: number | null;
   enabled: number;
   sort_order: number;
@@ -31,6 +32,7 @@ export interface CreateFilterInput {
   targetPath?: string;
   notifyOnMatch?: boolean;
   notifyWebhookUrl?: string;
+  notifySlack?: boolean;
   instanceId?: number;
   enabled?: boolean;
   sortOrder?: number;
@@ -47,6 +49,7 @@ export interface UpdateFilterInput {
   targetPath?: string;
   notifyOnMatch?: boolean;
   notifyWebhookUrl?: string;
+  notifySlack?: boolean;
   instanceId?: number;
   enabled?: boolean;
   sortOrder?: number;
@@ -69,11 +72,11 @@ export function createFilter(db: Database.Database, input: CreateFilterInput): F
       `INSERT INTO filters (
          name, description, trigger_source, rule_type, rule_payload,
          action_type, action_payload, target_path,
-         notify_on_match, notify_webhook_url,
+         notify_on_match, notify_webhook_url, notify_slack,
          instance_id,
          enabled, sort_order, created_at, updated_at
        )
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
     )
     .run(
       input.name,
@@ -86,6 +89,7 @@ export function createFilter(db: Database.Database, input: CreateFilterInput): F
       input.targetPath || null,
       input.notifyOnMatch ? 1 : 0,
       input.notifyWebhookUrl || null,
+      input.notifySlack ? 1 : 0,
       input.instanceId || null,
       input.enabled !== false ? 1 : 0,
       input.sortOrder || 0,
@@ -117,6 +121,8 @@ export function updateFilter(
     input.notifyOnMatch !== undefined ? (input.notifyOnMatch ? 1 : 0) : current.notify_on_match;
   const notifyWebhookUrl =
     input.notifyWebhookUrl !== undefined ? input.notifyWebhookUrl : current.notify_webhook_url;
+  const notifySlack =
+    input.notifySlack !== undefined ? (input.notifySlack ? 1 : 0) : current.notify_slack;
   const enabled = input.enabled !== undefined ? (input.enabled ? 1 : 0) : current.enabled;
   const sortOrder = input.sortOrder ?? current.sort_order;
 
@@ -124,7 +130,7 @@ export function updateFilter(
     `UPDATE filters
      SET name = ?, description = ?, trigger_source = ?, rule_type = ?, rule_payload = ?,
          action_type = ?, action_payload = ?, target_path = ?,
-         notify_on_match = ?, notify_webhook_url = ?,
+         notify_on_match = ?, notify_webhook_url = ?, notify_slack = ?,
          enabled = ?, sort_order = ?, updated_at = datetime('now')
      WHERE id = ?`,
   ).run(
@@ -138,6 +144,7 @@ export function updateFilter(
     targetPath || null,
     notifyOnMatch,
     notifyWebhookUrl || null,
+    notifySlack,
     input.instanceId !== undefined ? input.instanceId : current.instance_id,
     enabled,
     sortOrder,

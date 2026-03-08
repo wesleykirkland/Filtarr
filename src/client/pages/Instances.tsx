@@ -6,12 +6,12 @@ import {
   useDeleteInstance,
   useTestInstance,
   useTestUnsavedInstance,
-  type TestResult,
   type Instance,
   type CreateInstanceInput,
 } from '../hooks/useInstances';
 import { Modal } from '../components/Modal';
 import { useTheme } from '../contexts/ThemeContext';
+import { ConfirmModal } from '../components/ConfirmModal';
 
 const ARR_TYPES = ['sonarr', 'radarr', 'lidarr'] as const;
 
@@ -278,6 +278,7 @@ export default function Instances() {
   const testMutation = useTestInstance();
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Instance | null>(null);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
 
   if (isLoading)
     return <div className="dark:text-gray-400 text-gray-500">Loading instances...</div>;
@@ -338,11 +339,10 @@ export default function Instances() {
           {instances.map((inst) => (
             <div
               key={inst.id}
-              className={`group relative overflow-hidden rounded-2xl border p-5 transition-all hover:shadow-xl ${
-                darkMode
-                  ? 'bg-gray-900/40 border-gray-800 hover:border-gray-700/50'
-                  : 'bg-white border-gray-200'
-              }`}
+              className={`group relative overflow-hidden rounded-2xl border p-5 transition-all hover:shadow-xl ${darkMode
+                ? 'bg-gray-900/40 border-gray-800 hover:border-gray-700/50'
+                : 'bg-white border-gray-200'
+                }`}
             >
               <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-blue-600/50 via-green-600/50 to-blue-600/50 opacity-0 transition-opacity group-hover:opacity-100" />
               <div className="flex items-center justify-between gap-4">
@@ -395,9 +395,7 @@ export default function Instances() {
                     Edit
                   </button>
                   <button
-                    onClick={() => {
-                      if (confirm('Delete this instance?')) deleteMutation.mutate(inst.id);
-                    }}
+                    onClick={() => setDeletingId(inst.id)}
                     className="rounded-lg border dark:border-red-900 border-red-200 px-3 py-1.5 text-xs font-medium dark:text-red-400 text-red-600 dark:hover:bg-red-900/30 hover:bg-red-50"
                   >
                     Delete
@@ -415,6 +413,15 @@ export default function Instances() {
           </p>
         </div>
       )}
+      <ConfirmModal
+        isOpen={deletingId !== null}
+        title="Delete Instance"
+        message={`Are you sure you want to delete the instance "${instances?.find(i => i.id === deletingId)?.name}"? This will also remove all associated filters.`}
+        confirmLabel="Delete"
+        isDestructive={true}
+        onConfirm={() => deletingId && deleteMutation.mutate(deletingId)}
+        onClose={() => setDeletingId(null)}
+      />
     </div>
   );
 }

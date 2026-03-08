@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { toast } from '../components/Toast';
 import { Modal } from '../components/Modal';
 import { FilesystemPicker } from '../components/FilesystemPicker';
 import { useTheme } from '../contexts/ThemeContext';
+import { ConfirmModal } from '../components/ConfirmModal';
 
 interface Instance {
   id: number;
@@ -106,11 +107,25 @@ function FilterForm({ initial, instances, onClose, onSaved }: FilterFormProps) {
   const [showPresets, setShowPresets] = useState(!initial);
   const [err, setErr] = useState('');
 
+  const [isNameDirty, setIsNameDirty] = useState(!!initial);
+
   const { data: presets = [] } = useQuery<Preset[]>({
     queryKey: ['filter-presets'],
     queryFn: () => api.get('/filters/presets'),
     enabled: showPresets,
   });
+
+  // Dynamic naming logic
+  useEffect(() => {
+    if (initial || isNameDirty) return;
+
+    const selectedInstance = instances.find(i => i.id === instanceId);
+    if (selectedInstance) {
+      // If we have a preset matched, or just the instance
+      const presetName = rulePayload ? (presets.find(p => p.rulePayload === rulePayload)?.name || 'Custom Filter') : 'New Filter';
+      setName(`${selectedInstance.name} - ${presetName}`);
+    }
+  }, [instanceId, rulePayload, presets, initial, isNameDirty]);
 
   const queryClient = useQueryClient();
   const mutation = useMutation({
@@ -215,7 +230,10 @@ function FilterForm({ initial, instances, onClose, onSaved }: FilterFormProps) {
               </label>
               <input
                 value={name}
-                onChange={(e) => setName(e.target.value)}
+                onChange={(e) => {
+                  setName(e.target.value);
+                  setIsNameDirty(true);
+                }}
                 required
                 className="mt-1 block w-full rounded-lg border dark:border-gray-700 border-gray-300 dark:bg-gray-800 bg-white px-3 py-2 dark:text-gray-100 text-gray-900 focus:border-blue-500 focus:outline-none"
               />
@@ -336,7 +354,7 @@ function FilterForm({ initial, instances, onClose, onSaved }: FilterFormProps) {
               Arr Instance *
             </label>
             <p className="text-xs dark:text-gray-500 text-gray-600 mb-2">
-              Which Arr instance should this filter act on?
+              Note: Each filter is associated with exactly <b>one</b> Arr instance.
             </p>
             {instances.length === 0 ? (
               <p className="text-sm dark:text-gray-500 text-gray-600 italic">
@@ -363,35 +381,42 @@ function FilterForm({ initial, instances, onClose, onSaved }: FilterFormProps) {
 
           {/* Notifications */}
           <div className="rounded-lg border dark:border-gray-800 border-gray-200 dark:bg-gray-800/30 bg-gray-50 p-4 space-y-3">
-            <div className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                id="notifyOnMatch"
-                checked={notifyOnMatch}
-                onChange={(e) => setNotifyOnMatch(e.target.checked)}
-                className="h-4 w-4 rounded dark:border-gray-700 border-gray-300"
-              />
-              <label
-                htmlFor="notifyOnMatch"
-                className="text-sm font-medium dark:text-gray-300 text-gray-700"
-              >
-                🔔 Notify on match
-              </label>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="notifyOnMatch"
+                  checked={notifyOnMatch}
+                  onChange={(e) => setNotifyOnMatch(e.target.checked)}
+                  className="h-4 w-4 rounded dark:border-gray-700 border-gray-300"
+                />
+                <label
+                  htmlFor="notifyOnMatch"
+                  className="text-sm font-medium dark:text-gray-300 text-gray-700"
+                >
+                  🔔 Custom Notification Override
+                </label>
+              </div>
+              {!notifyOnMatch && (
+                <span className="text-[10px] uppercase font-bold text-blue-500 bg-blue-500/10 px-2 py-0.5 rounded">
+                  Inheriting Global
+                </span>
+              )}
             </div>
             {notifyOnMatch && (
-              <div>
+              <div className="animate-in fade-in slide-in-from-top-1 duration-200">
                 <label className="block text-xs font-medium dark:text-gray-400 text-gray-700 mb-1">
-                  Webhook URL
+                  Override Webhook URL
                 </label>
                 <input
                   type="url"
                   value={notifyWebhookUrl}
                   onChange={(e) => setNotifyWebhookUrl(e.target.value)}
-                  placeholder="https://hooks.slack.com/services/... or https://discord.com/api/webhooks/..."
+                  placeholder="https://hooks.slack.com/services/..."
                   className="block w-full rounded-lg border dark:border-gray-700 border-gray-300 dark:bg-gray-800 bg-white px-3 py-2 dark:text-gray-100 text-gray-900 focus:border-blue-500 focus:outline-none text-sm"
                 />
                 <p className="mt-1 text-xs dark:text-gray-500 text-gray-600">
-                  Filtarr will POST a JSON payload to this URL when the filter matches a file.
+                  When enabled, this URL will be used instead of the global notification settings.
                 </p>
               </div>
             )}
@@ -449,11 +474,10 @@ function FilterCard({ filter: f, instances, onEdit, onToggle, onDelete }: Filter
 
   return (
     <div
-      className={`group relative overflow-hidden rounded-2xl border p-5 transition-all hover:shadow-xl ${
-        darkMode
-          ? 'bg-gray-800/40 border-gray-800 hover:border-gray-700/50'
-          : 'bg-white border-gray-200'
-      }`}
+      className={`group relative overflow-hidden rounded-2xl border p-5 transition-all hover:shadow-xl ${darkMode
+        ? 'bg-gray-800/40 border-gray-800 hover:border-gray-700/50'
+        : 'bg-white border-gray-200'
+        }`}
     >
       <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-blue-600/50 via-purple-600/50 to-blue-600/50 opacity-0 transition-opacity group-hover:opacity-100" />
       <div className="flex items-start justify-between gap-4">
@@ -547,6 +571,7 @@ export default function Filters() {
   const { darkMode } = useTheme();
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Filter | null>(null);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
 
   const { data: filters = [], isLoading } = useQuery<Filter[]>({
     queryKey: ['filters'],
@@ -595,9 +620,8 @@ export default function Filters() {
       </div>
 
       <div
-        className={`relative overflow-hidden rounded-2xl border p-6 ${
-          darkMode ? 'bg-blue-500/10 border-blue-500/30' : 'bg-blue-50 border-blue-200'
-        }`}
+        className={`relative overflow-hidden rounded-2xl border p-6 ${darkMode ? 'bg-blue-500/10 border-blue-500/30' : 'bg-blue-50 border-blue-200'
+          }`}
       >
         <div className="absolute top-0 right-0 p-4 text-4xl opacity-10">🔍</div>
         <div className="relative flex items-center gap-4">
@@ -670,15 +694,22 @@ export default function Filters() {
                   instances={instances}
                   onEdit={() => setEditing(f)}
                   onToggle={() => toggleMutation.mutate({ id: f.id, enabled: !f.enabled })}
-                  onDelete={() => {
-                    if (confirm(`Delete filter "${f.name}"?`)) deleteMutation.mutate(f.id);
-                  }}
+                  onDelete={f.is_built_in ? null : () => setDeletingId(f.id)}
                 />
               ))}
             </div>
           )}
         </div>
       )}
+      <ConfirmModal
+        isOpen={deletingId !== null}
+        title="Delete Filter"
+        message={`Are you sure you want to delete the filter "${filters.find(f => f.id === deletingId)?.name}"? This action cannot be undone.`}
+        confirmLabel="Delete"
+        isDestructive={true}
+        onConfirm={() => deletingId && deleteMutation.mutate(deletingId)}
+        onClose={() => setDeletingId(null)}
+      />
     </div>
   );
 }

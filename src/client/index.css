@@ -2,8 +2,9 @@
 
 @theme {
   --color-brand: #3b82f6;
-  --variant-dark: .dark &;
 }
+
+@custom-variant dark (&:where(.dark, .dark *));
 
 /* Dark mode default, light mode via class toggle */
 :root {

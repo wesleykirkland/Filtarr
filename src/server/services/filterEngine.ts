@@ -6,6 +6,7 @@ import { getAllFilters, type FilterRow } from '../../db/schemas/filters.js';
 import { getInstanceConfigById } from '../../db/schemas/instances.js';
 import { createArrClient } from '../routes/instances.js';
 import { runSandboxedScript } from './scriptRunner.js';
+import { NotificationService } from './NotificationService.js';
 
 export interface FileEvent {
   path: string;
@@ -240,39 +241,26 @@ export class FilterEngine {
   }
 
   private async sendNotification(filter: FilterRow, file: FileEvent) {
-    if (!filter.notify_webhook_url) return;
-
-    const payload = {
-      event: 'filter_match',
-      filter: {
-        id: filter.id,
-        name: filter.name,
-      },
-      file: {
-        path: file.path,
-        name: file.name,
-        size: file.size,
-      },
-      timestamp: new Date().toISOString(),
-    };
-
     try {
-      const response = await fetch(filter.notify_webhook_url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+      const notifier = new NotificationService(this.db);
+      await notifier.sendNotification({
+        event: 'filter_match',
+        filter: {
+          id: filter.id,
+          name: filter.name,
+        },
+        file: {
+          path: file.path,
+          name: file.name,
+          size: file.size,
+        },
+        timestamp: new Date().toISOString(),
+      }, {
+        enabled: filter.notify_on_match === 1,
+        url: filter.notify_webhook_url || undefined
       });
-
-      if (!response.ok) {
-        logger.warn(
-          { filterId: filter.id, status: response.status },
-          'Webhook notification failed',
-        );
-      } else {
-        logger.debug({ filterId: filter.id }, 'Webhook notification sent');
-      }
     } catch (err: any) {
-      logger.error({ filterId: filter.id, err: err.message }, 'Error sending webhook notification');
+      logger.error({ filterId: filter.id, err: err.message }, 'Error sending notification via service');
     }
   }
 }

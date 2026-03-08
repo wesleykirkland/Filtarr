@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../hooks/useAuth';
@@ -72,6 +72,14 @@ export default function Settings() {
   const [authPassword, setAuthPassword] = useState('');
   const [confirmAuthChange, setConfirmAuthChange] = useState(false);
 
+  // Notifications state
+  const [notifyGlobalEnabled, setNotifyGlobalEnabled] = useState(false);
+  const [notifyGlobalType, setNotifyGlobalType] = useState<'webhook' | 'slack'>('webhook');
+  const [notifyGlobalUrl, setNotifyGlobalUrl] = useState('');
+  const [notifyGlobalSlackToken, setNotifyGlobalSlackToken] = useState('');
+  const [notifyGlobalSlackChannel, setNotifyGlobalSlackChannel] = useState('');
+  const [isNotificationsDirty, setIsNotificationsDirty] = useState(false);
+
   const { data: authModeData } = useQuery({
     queryKey: ['settings', 'auth-mode'],
     queryFn: () => api.get<AuthModeResponse>('/settings/auth-mode'),
@@ -89,7 +97,49 @@ export default function Settings() {
 
   const [validationInterval, setValidationInterval] = useState('60');
 
-  // Sync validationInterval to fetched state once
+  // Notifications queries
+  const { data: notificationSettings } = useQuery({
+    queryKey: ['settings', 'notifications'],
+    queryFn: () => api.get<Record<string, string>>('/settings/notifications'),
+  });
+
+  // Sync notification state
+  useEffect(() => {
+    if (notificationSettings) {
+      setNotifyGlobalEnabled(notificationSettings['notify_global_enabled'] === '1');
+      setNotifyGlobalType((notificationSettings['notify_global_type'] as any) || 'webhook');
+      setNotifyGlobalUrl(notificationSettings['notify_global_url'] || '');
+      setNotifyGlobalSlackToken(notificationSettings['notify_global_slack_token'] || '');
+      setNotifyGlobalSlackChannel(notificationSettings['notify_global_slack_channel'] || '');
+    }
+  }, [notificationSettings]);
+
+  const updateNotificationsMutation = useMutation({
+    mutationFn: (data: any) => api.put<{ success: boolean; message: string }>('/settings/notifications', data),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['settings', 'notifications'] });
+      toast('success', data.message);
+      setIsNotificationsDirty(false);
+    },
+    onError: (err: Error) => toast('error', err.message),
+  });
+
+  const testNotificationMutation = useMutation({
+    mutationFn: () => api.post<{ success: boolean; message: string }>('/settings/notifications/test', {}),
+    onSuccess: (data) => toast('success', data.message),
+    onError: (err: Error) => toast('error', err.message),
+  });
+
+  const handleSaveNotifications = () => {
+    updateNotificationsMutation.mutate({
+      enabled: notifyGlobalEnabled,
+      type: notifyGlobalType,
+      url: notifyGlobalUrl,
+      slackToken: notifyGlobalSlackToken,
+      slackChannel: notifyGlobalSlackChannel,
+    });
+  };
+
   useQuery({
     queryKey: ['settings', 'app', 'sync'],
     queryFn: () => {
@@ -421,11 +471,10 @@ export default function Settings() {
               {(['none', 'basic', 'forms'] as const).map((mode) => (
                 <label
                   key={mode}
-                  className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 ${
-                    selectedAuthMode === mode
-                      ? 'border-blue-500 dark:bg-blue-500/10 bg-blue-50'
-                      : 'dark:border-gray-700 border-gray-300 dark:hover:bg-gray-800/50 hover:bg-gray-50'
-                  }`}
+                  className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 ${selectedAuthMode === mode
+                    ? 'border-blue-500 dark:bg-blue-500/10 bg-blue-50'
+                    : 'dark:border-gray-700 border-gray-300 dark:hover:bg-gray-800/50 hover:bg-gray-50'
+                    }`}
                 >
                   <input
                     type="radio"
@@ -525,6 +574,118 @@ export default function Settings() {
                 </button>
               </div>
             )}
+          </div>
+        )}
+      </div>
+
+      {/* Global Notifications */}
+      <div className="rounded-xl border dark:border-gray-800 border-gray-200 dark:bg-gray-900 bg-white shadow-sm p-6">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h3 className="text-lg font-semibold dark:text-gray-100 text-gray-900">Notifications</h3>
+            <p className="text-sm dark:text-gray-500 text-gray-600">
+              Configure global notification settings that filters can inherit.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => testNotificationMutation.mutate()}
+              disabled={testNotificationMutation.isPending || isNotificationsDirty || !notifyGlobalEnabled}
+              title={isNotificationsDirty ? "Save changes before testing" : ""}
+              className="rounded-lg border dark:border-gray-700 border-gray-300 px-3 py-1.5 text-xs font-medium dark:text-gray-400 text-gray-600 dark:hover:bg-gray-800 hover:bg-gray-100 disabled:opacity-50"
+            >
+              🚀 Test
+            </button>
+            <button
+              onClick={() => {
+                setNotifyGlobalEnabled(!notifyGlobalEnabled);
+                setIsNotificationsDirty(true);
+              }}
+              className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${notifyGlobalEnabled ? 'bg-blue-600' : 'dark:bg-gray-700 bg-gray-300'}`}
+            >
+              <span className={`inline-block h-4 w-4 rounded-full bg-white shadow transform transition-transform ${notifyGlobalEnabled ? 'translate-x-4' : 'translate-x-0'}`} />
+            </button>
+          </div>
+        </div>
+
+        {notifyGlobalEnabled && (
+          <div className="space-y-4 pt-2 border-t dark:border-gray-800 border-gray-100 mt-4">
+            <div>
+              <label className="block text-xs font-medium dark:text-gray-400 text-gray-700 mb-2">Notification Type</label>
+              <div className="flex gap-4">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="notifyType"
+                    checked={notifyGlobalType === 'webhook'}
+                    onChange={() => { setNotifyGlobalType('webhook'); setIsNotificationsDirty(true); }}
+                    className="h-4 w-4 text-blue-600"
+                  />
+                  <span className="text-sm dark:text-gray-300">Generic Webhook</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="notifyType"
+                    checked={notifyGlobalType === 'slack'}
+                    onChange={() => { setNotifyGlobalType('slack'); setIsNotificationsDirty(true); }}
+                    className="h-4 w-4 text-blue-600"
+                  />
+                  <span className="text-sm dark:text-gray-300">Slack (Modern Flow)</span>
+                </label>
+              </div>
+            </div>
+
+            {notifyGlobalType === 'webhook' ? (
+              <div>
+                <label className="block text-xs font-medium dark:text-gray-400 text-gray-700">Webhook URL</label>
+                <input
+                  type="url"
+                  value={notifyGlobalUrl}
+                  onChange={(e) => { setNotifyGlobalUrl(e.target.value); setIsNotificationsDirty(true); }}
+                  placeholder="https://hooks.slack.com/services/... or https://discord.com/api/webhooks/..."
+                  className="mt-1 block w-full rounded-lg border dark:border-gray-700 border-gray-300 dark:bg-gray-800 bg-white px-3 py-2 text-sm dark:text-gray-100 focus:border-blue-500 focus:outline-none"
+                />
+              </div>
+            ) : (
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="sm:col-span-2">
+                  <p className="text-xs text-blue-400 bg-blue-500/10 p-3 rounded-lg border border-blue-500/20 mb-2">
+                    Filtarr uses the modern Slack App flow. Create a Slack App in your workspace, enable <b>Incoming Webhooks</b>, or use a <b>Bot User OAuth Token</b> for more control.
+                  </p>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium dark:text-gray-400 text-gray-700">Bot User OAuth Token</label>
+                  <input
+                    type="password"
+                    value={notifyGlobalSlackToken}
+                    onChange={(e) => { setNotifyGlobalSlackToken(e.target.value); setIsNotificationsDirty(true); }}
+                    placeholder="xoxb-..."
+                    className="mt-1 block w-full rounded-lg border dark:border-gray-700 border-gray-300 dark:bg-gray-800 bg-white px-3 py-2 text-sm dark:text-gray-100 focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium dark:text-gray-400 text-gray-700">Channel ID or Name</label>
+                  <input
+                    type="text"
+                    value={notifyGlobalSlackChannel}
+                    onChange={(e) => { setNotifyGlobalSlackChannel(e.target.value); setIsNotificationsDirty(true); }}
+                    placeholder="#general or C1234567"
+                    className="mt-1 block w-full rounded-lg border dark:border-gray-700 border-gray-300 dark:bg-gray-800 bg-white px-3 py-2 text-sm dark:text-gray-100 focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+            )}
+
+            <div className="pt-2">
+              <button
+                onClick={handleSaveNotifications}
+                disabled={updateNotificationsMutation.isPending || !isNotificationsDirty}
+                className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+              >
+                {updateNotificationsMutation.isPending ? 'Saving...' : 'Save Notification Settings'}
+              </button>
+            </div>
           </div>
         )}
       </div>

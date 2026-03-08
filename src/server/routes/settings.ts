@@ -6,6 +6,7 @@ import { Router, type Request, type Response, type NextFunction } from 'express'
 import bcrypt from 'bcrypt';
 import type Database from 'better-sqlite3';
 import type { AuthMode } from '../../config/auth.js';
+import { NotificationService } from '../services/NotificationService.js';
 
 interface ChangeAuthModeRequest {
   authMode: AuthMode;
@@ -158,6 +159,60 @@ export function createSettingsRoutes(
       });
     } catch {
       res.status(500).json({ error: 'Failed to update app settings' });
+    }
+  });
+
+  // GET /api/v1/settings/notifications
+  router.get('/notifications', (_req: Request, res: Response): void => {
+    try {
+      const rows = db.prepare("SELECT key, value FROM settings WHERE key LIKE 'notify_global_%'").all() as { key: string; value: string }[];
+      const settings: Record<string, string> = {};
+      for (const row of rows) {
+        settings[row.key] = row.value;
+      }
+      res.json(settings);
+    } catch {
+      res.status(500).json({ error: 'Failed to fetch notification settings' });
+    }
+  });
+
+  // PUT /api/v1/settings/notifications
+  router.put('/notifications', (req: Request, res: Response): void => {
+    try {
+      const { enabled, type, url, slackToken, slackChannel } = req.body;
+
+      const updates = [
+        { key: 'notify_global_enabled', value: enabled ? '1' : '0' },
+        { key: 'notify_global_type', value: type },
+        { key: 'notify_global_url', value: url || '' },
+        { key: 'notify_global_slack_token', value: slackToken || '' },
+        { key: 'notify_global_slack_channel', value: slackChannel || '' },
+      ];
+
+      const stmt = db.prepare("INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, datetime('now'))");
+      const transaction = db.transaction((items) => {
+        for (const item of items) stmt.run(item.key, item.value);
+      });
+      transaction(updates);
+
+      res.json({ success: true, message: 'Notification settings saved' });
+    } catch {
+      res.status(500).json({ error: 'Failed to update notification settings' });
+    }
+  });
+
+  // POST /api/v1/settings/notifications/test
+  router.post('/notifications/test', async (_req: Request, res: Response): Promise<void> => {
+    try {
+      const notifier = new NotificationService(db);
+      await notifier.sendNotification({
+        event: 'test',
+        message: 'This is a test notification from Filtarr. Your settings are correctly configured!',
+        timestamp: new Date().toISOString(),
+      });
+      res.json({ success: true, message: 'Test notification sent' });
+    } catch (err: any) {
+      res.status(500).json({ error: 'Failed to send test notification: ' + err.message });
     }
   });
 

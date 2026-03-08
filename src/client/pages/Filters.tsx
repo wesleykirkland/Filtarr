@@ -1,11 +1,17 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
+import {
+  canDeleteFilter,
+  FILTER_CARD_CLASS_NAME,
+  getFilterNotificationChannels,
+  hasConfiguredPath,
+  trimToUndefined,
+} from '../lib/filterUi';
 import { toast } from '../components/Toast';
 import { Modal } from '../components/Modal';
 import { FilesystemPicker } from '../components/FilesystemPicker';
 import { useTheme } from '../contexts/ThemeContext';
-import { ConfirmModal } from '../components/ConfirmModal';
 
 interface Instance {
   id: number;
@@ -38,10 +44,22 @@ interface Filter {
   is_built_in: number;
   notify_on_match: number;
   notify_webhook_url?: string;
+  notify_slack: number;
+  notify_slack_token?: string;
+  notify_slack_channel?: string;
+  override_notifications: number;
   instance_id: number | null;
   enabled: number;
   sort_order: number;
   created_at: string;
+}
+
+interface NotificationSettingsResponse {
+  slackEnabled: boolean;
+  webhookEnabled: boolean;
+  defaultWebhookUrl: string;
+  defaultSlackToken: string;
+  defaultSlackChannel: string;
 }
 
 const RULE_TYPE_LABELS: Record<Filter['rule_type'], string> = {
@@ -102,30 +120,22 @@ function FilterForm({ initial, instances, onClose, onSaved }: FilterFormProps) {
   );
   const [notifyOnMatch, setNotifyOnMatch] = useState(!!initial?.notify_on_match);
   const [notifyWebhookUrl, setNotifyWebhookUrl] = useState(initial?.notify_webhook_url ?? '');
+  const [notifySlack, setNotifySlack] = useState(!!initial?.notify_slack);
+  const [notifySlackToken, setNotifySlackToken] = useState(initial?.notify_slack_token ?? '');
+  const [notifySlackChannel, setNotifySlackChannel] = useState(initial?.notify_slack_channel ?? '');
+  const [overrideNotifications, setOverrideNotifications] = useState(
+    initial?.override_notifications === 1,
+  );
   const [enabled, setEnabled] = useState(initial ? !!initial.enabled : true);
   const [showPicker, setShowPicker] = useState(false);
   const [showPresets, setShowPresets] = useState(!initial);
   const [err, setErr] = useState('');
-
-  const [isNameDirty, setIsNameDirty] = useState(!!initial);
 
   const { data: presets = [] } = useQuery<Preset[]>({
     queryKey: ['filter-presets'],
     queryFn: () => api.get('/filters/presets'),
     enabled: showPresets,
   });
-
-  // Dynamic naming logic
-  useEffect(() => {
-    if (initial || isNameDirty) return;
-
-    const selectedInstance = instances.find(i => i.id === instanceId);
-    if (selectedInstance) {
-      // If we have a preset matched, or just the instance
-      const presetName = rulePayload ? (presets.find(p => p.rulePayload === rulePayload)?.name || 'Custom Filter') : 'New Filter';
-      setName(`${selectedInstance.name} - ${presetName}`);
-    }
-  }, [instanceId, rulePayload, presets, initial, isNameDirty]);
 
   const queryClient = useQueryClient();
   const mutation = useMutation({
@@ -150,8 +160,25 @@ function FilterForm({ initial, instances, onClose, onSaved }: FilterFormProps) {
 
   const handleSubmit = (evt: React.FormEvent) => {
     evt.preventDefault();
+    const trimmedTargetPath = trimToUndefined(targetPath);
+    const trimmedWebhookUrl = trimToUndefined(notifyWebhookUrl);
+    const trimmedSlackToken = trimToUndefined(notifySlackToken);
+    const trimmedSlackChannel = trimToUndefined(notifySlackChannel);
+
+    if (!trimmedTargetPath) {
+      setErr('Please choose a watched directory for this filter');
+      return;
+    }
     if (!instanceId) {
       setErr('Please select an Arr instance');
+      return;
+    }
+    if (overrideNotifications && notifyOnMatch && !trimmedWebhookUrl) {
+      setErr('Please provide a webhook URL or turn off webhook notifications');
+      return;
+    }
+    if (overrideNotifications && notifySlack && (!trimmedSlackToken || !trimmedSlackChannel)) {
+      setErr('Slack notifications require both a bot token and a channel');
       return;
     }
     setErr('');
@@ -163,10 +190,15 @@ function FilterForm({ initial, instances, onClose, onSaved }: FilterFormProps) {
       rulePayload,
       actionType,
       actionPayload: actionPayload || undefined,
-      targetPath: targetPath || undefined,
+      targetPath: trimmedTargetPath,
       instanceId,
-      notifyOnMatch,
-      notifyWebhookUrl: notifyWebhookUrl || undefined,
+      overrideNotifications,
+      notifyOnMatch: overrideNotifications ? notifyOnMatch : undefined,
+      notifyWebhookUrl: overrideNotifications && notifyOnMatch ? trimmedWebhookUrl : undefined,
+      notifySlack: overrideNotifications ? notifySlack : undefined,
+      notifySlackToken: overrideNotifications && notifySlack ? trimmedSlackToken : undefined,
+      notifySlackChannel:
+        overrideNotifications && notifySlack ? trimmedSlackChannel : undefined,
       enabled,
     });
   };
@@ -222,204 +254,300 @@ function FilterForm({ initial, instances, onClose, onSaved }: FilterFormProps) {
             </div>
           )}
 
-          {/* Name + Description */}
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="space-y-4 rounded-2xl border border-gray-200 bg-gray-50/80 p-4 dark:border-gray-800 dark:bg-gray-900/40">
             <div>
-              <label className="block text-sm font-medium dark:text-gray-400 text-gray-700">
-                Filter Name *
-              </label>
-              <input
-                value={name}
-                onChange={(e) => {
-                  setName(e.target.value);
-                  setIsNameDirty(true);
-                }}
-                required
-                className="mt-1 block w-full rounded-lg border dark:border-gray-700 border-gray-300 dark:bg-gray-800 bg-white px-3 py-2 dark:text-gray-100 text-gray-900 focus:border-blue-500 focus:outline-none"
-              />
+              <h3 className="text-sm font-semibold dark:text-gray-100 text-gray-900">
+                Filter basics
+              </h3>
+              <p className="mt-1 text-xs dark:text-gray-500 text-gray-600">
+                Give the filter a name, then point it at the specific directory it should watch.
+              </p>
             </div>
-            <div>
-              <label className="block text-sm font-medium dark:text-gray-400 text-gray-700">
-                Description
-              </label>
-              <input
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                className="mt-1 block w-full rounded-lg border dark:border-gray-700 border-gray-300 dark:bg-gray-800 bg-white px-3 py-2 dark:text-gray-100 text-gray-900 focus:border-blue-500 focus:outline-none"
-              />
-            </div>
-          </div>
-
-          {/* Target path */}
-          <div>
-            <label className="block text-sm font-medium dark:text-gray-400 text-gray-700">
-              Target Path
-            </label>
-            <p className="text-xs dark:text-gray-500 text-gray-600 mb-1">
-              Directory this filter monitors (e.g. your Radarr download folder)
-            </p>
-            <div className="flex gap-2">
-              <input
-                value={targetPath}
-                onChange={(e) => setTargetPath(e.target.value)}
-                placeholder="/downloads/complete"
-                className="flex-1 rounded-lg border dark:border-gray-700 border-gray-300 dark:bg-gray-800 bg-white px-3 py-2 dark:text-gray-100 text-gray-900 focus:border-blue-500 focus:outline-none font-mono text-sm"
-              />
-              <button
-                type="button"
-                onClick={() => setShowPicker(true)}
-                className="rounded-lg border dark:border-gray-700 border-gray-300 px-3 py-2 text-sm dark:text-gray-400 text-gray-600 dark:hover:bg-gray-800 hover:bg-gray-100 whitespace-nowrap"
-              >
-                📁 Browse
-              </button>
-            </div>
-          </div>
-
-          {/* Rule + Action */}
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div>
-              <label className="block text-sm font-medium dark:text-gray-400 text-gray-700">
-                Rule Type
-              </label>
-              <select
-                value={ruleType}
-                onChange={(e) => setRuleType(e.target.value as Filter['rule_type'])}
-                className="mt-1 block w-full rounded-lg border dark:border-gray-700 border-gray-300 dark:bg-gray-800 bg-white px-3 py-2 dark:text-gray-100 text-gray-900 focus:border-blue-500 focus:outline-none"
-              >
-                {Object.entries(RULE_TYPE_LABELS).map(([v, l]) => (
-                  <option key={v} value={v}>
-                    {l}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium dark:text-gray-400 text-gray-700">
-                Action on Match
-              </label>
-              <select
-                value={actionType}
-                onChange={(e) => setActionType(e.target.value as Filter['action_type'])}
-                className="mt-1 block w-full rounded-lg border dark:border-gray-700 border-gray-300 dark:bg-gray-800 bg-white px-3 py-2 dark:text-gray-100 text-gray-900 focus:border-blue-500 focus:outline-none"
-              >
-                {Object.entries(ACTION_TYPE_LABELS).map(([v, l]) => (
-                  <option key={v} value={v}>
-                    {l}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="sm:col-span-2">
-              <label className="block text-sm font-medium dark:text-gray-400 text-gray-700">
-                {RULE_TYPE_LABELS[ruleType]} *
-              </label>
-              {isScript ? (
-                <textarea
-                  value={rulePayload}
-                  onChange={(e) => setRulePayload(e.target.value)}
-                  required
-                  rows={5}
-                  placeholder={RULE_PLACEHOLDERS[ruleType]}
-                  className="mt-1 block w-full rounded-lg border dark:border-gray-700 border-gray-300 dark:bg-gray-800 bg-white px-3 py-2 font-mono text-sm dark:text-gray-100 text-gray-900 focus:border-blue-500 focus:outline-none"
-                />
-              ) : (
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <label className="block text-sm font-medium dark:text-gray-400 text-gray-700">
+                  Filter Name *
+                </label>
                 <input
-                  value={rulePayload}
-                  onChange={(e) => setRulePayload(e.target.value)}
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
                   required
-                  placeholder={RULE_PLACEHOLDERS[ruleType]}
                   className="mt-1 block w-full rounded-lg border dark:border-gray-700 border-gray-300 dark:bg-gray-800 bg-white px-3 py-2 dark:text-gray-100 text-gray-900 focus:border-blue-500 focus:outline-none"
                 />
-              )}
+              </div>
+              <div>
+                <label className="block text-sm font-medium dark:text-gray-400 text-gray-700">
+                  Description
+                </label>
+                <input
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  className="mt-1 block w-full rounded-lg border dark:border-gray-700 border-gray-300 dark:bg-gray-800 bg-white px-3 py-2 dark:text-gray-100 text-gray-900 focus:border-blue-500 focus:outline-none"
+                />
+              </div>
             </div>
-            {(actionType === 'move' || actionType === 'script') && (
+
+            <div>
+              <label className="block text-sm font-medium dark:text-gray-400 text-gray-700">
+                Watched Directory *
+              </label>
+              <p className="mb-1 text-xs dark:text-gray-500 text-gray-600">
+                This filter only evaluates files inside this path.
+              </p>
+              <div className="flex gap-2">
+                <input
+                  value={targetPath}
+                  onChange={(e) => setTargetPath(e.target.value)}
+                  placeholder="/downloads/complete"
+                  required
+                  className="flex-1 rounded-lg border dark:border-gray-700 border-gray-300 dark:bg-gray-800 bg-white px-3 py-2 font-mono text-sm dark:text-gray-100 text-gray-900 focus:border-blue-500 focus:outline-none"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPicker(true)}
+                  className="whitespace-nowrap rounded-lg border dark:border-gray-700 border-gray-300 px-3 py-2 text-sm dark:text-gray-400 text-gray-600 dark:hover:bg-gray-800 hover:bg-gray-100"
+                >
+                  📁 Browse
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-4 rounded-2xl border border-gray-200 bg-gray-50/80 p-4 dark:border-gray-800 dark:bg-gray-900/40">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <label className="block text-sm font-medium dark:text-gray-400 text-gray-700">
+                  Rule Type
+                </label>
+                <select
+                  value={ruleType}
+                  onChange={(e) => setRuleType(e.target.value as Filter['rule_type'])}
+                  className="mt-1 block w-full rounded-lg border dark:border-gray-700 border-gray-300 dark:bg-gray-800 bg-white px-3 py-2 dark:text-gray-100 text-gray-900 focus:border-blue-500 focus:outline-none"
+                >
+                  {Object.entries(RULE_TYPE_LABELS).map(([v, l]) => (
+                    <option key={v} value={v}>
+                      {l}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium dark:text-gray-400 text-gray-700">
+                  Action on Match
+                </label>
+                <select
+                  value={actionType}
+                  onChange={(e) => setActionType(e.target.value as Filter['action_type'])}
+                  className="mt-1 block w-full rounded-lg border dark:border-gray-700 border-gray-300 dark:bg-gray-800 bg-white px-3 py-2 dark:text-gray-100 text-gray-900 focus:border-blue-500 focus:outline-none"
+                >
+                  {Object.entries(ACTION_TYPE_LABELS).map(([v, l]) => (
+                    <option key={v} value={v}>
+                      {l}
+                    </option>
+                  ))}
+                </select>
+              </div>
               <div className="sm:col-span-2">
                 <label className="block text-sm font-medium dark:text-gray-400 text-gray-700">
-                  {actionType === 'move' ? 'Destination Path' : 'Script Payload'}
+                  {RULE_TYPE_LABELS[ruleType]} *
                 </label>
-                <input
-                  value={actionPayload}
-                  onChange={(e) => setActionPayload(e.target.value)}
-                  placeholder={actionType === 'move' ? '/mnt/quarantine' : '// JS script'}
-                  className="mt-1 block w-full rounded-lg border dark:border-gray-700 border-gray-300 dark:bg-gray-800 bg-white px-3 py-2 dark:text-gray-100 text-gray-900 focus:border-blue-500 focus:outline-none"
-                />
+                {isScript ? (
+                  <textarea
+                    value={rulePayload}
+                    onChange={(e) => setRulePayload(e.target.value)}
+                    required
+                    rows={5}
+                    placeholder={RULE_PLACEHOLDERS[ruleType]}
+                    className="mt-1 block w-full rounded-lg border dark:border-gray-700 border-gray-300 dark:bg-gray-800 bg-white px-3 py-2 font-mono text-sm dark:text-gray-100 text-gray-900 focus:border-blue-500 focus:outline-none"
+                  />
+                ) : (
+                  <input
+                    value={rulePayload}
+                    onChange={(e) => setRulePayload(e.target.value)}
+                    required
+                    placeholder={RULE_PLACEHOLDERS[ruleType]}
+                    className="mt-1 block w-full rounded-lg border dark:border-gray-700 border-gray-300 dark:bg-gray-800 bg-white px-3 py-2 dark:text-gray-100 text-gray-900 focus:border-blue-500 focus:outline-none"
+                  />
+                )}
               </div>
-            )}
-          </div>
-
-          {/* Arr Instance selection */}
-          {/* Arr Instance selection */}
-          <div>
-            <label className="block text-sm font-medium dark:text-gray-400 text-gray-700">
-              Arr Instance *
-            </label>
-            <p className="text-xs dark:text-gray-500 text-gray-600 mb-2">
-              Note: Each filter is associated with exactly <b>one</b> Arr instance.
-            </p>
-            {instances.length === 0 ? (
-              <p className="text-sm dark:text-gray-500 text-gray-600 italic">
-                No instances configured yet.
-              </p>
-            ) : (
-              <select
-                value={instanceId || ''}
-                onChange={(e) => setInstanceId(Number(e.target.value) || undefined)}
-                required
-                className="mt-1 block w-full rounded-lg border dark:border-gray-700 border-gray-300 dark:bg-gray-800 bg-white px-3 py-2 dark:text-gray-100 text-gray-900 focus:border-blue-500 focus:outline-none"
-              >
-                <option value="" disabled>
-                  Select an instance...
-                </option>
-                {instances.map((inst) => (
-                  <option key={inst.id} value={inst.id}>
-                    {inst.name} ({inst.type})
-                  </option>
-                ))}
-              </select>
-            )}
-          </div>
-
-          {/* Notifications */}
-          <div className="rounded-lg border dark:border-gray-800 border-gray-200 dark:bg-gray-800/30 bg-gray-50 p-4 space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  id="notifyOnMatch"
-                  checked={notifyOnMatch}
-                  onChange={(e) => setNotifyOnMatch(e.target.checked)}
-                  className="h-4 w-4 rounded dark:border-gray-700 border-gray-300"
-                />
-                <label
-                  htmlFor="notifyOnMatch"
-                  className="text-sm font-medium dark:text-gray-300 text-gray-700"
-                >
-                  🔔 Custom Notification Override
-                </label>
-              </div>
-              {!notifyOnMatch && (
-                <span className="text-[10px] uppercase font-bold text-blue-500 bg-blue-500/10 px-2 py-0.5 rounded">
-                  Inheriting Global
-                </span>
+              {(actionType === 'move' || actionType === 'script') && (
+                <div className="sm:col-span-2">
+                  <label className="block text-sm font-medium dark:text-gray-400 text-gray-700">
+                    {actionType === 'move' ? 'Destination Path' : 'Script Payload'}
+                  </label>
+                  <input
+                    value={actionPayload}
+                    onChange={(e) => setActionPayload(e.target.value)}
+                    placeholder={actionType === 'move' ? '/mnt/quarantine' : '// JS script'}
+                    className="mt-1 block w-full rounded-lg border dark:border-gray-700 border-gray-300 dark:bg-gray-800 bg-white px-3 py-2 dark:text-gray-100 text-gray-900 focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
               )}
             </div>
-            {notifyOnMatch && (
-              <div className="animate-in fade-in slide-in-from-top-1 duration-200">
-                <label className="block text-xs font-medium dark:text-gray-400 text-gray-700 mb-1">
-                  Override Webhook URL
-                </label>
-                <input
-                  type="url"
-                  value={notifyWebhookUrl}
-                  onChange={(e) => setNotifyWebhookUrl(e.target.value)}
-                  placeholder="https://hooks.slack.com/services/..."
-                  className="block w-full rounded-lg border dark:border-gray-700 border-gray-300 dark:bg-gray-800 bg-white px-3 py-2 dark:text-gray-100 text-gray-900 focus:border-blue-500 focus:outline-none text-sm"
-                />
-                <p className="mt-1 text-xs dark:text-gray-500 text-gray-600">
-                  When enabled, this URL will be used instead of the global notification settings.
+          </div>
+
+          <div className="space-y-4 rounded-2xl border border-gray-200 bg-gray-50/80 p-4 dark:border-gray-800 dark:bg-gray-900/40">
+            <div>
+              <h3 className="text-sm font-semibold dark:text-gray-100 text-gray-900">
+                Instance and notifications
+              </h3>
+              <p className="mt-1 text-xs dark:text-gray-500 text-gray-600">
+                Filters inherit the global notification defaults unless you explicitly override
+                them here.
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium dark:text-gray-400 text-gray-700">
+                Arr Instance *
+              </label>
+              <p className="mb-2 text-xs dark:text-gray-500 text-gray-600">
+                Which Arr instance should this filter act on?
+              </p>
+              {instances.length === 0 ? (
+                <p className="text-sm italic dark:text-gray-500 text-gray-600">
+                  No instances configured yet.
                 </p>
+              ) : (
+                <select
+                  value={instanceId || ''}
+                  onChange={(e) => setInstanceId(Number(e.target.value) || undefined)}
+                  required
+                  className="mt-1 block w-full rounded-lg border dark:border-gray-700 border-gray-300 dark:bg-gray-800 bg-white px-3 py-2 dark:text-gray-100 text-gray-900 focus:border-blue-500 focus:outline-none"
+                >
+                  <option value="" disabled>
+                    Select an instance...
+                  </option>
+                  {instances.map((inst) => (
+                    <option key={inst.id} value={inst.id}>
+                      {inst.name} ({inst.type})
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+
+            <div className="space-y-3 rounded-xl border border-gray-200 bg-white/80 p-4 dark:border-gray-800 dark:bg-gray-950/40">
+              <div className="flex items-start gap-3">
+                <input
+                  type="checkbox"
+                  id="overrideNotifications"
+                  checked={overrideNotifications}
+                  onChange={(e) => setOverrideNotifications(e.target.checked)}
+                  className="mt-0.5 h-4 w-4 rounded dark:border-gray-700 border-gray-300"
+                />
+                <div>
+                  <label
+                    htmlFor="overrideNotifications"
+                    className="text-sm font-medium dark:text-gray-300 text-gray-700"
+                  >
+                    Override notification defaults for this filter
+                  </label>
+                  <p className="mt-1 text-xs dark:text-gray-500 text-gray-600">
+                    Leave this off to inherit the default webhook and Slack settings from the
+                    Settings page.
+                  </p>
+                </div>
               </div>
-            )}
+
+              {overrideNotifications ? (
+                <div className="space-y-3 border-t border-gray-200 pt-3 dark:border-gray-800">
+                  <div className="space-y-3 rounded-xl border border-gray-200 bg-white/80 p-4 dark:border-gray-800 dark:bg-gray-950/40">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <label
+                          htmlFor="notifyOnMatch"
+                          className="text-sm font-medium dark:text-gray-300 text-gray-700"
+                        >
+                          Webhook notifications
+                        </label>
+                        <p className="text-xs dark:text-gray-500 text-gray-600">
+                          Send a JSON payload to a per-filter webhook when this filter matches.
+                        </p>
+                      </div>
+                      <input
+                        type="checkbox"
+                        id="notifyOnMatch"
+                        checked={notifyOnMatch}
+                        onChange={(e) => setNotifyOnMatch(e.target.checked)}
+                        className="h-4 w-4 rounded dark:border-gray-700 border-gray-300"
+                      />
+                    </div>
+                    {notifyOnMatch && (
+                      <div>
+                        <label className="mb-1 block text-xs font-medium dark:text-gray-400 text-gray-700">
+                          Webhook URL *
+                        </label>
+                        <input
+                          type="url"
+                          value={notifyWebhookUrl}
+                          onChange={(e) => setNotifyWebhookUrl(e.target.value)}
+                          placeholder="https://discord.com/api/webhooks/..."
+                          required={overrideNotifications && notifyOnMatch}
+                          className="block w-full rounded-lg border dark:border-gray-700 border-gray-300 dark:bg-gray-800 bg-white px-3 py-2 text-sm dark:text-gray-100 text-gray-900 focus:border-blue-500 focus:outline-none"
+                        />
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="space-y-3 rounded-xl border border-gray-200 bg-white/80 p-4 dark:border-gray-800 dark:bg-gray-950/40">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <label
+                          htmlFor="notifySlack"
+                          className="text-sm font-medium dark:text-gray-300 text-gray-700"
+                        >
+                          Slack notifications
+                        </label>
+                        <p className="text-xs dark:text-gray-500 text-gray-600">
+                          Uses the verified per-filter Slack bot token + channel fields.
+                        </p>
+                      </div>
+                      <input
+                        type="checkbox"
+                        id="notifySlack"
+                        checked={notifySlack}
+                        onChange={(e) => setNotifySlack(e.target.checked)}
+                        className="h-4 w-4 rounded dark:border-gray-700 border-gray-300"
+                      />
+                    </div>
+                    {notifySlack && (
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <div>
+                          <label className="mb-1 block text-xs font-medium dark:text-gray-400 text-gray-700">
+                            Slack Bot Token *
+                          </label>
+                          <input
+                            value={notifySlackToken}
+                            onChange={(e) => setNotifySlackToken(e.target.value)}
+                            placeholder="xoxb-..."
+                            required={overrideNotifications && notifySlack}
+                            className="block w-full rounded-lg border dark:border-gray-700 border-gray-300 dark:bg-gray-800 bg-white px-3 py-2 text-sm dark:text-gray-100 text-gray-900 focus:border-blue-500 focus:outline-none"
+                          />
+                        </div>
+                        <div>
+                          <label className="mb-1 block text-xs font-medium dark:text-gray-400 text-gray-700">
+                            Slack Channel *
+                          </label>
+                          <input
+                            value={notifySlackChannel}
+                            onChange={(e) => setNotifySlackChannel(e.target.value)}
+                            placeholder="#alerts"
+                            required={overrideNotifications && notifySlack}
+                            className="block w-full rounded-lg border dark:border-gray-700 border-gray-300 dark:bg-gray-800 bg-white px-3 py-2 text-sm dark:text-gray-100 text-gray-900 focus:border-blue-500 focus:outline-none"
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div className="rounded-lg border border-blue-200 bg-blue-50/80 px-3 py-3 text-xs text-blue-900 dark:border-blue-900/50 dark:bg-blue-950/30 dark:text-blue-100">
+                  This filter will inherit the default notification destinations configured on the
+                  Settings page.
+                </div>
+              )}
+            </div>
           </div>
 
           <div className="flex items-center gap-2">
@@ -463,22 +591,26 @@ function FilterForm({ initial, instances, onClose, onSaved }: FilterFormProps) {
 interface FilterCardProps {
   filter: Filter;
   instances: Instance[];
+  notificationSettings?: NotificationSettingsResponse;
   onEdit: () => void;
   onToggle: () => void;
   onDelete: (() => void) | null;
 }
 
-function FilterCard({ filter: f, instances, onEdit, onToggle, onDelete }: FilterCardProps) {
+function FilterCard({
+  filter: f,
+  instances,
+  notificationSettings,
+  onEdit,
+  onToggle,
+  onDelete,
+}: FilterCardProps) {
   const linkedInstance = instances.find((i) => i.id === f.instance_id);
-  const { darkMode } = useTheme();
+  const notificationChannels = getFilterNotificationChannels(f, notificationSettings);
+  const pathConfigured = hasConfiguredPath(f.target_path);
 
   return (
-    <div
-      className={`group relative overflow-hidden rounded-2xl border p-5 transition-all hover:shadow-xl ${darkMode
-        ? 'bg-gray-800/40 border-gray-800 hover:border-gray-700/50'
-        : 'bg-white border-gray-200'
-        }`}
-    >
+    <div className={FILTER_CARD_CLASS_NAME}>
       <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-blue-600/50 via-purple-600/50 to-blue-600/50 opacity-0 transition-opacity group-hover:opacity-100" />
       <div className="flex items-start justify-between gap-4">
         <div className="flex items-center gap-3 flex-1 min-w-0">
@@ -503,11 +635,6 @@ function FilterCard({ filter: f, instances, onEdit, onToggle, onDelete }: Filter
               >
                 {ACTION_TYPE_LABELS[f.action_type]}
               </span>
-              {!!f.notify_on_match && (
-                <span title="Webhook notification enabled" className="text-xs">
-                  🔔
-                </span>
-              )}
             </div>
             {f.description && (
               <p className="mt-0.5 text-sm dark:text-gray-500 text-gray-600 truncate">
@@ -521,11 +648,41 @@ function FilterCard({ filter: f, instances, onEdit, onToggle, onDelete }: Filter
                 </span>{' '}
                 <span className="font-mono">{f.rule_payload}</span>
               </span>
-              {f.target_path && (
-                <span className="font-mono dark:bg-gray-800 bg-gray-100 px-1.5 py-0.5 rounded">
-                  {f.target_path}
-                </span>
-              )}
+            </div>
+            <div className="mt-3 grid gap-2 lg:grid-cols-2">
+              <div className="rounded-xl border border-gray-200 bg-gray-50/80 px-3 py-2 dark:border-gray-800 dark:bg-gray-950/40">
+                <div className="text-[11px] font-semibold uppercase tracking-wide dark:text-gray-500 text-gray-500">
+                  Watched directory
+                </div>
+                <div
+                  className={`mt-1 break-all font-mono text-xs ${
+                    pathConfigured ? 'dark:text-gray-200 text-gray-800' : 'dark:text-amber-300 text-amber-700'
+                  }`}
+                >
+                  {pathConfigured ? f.target_path : 'Path required before watcher runs this filter'}
+                </div>
+              </div>
+              <div className="rounded-xl border border-gray-200 bg-gray-50/80 px-3 py-2 dark:border-gray-800 dark:bg-gray-950/40">
+                <div className="text-[11px] font-semibold uppercase tracking-wide dark:text-gray-500 text-gray-500">
+                  Notifications
+                </div>
+                <div className="mt-1 flex flex-wrap gap-1.5">
+                  {notificationChannels.length > 0 ? (
+                    notificationChannels.map((channel) => (
+                      <span
+                        key={channel.key}
+                        title={channel.detail}
+                        className="rounded-full border border-blue-500/30 bg-blue-500/10 px-2 py-1 text-[11px] font-medium text-blue-600 dark:text-blue-300"
+                      >
+                        {channel.label}
+                        {channel.detail ? ` · ${channel.detail}` : ''}
+                      </span>
+                    ))
+                  ) : (
+                    <span className="text-xs dark:text-gray-500 text-gray-600">Disabled</span>
+                  )}
+                </div>
+              </div>
             </div>
             {linkedInstance && (
               <div className="mt-1.5 flex flex-wrap gap-1.5">
@@ -571,7 +728,6 @@ export default function Filters() {
   const { darkMode } = useTheme();
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Filter | null>(null);
-  const [deletingId, setDeletingId] = useState<number | null>(null);
 
   const { data: filters = [], isLoading } = useQuery<Filter[]>({
     queryKey: ['filters'],
@@ -581,6 +737,11 @@ export default function Filters() {
   const { data: instances = [] } = useQuery<Instance[]>({
     queryKey: ['instances'],
     queryFn: () => api.get('/instances'),
+  });
+
+  const { data: notificationSettings } = useQuery<NotificationSettingsResponse>({
+    queryKey: ['settings', 'notifications'],
+    queryFn: () => api.get('/settings/notifications'),
   });
 
   const toggleMutation = useMutation({
@@ -620,8 +781,9 @@ export default function Filters() {
       </div>
 
       <div
-        className={`relative overflow-hidden rounded-2xl border p-6 ${darkMode ? 'bg-blue-500/10 border-blue-500/30' : 'bg-blue-50 border-blue-200'
-          }`}
+        className={`relative overflow-hidden rounded-2xl border p-6 ${
+          darkMode ? 'bg-blue-500/10 border-blue-500/30' : 'bg-blue-50 border-blue-200'
+        }`}
       >
         <div className="absolute top-0 right-0 p-4 text-4xl opacity-10">🔍</div>
         <div className="relative flex items-center gap-4">
@@ -631,9 +793,9 @@ export default function Filters() {
           <p
             className={`text-sm font-medium leading-relaxed ${darkMode ? 'text-blue-100' : 'text-blue-900'}`}
           >
-            Each filter monitors a <strong>target path</strong> for matching files. On match, it
-            executes actions against its <strong>linked Arr instance</strong>. Use the{' '}
-            <strong>Scheduler</strong> to run filters on a recurring basis.
+            Each filter owns its <strong>watched directory</strong> and linked <strong>Arr
+            instance</strong>. Notifications inherit the <strong>Settings</strong> defaults unless
+            you enable a per-filter override.
           </p>
         </div>
       </div>
@@ -692,24 +854,22 @@ export default function Filters() {
                   key={f.id}
                   filter={f}
                   instances={instances}
+                  notificationSettings={notificationSettings}
                   onEdit={() => setEditing(f)}
                   onToggle={() => toggleMutation.mutate({ id: f.id, enabled: !f.enabled })}
-                  onDelete={f.is_built_in ? null : () => setDeletingId(f.id)}
+                  onDelete={
+                    canDeleteFilter(f)
+                      ? () => {
+                          if (confirm(`Delete filter "${f.name}"?`)) deleteMutation.mutate(f.id);
+                        }
+                      : null
+                  }
                 />
               ))}
             </div>
           )}
         </div>
       )}
-      <ConfirmModal
-        isOpen={deletingId !== null}
-        title="Delete Filter"
-        message={`Are you sure you want to delete the filter "${filters.find(f => f.id === deletingId)?.name}"? This action cannot be undone.`}
-        confirmLabel="Delete"
-        isDestructive={true}
-        onConfirm={() => deletingId && deleteMutation.mutate(deletingId)}
-        onClose={() => setDeletingId(null)}
-      />
     </div>
   );
 }

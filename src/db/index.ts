@@ -6,11 +6,21 @@ import { runMigrations } from './migrate.js';
 
 let _db: Database.Database | null = null;
 
+function resolveDatabaseDataDir(dataDir: string): string {
+  const vitestPoolId = process.env['VITEST_POOL_ID'] ?? process.env['VITEST_WORKER_ID'];
+
+  if (vitestPoolId) {
+    return path.join(dataDir, `vitest-worker-${vitestPoolId}`);
+  }
+
+  return dataDir;
+}
+
 export function getDatabase(): Database.Database {
   if (_db) return _db;
 
   const config = getConfig();
-  const dataDir = config.dataDir;
+  const dataDir = resolveDatabaseDataDir(config.dataDir);
 
   // Ensure data directory exists
   fs.mkdirSync(dataDir, { recursive: true });

@@ -1,8 +1,9 @@
 import chokidar, { type FSWatcher } from 'chokidar';
 import type Database from 'better-sqlite3';
 import { logger } from '../lib/logger.js';
-import { getAllDirectories } from '../../db/schemas/directories.js';
+import { getAllFilters } from '../../db/schemas/filters.js';
 import path from 'node:path';
+import { getWatcherPaths } from './filterPaths.js';
 import { FilterEngine } from './filterEngine.js';
 
 export class ChokidarManager {
@@ -18,17 +19,16 @@ export class ChokidarManager {
   public async start() {
     logger.info('Initializing File System Watcher...');
 
-    // Get enabled directories from the database
-    const dirs = getAllDirectories(this.db).filter((d) => d.enabled === 1);
+    const filters = getAllFilters(this.db);
+    const pathsToWatch = getWatcherPaths(filters);
 
-    if (dirs.length === 0) {
-      logger.info('No active directories configured for watching.');
+    if (pathsToWatch.length === 0) {
+      logger.info('No valid enabled filter paths configured for watching.');
       this.watcher = chokidar.watch([], { persistent: true });
       return;
     }
 
-    const pathsToWatch = dirs.map((d) => d.path);
-    logger.info({ paths: pathsToWatch }, 'Starting watcher on configured directories');
+    logger.info({ paths: pathsToWatch }, 'Starting watcher on filter target paths');
 
     this.watcher = chokidar.watch(pathsToWatch, {
       persistent: true,
@@ -37,12 +37,6 @@ export class ChokidarManager {
         stabilityThreshold: 2000,
         pollInterval: 100,
       },
-      // Since some directories might not be recursive
-      depth: dirs.every((d) => d.recursive === 1) ? undefined : 0,
-      // We will refine depth handling per-path later if needed,
-      // but for Arr stack download folders, depth 0 or 1 is usually enough.
-      // Easiest is to let chokidar watch recursively by default and filter in events,
-      // but passing array of paths means settings apply globally.
     });
 
     this.watcher

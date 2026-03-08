@@ -6,7 +6,6 @@ import { Router, type Request, type Response, type NextFunction } from 'express'
 import bcrypt from 'bcrypt';
 import type Database from 'better-sqlite3';
 import type { AuthMode } from '../../config/auth.js';
-import { NotificationService } from '../services/NotificationService.js';
 
 interface ChangeAuthModeRequest {
   authMode: AuthMode;
@@ -16,6 +15,37 @@ interface ChangeAuthModeRequest {
 
 interface AppSettings {
   validationIntervalMinutes: number;
+}
+
+interface NotificationSettings {
+  slackEnabled: boolean;
+  webhookEnabled: boolean;
+  defaultWebhookUrl: string;
+  defaultSlackToken: string;
+  defaultSlackChannel: string;
+}
+
+function getSettingString(db: Database.Database, key: string, defaultValue = ''): string {
+  return (
+    db.prepare<[string], { value: string }>('SELECT value FROM settings WHERE key = ?').get(key)
+      ?.value || defaultValue
+  );
+}
+
+function getSettingBoolean(db: Database.Database, key: string, defaultValue = false): boolean {
+  const value = db
+    .prepare<[string], { value: string }>('SELECT value FROM settings WHERE key = ?')
+    .get(key)?.value;
+
+  if (value === undefined) return defaultValue;
+  return value === '1';
+}
+
+function upsertSetting(db: Database.Database, key: string, value: string): void {
+  db.prepare(
+    `INSERT OR REPLACE INTO settings (key, value, updated_at)
+     VALUES (?, ?, datetime('now'))`,
+  ).run(key, value);
 }
 
 /**
@@ -162,57 +192,64 @@ export function createSettingsRoutes(
     }
   });
 
-  // GET /api/v1/settings/notifications
+  // GET /api/v1/settings/notifications — get global notification settings
   router.get('/notifications', (_req: Request, res: Response): void => {
     try {
-      const rows = db.prepare("SELECT key, value FROM settings WHERE key LIKE 'notify_global_%'").all() as { key: string; value: string }[];
-      const settings: Record<string, string> = {};
-      for (const row of rows) {
-        settings[row.key] = row.value;
-      }
-      res.json(settings);
+      const slackEnabled = getSettingBoolean(db, 'slack_enabled');
+      const webhookEnabled = getSettingBoolean(db, 'webhook_enabled', true);
+      const defaultWebhookUrl = getSettingString(db, 'default_webhook_url');
+      const defaultSlackToken = getSettingString(db, 'default_slack_token');
+      const defaultSlackChannel = getSettingString(db, 'default_slack_channel');
+
+      res.json({
+        slackEnabled,
+        webhookEnabled,
+        defaultWebhookUrl,
+        defaultSlackToken,
+        defaultSlackChannel,
+      });
     } catch {
       res.status(500).json({ error: 'Failed to fetch notification settings' });
     }
   });
 
-  // PUT /api/v1/settings/notifications
+  // PUT /api/v1/settings/notifications — update global notification settings
   router.put('/notifications', (req: Request, res: Response): void => {
     try {
-      const { enabled, type, url, slackToken, slackChannel } = req.body;
+      const {
+        slackEnabled,
+        webhookEnabled,
+        defaultWebhookUrl,
+        defaultSlackToken,
+        defaultSlackChannel,
+      } = req.body as Partial<NotificationSettings>;
 
-      const updates = [
-        { key: 'notify_global_enabled', value: enabled ? '1' : '0' },
-        { key: 'notify_global_type', value: type },
-        { key: 'notify_global_url', value: url || '' },
-        { key: 'notify_global_slack_token', value: slackToken || '' },
-        { key: 'notify_global_slack_channel', value: slackChannel || '' },
-      ];
+      if (typeof slackEnabled === 'boolean') {
+        upsertSetting(db, 'slack_enabled', slackEnabled ? '1' : '0');
+      }
 
-      const stmt = db.prepare("INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, datetime('now'))");
-      const transaction = db.transaction((items) => {
-        for (const item of items) stmt.run(item.key, item.value);
+      if (typeof webhookEnabled === 'boolean') {
+        upsertSetting(db, 'webhook_enabled', webhookEnabled ? '1' : '0');
+      }
+
+      if (defaultWebhookUrl !== undefined) {
+        upsertSetting(db, 'default_webhook_url', defaultWebhookUrl || '');
+      }
+
+      if (defaultSlackToken !== undefined) {
+        upsertSetting(db, 'default_slack_token', defaultSlackToken || '');
+      }
+
+      if (defaultSlackChannel !== undefined) {
+        upsertSetting(db, 'default_slack_channel', defaultSlackChannel || '');
+      }
+
+      res.json({
+        success: true,
+        message: 'Notification settings saved successfully',
       });
-      transaction(updates);
-
-      res.json({ success: true, message: 'Notification settings saved' });
     } catch {
       res.status(500).json({ error: 'Failed to update notification settings' });
-    }
-  });
-
-  // POST /api/v1/settings/notifications/test
-  router.post('/notifications/test', async (_req: Request, res: Response): Promise<void> => {
-    try {
-      const notifier = new NotificationService(db);
-      await notifier.sendNotification({
-        event: 'test',
-        message: 'This is a test notification from Filtarr. Your settings are correctly configured!',
-        timestamp: new Date().toISOString(),
-      });
-      res.json({ success: true, message: 'Test notification sent' });
-    } catch (err: any) {
-      res.status(500).json({ error: 'Failed to send test notification: ' + err.message });
     }
   });
 

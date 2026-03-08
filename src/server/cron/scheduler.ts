@@ -110,6 +110,8 @@ export class CronManager {
         return;
       }
 
+      const pendingFiles: Promise<void>[] = [];
+
       // Simple recursive crawl of the target path
       const crawl = (dir: string) => {
         const entries = fs.readdirSync(dir, { withFileTypes: true });
@@ -118,14 +120,17 @@ export class CronManager {
           if (entry.isDirectory()) {
             crawl(fullPath);
           } else {
-            this.filterEngine.processFile(fullPath, 'cron').catch((err) => {
-              logger.error({ err, fullPath }, 'Scheduled filter failed to process file');
-            });
+            pendingFiles.push(
+              this.filterEngine.processFile(fullPath, 'cron', { filterIds: [filterId] }).catch((err) => {
+                logger.error({ err, fullPath, filterId }, 'Scheduled filter failed to process file');
+              }),
+            );
           }
         }
       };
 
       crawl(filter.target_path);
+      await Promise.allSettled(pendingFiles);
       logger.info({ jobId: job.id, filterId }, 'Scheduled filter crawl completed');
     } catch (err: any) {
       logger.error({ jobId: job.id, err: err.message }, 'Failed to execute filter job');

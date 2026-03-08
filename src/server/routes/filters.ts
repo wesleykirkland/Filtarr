@@ -10,6 +10,7 @@ import {
 } from '../../db/schemas/filters.js';
 import { FILTER_PRESETS } from '../lib/filterPresets.js';
 import { logger } from '../lib/logger.js';
+import { reloadWatcher } from '../services/watcher.js';
 
 const createFilterSchema = z.object({
   name: z.string().min(1, 'Name is required'),
@@ -22,6 +23,10 @@ const createFilterSchema = z.object({
   targetPath: z.string().optional(),
   notifyOnMatch: z.boolean().optional(),
   notifyWebhookUrl: z.string().url().optional().or(z.literal('')),
+  notifySlack: z.boolean().optional(),
+  notifySlackToken: z.string().optional(),
+  notifySlackChannel: z.string().optional(),
+  overrideNotifications: z.boolean().optional(),
   instanceId: z.number().int().optional(),
   enabled: z.boolean().optional(),
   sortOrder: z.number().int().optional(),
@@ -38,6 +43,10 @@ const updateFilterSchema = z.object({
   targetPath: z.string().optional(),
   notifyOnMatch: z.boolean().optional(),
   notifyWebhookUrl: z.string().url().optional().or(z.literal('')),
+  notifySlack: z.boolean().optional(),
+  notifySlackToken: z.string().optional(),
+  notifySlackChannel: z.string().optional(),
+  overrideNotifications: z.boolean().optional(),
   instanceId: z.number().int().optional(),
   enabled: z.boolean().optional(),
   sortOrder: z.number().int().optional(),
@@ -86,6 +95,7 @@ export function createFiltersRoutes(db: Database.Database): Router {
       const data = createFilterSchema.parse(req.body);
       const filter = createFilter(db, data);
       logger.info({ filterId: filter.id, name: filter.name }, 'Filter created');
+      reloadWatcher();
       res.status(201).json(filter);
     } catch (err: unknown) {
       if (err instanceof z.ZodError) {
@@ -109,10 +119,16 @@ export function createFiltersRoutes(db: Database.Database): Router {
       const data = updateFilterSchema.parse(req.body);
       const filter = updateFilter(db, id, data);
       logger.info({ filterId: filter.id }, 'Filter updated');
+      reloadWatcher();
       res.json(filter);
     } catch (err: unknown) {
       if (err instanceof z.ZodError) {
         res.status(400).json({ error: err.issues[0]?.message || 'Invalid input' });
+      } else if (
+        (err as { code?: string }).code === 'FILTER_INSTANCE_NOT_FOUND' ||
+        (err as { code?: string }).code === 'SQLITE_CONSTRAINT_FOREIGNKEY'
+      ) {
+        res.status(400).json({ error: err instanceof Error ? err.message : 'Invalid linked instance' });
       } else if (err instanceof Error && err.message.includes('not found')) {
         res.status(404).json({ error: err.message });
       } else if (err instanceof Error && err.message.includes('UNIQUE constraint failed')) {
@@ -137,6 +153,7 @@ export function createFiltersRoutes(db: Database.Database): Router {
         return;
       }
       logger.info({ filterId: id }, 'Filter deleted');
+      reloadWatcher();
       res.json({ success: true, message: 'Filter deleted successfully' });
     } catch (err) {
       if (err instanceof Error && err.message.includes('Built-in filters')) {

@@ -7,10 +7,12 @@ import { Modal } from '../components/Modal';
 interface Filter {
   id: number;
   name: string;
-  description?: string;
+  description?: string | null;
   is_built_in: number;
-  target_path?: string;
+  target_path?: string | null;
   action_type: string;
+  trigger_source: 'watcher' | 'cron' | 'manual';
+  enabled: number;
 }
 
 interface Job {
@@ -35,6 +37,13 @@ const CRON_PRESETS = [
   { label: 'Weekly on Sunday', value: '0 0 * * 0' },
 ];
 
+type AutomationMode = 'cron' | 'watcher';
+
+interface SaveAutomationResult {
+  mode: AutomationMode;
+  deletedJobs: number;
+}
+
 function getFilterId(job: Job): number | null {
   try {
     if (!job.payload) return null;
@@ -48,27 +57,93 @@ function getFilterId(job: Job): number | null {
 interface JobFormProps {
   initial?: Job;
   filters: Filter[];
+  jobs: Job[];
   onClose: () => void;
   onSaved: () => void;
 }
 
-function JobForm({ initial, filters, onClose, onSaved }: JobFormProps) {
+function JobForm({ initial, filters, jobs, onClose, onSaved }: JobFormProps) {
   const initialFilterId = initial ? getFilterId(initial) : null;
+  const initialFilter = initialFilterId ? filters.find((filter) => filter.id === initialFilterId) : filters[0];
 
   const [name, setName] = useState(initial?.name ?? '');
   const [description, setDescription] = useState(initial?.description ?? '');
   const [schedule, setSchedule] = useState(initial?.schedule ?? '0 * * * *');
   const [filterId, setFilterId] = useState<number | ''>(initialFilterId ?? filters[0]?.id ?? '');
-  const [enabled, setEnabled] = useState(initial?.enabled ?? true);
+  const [automationMode, setAutomationMode] = useState<AutomationMode>(
+    initial ? 'cron' : initialFilter?.trigger_source === 'watcher' ? 'watcher' : 'cron',
+  );
+  const [enabled, setEnabled] = useState(
+    initial ? Boolean(initial.enabled) : initialFilter ? initialFilter.enabled === 1 : true,
+  );
   const [err, setErr] = useState('');
+
+  const selectedFilter = filters.find((f) => f.id === filterId);
 
   const queryClient = useQueryClient();
   const mutation = useMutation({
-    mutationFn: (body: Partial<Job>) =>
-      initial ? api.put(`/jobs/${initial.id}`, body) : api.post('/jobs', body),
-    onSuccess: () => {
+    mutationFn: async (): Promise<SaveAutomationResult> => {
+      if (!filterId) throw new Error('Please select a filter');
+      if (!selectedFilter) throw new Error('Selected filter no longer exists');
+
+      if (automationMode === 'watcher') {
+        if (!selectedFilter.target_path?.trim()) {
+          throw new Error('Built-in watcher requires the selected filter to have a target path');
+        }
+
+        await api.put(`/filters/${selectedFilter.id}`, {
+          triggerSource: 'watcher',
+          enabled,
+        });
+
+        const jobsToDelete = new Map<number, Job>();
+        if (initial) jobsToDelete.set(initial.id, initial);
+
+        for (const job of jobs) {
+          if (getFilterId(job) === selectedFilter.id) {
+            jobsToDelete.set(job.id, job);
+          }
+        }
+
+        await Promise.all([...jobsToDelete.keys()].map((jobId) => api.delete(`/jobs/${jobId}`)));
+
+        return { mode: 'watcher', deletedJobs: jobsToDelete.size };
+      }
+
+      await api.put(`/filters/${selectedFilter.id}`, { triggerSource: 'cron' });
+
+      const body = {
+        name: name || selectedFilter.name || 'Scheduled filter run',
+        description: description || undefined,
+        schedule,
+        type: 'filter_run',
+        payload: JSON.stringify({ filterId: selectedFilter.id }),
+        enabled,
+      };
+
+      if (initial) {
+        await api.put(`/jobs/${initial.id}`, body);
+      } else {
+        await api.post('/jobs', body);
+      }
+
+      return { mode: 'cron', deletedJobs: 0 };
+    },
+    onSuccess: ({ mode, deletedJobs }) => {
       queryClient.invalidateQueries({ queryKey: ['jobs'] });
-      toast('success', initial ? 'Job updated' : 'Job created');
+      queryClient.invalidateQueries({ queryKey: ['filters'] });
+
+      if (mode === 'watcher') {
+        toast(
+          'success',
+          deletedJobs > 0
+            ? `Watcher automation saved and ${deletedJobs} scheduled job${deletedJobs === 1 ? '' : 's'} removed`
+            : 'Watcher automation saved',
+        );
+      } else {
+        toast('success', initial ? 'Job updated' : 'Job created');
+      }
+
       onSaved();
     },
     onError: (e: Error) => setErr(e.message),
@@ -82,18 +157,8 @@ function JobForm({ initial, filters, onClose, onSaved }: JobFormProps) {
       return;
     }
 
-    const selectedFilter = filters.find((f) => f.id === filterId);
-    mutation.mutate({
-      name: name || selectedFilter?.name || 'Scheduled filter run',
-      description: description || undefined,
-      schedule,
-      type: 'filter_run',
-      payload: JSON.stringify({ filterId }),
-      enabled,
-    });
+    mutation.mutate();
   };
-
-  const selectedFilter = filters.find((f) => f.id === filterId);
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
@@ -162,7 +227,53 @@ function JobForm({ initial, filters, onClose, onSaved }: JobFormProps) {
         )}
       </div>
 
-      {selectedFilter && (
+      <div>
+        <label className="block text-sm font-medium dark:text-gray-400 text-gray-700">
+          Automation Mode
+        </label>
+        <div className="mt-1 space-y-2">
+          <label
+            className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 ${automationMode === 'cron' ? 'border-blue-500 dark:bg-blue-500/10 bg-blue-50' : 'dark:border-gray-700 border-gray-300 dark:hover:bg-gray-800/50 hover:bg-gray-50'}`}
+          >
+            <input
+              type="radio"
+              name="automationMode"
+              checked={automationMode === 'cron'}
+              onChange={() => setAutomationMode('cron')}
+              className="mt-0.5"
+            />
+            <div>
+              <div className="text-sm font-medium dark:text-gray-100 text-gray-900">
+                Cron schedule
+              </div>
+              <div className="text-xs dark:text-gray-500 text-gray-600">
+                Runs the selected filter on the configured cron interval.
+              </div>
+            </div>
+          </label>
+          <label
+            className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 ${automationMode === 'watcher' ? 'border-blue-500 dark:bg-blue-500/10 bg-blue-50' : 'dark:border-gray-700 border-gray-300 dark:hover:bg-gray-800/50 hover:bg-gray-50'}`}
+          >
+            <input
+              type="radio"
+              name="automationMode"
+              checked={automationMode === 'watcher'}
+              onChange={() => setAutomationMode('watcher')}
+              className="mt-0.5"
+            />
+            <div>
+              <div className="text-sm font-medium dark:text-gray-100 text-gray-900">
+                Built-in file system watcher
+              </div>
+              <div className="text-xs dark:text-gray-500 text-gray-600">
+                Watches the filter target path and runs automatically on file add/change events.
+              </div>
+            </div>
+          </label>
+        </div>
+      </div>
+
+      {selectedFilter && automationMode === 'cron' && (
         <div>
           <label className="block text-sm font-medium dark:text-gray-400 text-gray-700">
             Job Name
@@ -176,47 +287,63 @@ function JobForm({ initial, filters, onClose, onSaved }: JobFormProps) {
         </div>
       )}
 
-      <div>
-        <label className="block text-sm font-medium dark:text-gray-400 text-gray-700">
-          Description
-        </label>
-        <input
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          className="mt-1 block w-full rounded-lg border dark:border-gray-700 border-gray-300 dark:bg-gray-800 bg-white px-3 py-2 dark:text-gray-100 text-gray-900 focus:border-blue-500 focus:outline-none"
-        />
-      </div>
-
-      <div>
-        <label className="block text-sm font-medium dark:text-gray-400 text-gray-700">
-          Cron Schedule *
-        </label>
-        <div className="mt-1 flex gap-2">
+      {automationMode === 'cron' && (
+        <div>
+          <label className="block text-sm font-medium dark:text-gray-400 text-gray-700">
+            Description
+          </label>
           <input
-            value={schedule}
-            onChange={(e) => setSchedule(e.target.value)}
-            required
-            className="block flex-1 rounded-lg border dark:border-gray-700 border-gray-300 dark:bg-gray-800 bg-white px-3 py-2 font-mono dark:text-gray-100 text-gray-900 focus:border-blue-500 focus:outline-none"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            className="mt-1 block w-full rounded-lg border dark:border-gray-700 border-gray-300 dark:bg-gray-800 bg-white px-3 py-2 dark:text-gray-100 text-gray-900 focus:border-blue-500 focus:outline-none"
           />
-          <select
-            onChange={(e) => {
-              if (e.target.value) setSchedule(e.target.value);
-            }}
-            defaultValue=""
-            className="rounded-lg border dark:border-gray-700 border-gray-300 dark:bg-gray-800 bg-white px-3 py-2 text-sm dark:text-gray-100 text-gray-900 focus:border-blue-500 focus:outline-none"
-          >
-            <option value="">Presets…</option>
-            {CRON_PRESETS.map((p) => (
-              <option key={p.value} value={p.value}>
-                {p.label}
-              </option>
-            ))}
-          </select>
         </div>
-        <p className="mt-1 text-xs dark:text-gray-500 text-gray-600">
-          Format: minute hour day-of-month month day-of-week
-        </p>
-      </div>
+      )}
+
+      {automationMode === 'cron' ? (
+        <div>
+          <label className="block text-sm font-medium dark:text-gray-400 text-gray-700">
+            Cron Schedule *
+          </label>
+          <div className="mt-1 flex gap-2">
+            <input
+              value={schedule}
+              onChange={(e) => setSchedule(e.target.value)}
+              required={automationMode === 'cron'}
+              className="block flex-1 rounded-lg border dark:border-gray-700 border-gray-300 dark:bg-gray-800 bg-white px-3 py-2 font-mono dark:text-gray-100 text-gray-900 focus:border-blue-500 focus:outline-none"
+            />
+            <select
+              onChange={(e) => {
+                if (e.target.value) setSchedule(e.target.value);
+              }}
+              defaultValue=""
+              className="rounded-lg border dark:border-gray-700 border-gray-300 dark:bg-gray-800 bg-white px-3 py-2 text-sm dark:text-gray-100 text-gray-900 focus:border-blue-500 focus:outline-none"
+            >
+              <option value="">Presets…</option>
+              {CRON_PRESETS.map((p) => (
+                <option key={p.value} value={p.value}>
+                  {p.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <p className="mt-1 text-xs dark:text-gray-500 text-gray-600">
+            Format: minute hour day-of-month month day-of-week
+          </p>
+        </div>
+      ) : (
+        <div className="rounded-lg border dark:border-gray-700 border-gray-300 dark:bg-gray-800/50 bg-gray-50 px-4 py-3 text-sm dark:text-gray-300 text-gray-700">
+          <p>
+            The built-in watcher uses the filter&apos;s configured target path and runs automatically
+            when files are added or changed.
+          </p>
+          {!selectedFilter?.target_path && (
+            <p className="mt-2 text-xs dark:text-yellow-400 text-yellow-600">
+              Add a target path on the Filters page before enabling watcher automation.
+            </p>
+          )}
+        </div>
+      )}
 
       <div className="flex items-center gap-2 pt-1">
         <input
@@ -230,9 +357,15 @@ function JobForm({ initial, filters, onClose, onSaved }: JobFormProps) {
           htmlFor="jobEnabled"
           className="text-sm font-medium dark:text-gray-400 text-gray-600"
         >
-          Enabled
+          {automationMode === 'watcher' ? 'Watcher enabled' : 'Job enabled'}
         </label>
       </div>
+
+      {automationMode === 'cron' && selectedFilter?.enabled !== 1 && (
+        <p className="text-xs dark:text-yellow-400 text-yellow-600">
+          This filter is currently disabled. Cron runs will only execute after the filter is re-enabled.
+        </p>
+      )}
 
       <div className="flex gap-2 border-t dark:border-gray-800 border-gray-200 pt-4">
         <button
@@ -240,7 +373,13 @@ function JobForm({ initial, filters, onClose, onSaved }: JobFormProps) {
           disabled={mutation.isPending || !filterId}
           className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
         >
-          {mutation.isPending ? 'Saving...' : initial ? 'Update Job' : 'Schedule Job'}
+          {mutation.isPending
+            ? 'Saving...'
+            : automationMode === 'watcher'
+              ? 'Save Watcher'
+              : initial
+                ? 'Update Job'
+                : 'Schedule Job'}
         </button>
         <button
           type="button"
@@ -285,6 +424,7 @@ export default function Scheduler() {
 
   const filters = rawFilters ?? [];
   const jobs = rawJobs ?? [];
+  const watcherFilters = filters.filter((filter) => filter.trigger_source === 'watcher');
 
   const toggleMutation = useMutation({
     mutationFn: ({ id, enabled }: { id: number; enabled: boolean }) =>
@@ -314,14 +454,14 @@ export default function Scheduler() {
         <div>
           <h2 className="text-2xl font-bold dark:text-gray-100 text-gray-900">Scheduler</h2>
           <p className="mt-1 text-sm dark:text-gray-500 text-gray-600">
-            Schedule your filters to run on a cron interval — e.g. scan for .exe files every hour.
+            Run filters either on a cron interval or with the built-in file system watcher.
           </p>
         </div>
         <button
           onClick={() => setShowForm(true)}
           className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
         >
-          + Schedule Job
+          + Add Automation
         </button>
       </div>
 
@@ -336,6 +476,7 @@ export default function Scheduler() {
         <JobForm
           initial={editing ?? undefined}
           filters={filters}
+          jobs={jobs}
           onClose={() => {
             setShowForm(false);
             setEditing(null);
@@ -346,6 +487,55 @@ export default function Scheduler() {
           }}
         />
       </Modal>
+
+      <div className="rounded-xl border dark:border-gray-800 border-gray-200 dark:bg-gray-900 bg-white shadow-sm p-6">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <h3 className="text-lg font-semibold dark:text-gray-100 text-gray-900">
+              Built-in watcher automations
+            </h3>
+            <p className="mt-1 text-sm dark:text-gray-500 text-gray-600">
+              Filters in watcher mode run automatically when matching files appear under their target path.
+            </p>
+          </div>
+          <span className="rounded-full dark:bg-gray-800 bg-gray-100 px-3 py-1 text-xs font-medium dark:text-gray-300 text-gray-700">
+            {watcherFilters.length} active
+          </span>
+        </div>
+
+        {watcherFilters.length > 0 ? (
+          <div className="mt-4 space-y-3">
+            {watcherFilters.map((filter) => (
+              <div
+                key={filter.id}
+                className="rounded-lg border dark:border-gray-800 border-gray-200 px-4 py-3"
+              >
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-medium dark:text-gray-100 text-gray-900">{filter.name}</span>
+                  <span
+                    className={`rounded px-2 py-0.5 text-[11px] font-medium uppercase ${filter.enabled === 1 ? 'bg-green-500/20 text-green-400' : 'bg-gray-500/20 text-gray-400'}`}
+                  >
+                    {filter.enabled === 1 ? 'enabled' : 'disabled'}
+                  </span>
+                </div>
+                {filter.target_path ? (
+                  <p className="mt-1 font-mono text-xs dark:text-gray-500 text-gray-600">
+                    {filter.target_path}
+                  </p>
+                ) : (
+                  <p className="mt-1 text-xs dark:text-yellow-400 text-yellow-600">
+                    No target path configured yet.
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="mt-4 text-sm dark:text-gray-500 text-gray-600">
+            No filters are currently using the built-in watcher.
+          </p>
+        )}
+      </div>
 
       {isLoading ? (
         <p className="dark:text-gray-400 text-gray-500">Loading jobs...</p>
@@ -426,7 +616,7 @@ export default function Scheduler() {
             No scheduled jobs
           </h3>
           <p className="mt-2 dark:text-gray-500 text-gray-600 max-w-md mx-auto">
-            Schedule a filter to run periodically — for example, scan for .exe files every hour.
+            Add a cron schedule here when you want a filter to run periodically instead of using the built-in watcher.
           </p>
           {filters.length === 0 ? (
             <p className="mt-3 text-sm dark:text-yellow-400 text-yellow-600">
@@ -441,7 +631,7 @@ export default function Scheduler() {
               onClick={() => setShowForm(true)}
               className="mt-4 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
             >
-              Add First Job
+              Add First Automation
             </button>
           )}
         </div>

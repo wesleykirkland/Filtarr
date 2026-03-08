@@ -32,6 +32,7 @@ describe('filter updates', () => {
         name: 'Block EXE/MSI Files 2',
         rulePayload: 'msi',
         instanceId: instance.id,
+        overrideNotifications: true,
         notifyOnMatch: true,
         notifyWebhookUrl: 'https://example.com/webhook',
         enabled: true,
@@ -40,6 +41,7 @@ describe('filter updates', () => {
       expect(updated.name).toBe('Block EXE/MSI Files 2');
       expect(updated.rule_payload).toBe('msi');
       expect(updated.instance_id).toBe(instance.id);
+      expect(updated.override_notifications).toBe(1);
       expect(updated.notify_on_match).toBe(1);
       expect(updated.notify_webhook_url).toBe('https://example.com/webhook');
     } finally {

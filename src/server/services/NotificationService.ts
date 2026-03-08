@@ -1,120 +1,194 @@
-import { logger } from '../lib/logger.js';
 import type Database from 'better-sqlite3';
+import type { FilterRow } from '../../db/schemas/filters.js';
+import { logger } from '../lib/logger.js';
+import type { FileEvent } from './filterEngine.js';
 
-export interface NotificationPayload {
-    event: 'filter_match' | 'test';
-    filter?: {
-        id: number;
-        name: string;
-    };
-    file?: {
-        path: string;
-        name: string;
-        size: number;
-    };
-    message?: string;
-    timestamp: string;
+interface NotificationSettings {
+  slackEnabled: boolean;
+  webhookEnabled: boolean;
+  defaultWebhookUrl: string;
+  defaultSlackToken: string;
+  defaultSlackChannel: string;
+}
+
+interface NotificationTargets {
+  webhookUrl?: string;
+  slackToken?: string;
+  slackChannel?: string;
+}
+
+interface SettingRow {
+  value: string;
+}
+
+interface SlackApiResponse {
+  ok?: boolean;
 }
 
 export class NotificationService {
-    private db: Database.Database;
+  constructor(private readonly db: Database.Database) {}
 
-    constructor(db: Database.Database) {
-        this.db = db;
+  public async notifyFilterMatch(filter: FilterRow, file: FileEvent) {
+    const settings = this.getNotificationSettings();
+    const targets = this.resolveNotificationTargets(filter, settings);
+    const deliveries: Promise<void>[] = [];
+
+    if (settings.webhookEnabled && targets.webhookUrl) {
+      deliveries.push(this.sendWebhookNotification(filter, file, targets.webhookUrl));
     }
 
-    private getGlobalSettings() {
-        const rows = this.db.prepare("SELECT key, value FROM settings WHERE key LIKE 'notify_global_%'").all() as { key: string; value: string }[];
-        const settings: Record<string, string> = {};
-        for (const row of rows) {
-            settings[row.key] = row.value;
-        }
-        return {
-            enabled: settings['notify_global_enabled'] === '1',
-            type: (settings['notify_global_type'] || 'webhook') as 'webhook' | 'slack',
-            url: settings['notify_global_url'] || '',
-            slackToken: settings['notify_global_slack_token'] || '',
-            slackChannel: settings['notify_global_slack_channel'] || '',
-        };
+    if (settings.slackEnabled && targets.slackToken && targets.slackChannel) {
+      deliveries.push(this.sendSlackNotification(filter, file, targets.slackToken, targets.slackChannel));
+    } else if (settings.slackEnabled) {
+      this.logSlackConfigurationWarning(filter, targets);
     }
 
-    public async sendNotification(payload: NotificationPayload, filterOverride?: { enabled: boolean, url?: string }) {
-        const global = this.getGlobalSettings();
+    if (!deliveries.length) return;
 
-        // Determine if we should notify
-        const shouldNotify = filterOverride ? filterOverride.enabled : global.enabled;
-        if (!shouldNotify) return;
+    await Promise.allSettled(deliveries);
+  }
 
-        // Determine URL/Target
-        let targetUrl = filterOverride?.url || global.url;
-        const type = global.type;
+  private getNotificationSettings(): NotificationSettings {
+    return {
+      slackEnabled: this.getBooleanSetting('slack_enabled'),
+      webhookEnabled: this.getBooleanSetting('webhook_enabled', true),
+      defaultWebhookUrl: this.getStringSetting('default_webhook_url'),
+      defaultSlackToken: this.getStringSetting('default_slack_token'),
+      defaultSlackChannel: this.getStringSetting('default_slack_channel'),
+    };
+  }
 
-        if (type === 'slack' && global.slackToken && global.slackChannel && !filterOverride?.url) {
-            await this.sendSlackNotification(global.slackToken, global.slackChannel, payload);
-        } else if (targetUrl) {
-            await this.sendWebhookNotification(targetUrl, payload);
-        } else {
-            logger.warn('Notification triggered but no valid target (URL or Slack) configured');
-        }
+  private getStringSetting(key: string, defaultValue = ''): string {
+    return (
+      this.db.prepare<[string], SettingRow>('SELECT value FROM settings WHERE key = ?').get(key)
+        ?.value || defaultValue
+    );
+  }
+
+  private getBooleanSetting(key: string, defaultValue = false): boolean {
+    const result = this.db
+      .prepare<[string], SettingRow>('SELECT value FROM settings WHERE key = ?')
+      .get(key);
+    if (!result) return defaultValue;
+    return result.value === '1';
+  }
+
+  private trimToUndefined(value: string | null | undefined): string | undefined {
+    const trimmed = value?.trim() ?? '';
+    return trimmed.length > 0 ? trimmed : undefined;
+  }
+
+  private resolveNotificationTargets(
+    filter: FilterRow,
+    settings: NotificationSettings,
+  ): NotificationTargets {
+    if (filter.override_notifications === 1) {
+      return {
+        webhookUrl: filter.notify_on_match
+          ? this.trimToUndefined(filter.notify_webhook_url)
+          : undefined,
+        slackToken: filter.notify_slack ? this.trimToUndefined(filter.notify_slack_token) : undefined,
+        slackChannel: filter.notify_slack
+          ? this.trimToUndefined(filter.notify_slack_channel)
+          : undefined,
+      };
     }
 
-    private async sendWebhookNotification(url: string, payload: NotificationPayload) {
-        try {
-            const response = await fetch(url, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload),
-            });
+    return {
+      webhookUrl: this.trimToUndefined(settings.defaultWebhookUrl),
+      slackToken: this.trimToUndefined(settings.defaultSlackToken),
+      slackChannel: this.trimToUndefined(settings.defaultSlackChannel),
+    };
+  }
 
-            if (!response.ok) {
-                logger.warn({ url, status: response.status }, 'Webhook notification failed');
-            }
-        } catch (err: any) {
-            logger.error({ url, err: err.message }, 'Error sending webhook notification');
-        }
+  private logSlackConfigurationWarning(filter: FilterRow, targets: NotificationTargets) {
+    if (filter.override_notifications === 1) {
+      if (!filter.notify_slack) return;
+
+      logger.warn(
+        { filterId: filter.id },
+        'Slack notification override is enabled but no per-filter token/channel is configured',
+      );
+      return;
     }
 
-    private async sendSlackNotification(token: string, channel: string, payload: NotificationPayload) {
-        try {
-            const text = payload.event === 'test'
-                ? `🔔 *Filtarr Test Notification*\n${payload.message}`
-                : `🎯 *Filter Match: ${payload.filter?.name}*\n` +
-                `*File:* \`${payload.file?.name}\`\n` +
-                `*Path:* \`${payload.file?.path}\`\n` +
-                `*Size:* ${this.formatSize(payload.file?.size || 0)}`;
+    if (!targets.slackToken && !targets.slackChannel) return;
 
-            const response = await fetch('https://slack.com/api/chat.postMessage', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`
-                },
-                body: JSON.stringify({
-                    channel: channel,
-                    text: text,
-                    blocks: [
-                        {
-                            type: 'section',
-                            text: { type: 'mrkdwn', text }
-                        }
-                    ]
-                }),
-            });
+    logger.warn(
+      { filterId: filter.id },
+      'Filter inherits Slack notifications but the default token/channel is incomplete',
+    );
+  }
 
-            const data = await response.json() as any;
-            if (!data.ok) {
-                logger.warn({ channel, error: data.error }, 'Slack notification failed');
-            }
-        } catch (err: any) {
-            logger.error({ channel, err: err.message }, 'Error sending Slack notification');
-        }
+  private buildPayload(filter: FilterRow, file: FileEvent) {
+    return {
+      event: 'filter_match',
+      filter: {
+        id: filter.id,
+        name: filter.name,
+      },
+      file: {
+        path: file.path,
+        name: file.name,
+        size: file.size,
+      },
+      timestamp: new Date().toISOString(),
+    };
+  }
+
+  private buildSlackText(filter: FilterRow, file: FileEvent): string {
+    return [
+      `Filtarr filter match: ${filter.name}`,
+      `File: ${file.name}`,
+      `Path: ${file.path}`,
+      `Size: ${file.size} bytes`,
+    ].join('\n');
+  }
+
+  private async sendWebhookNotification(filter: FilterRow, file: FileEvent, webhookUrl: string) {
+    const response = await fetch(webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(this.buildPayload(filter, file)),
+    });
+
+    if (!response.ok) {
+      logger.warn(
+        { filterId: filter.id, status: response.status },
+        'Webhook notification failed',
+      );
+      return;
     }
 
-    private formatSize(bytes: number): string {
-        if (bytes === 0) return '0 B';
-        const k = 1024;
-        const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-        const i = Math.floor(Math.log(bytes) / Math.log(k));
-        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    logger.debug({ filterId: filter.id }, 'Webhook notification sent');
+  }
+
+  private async sendSlackNotification(
+    filter: FilterRow,
+    file: FileEvent,
+    token: string,
+    channel: string,
+  ) {
+    const text = this.buildSlackText(filter, file);
+
+    const response = await fetch('https://slack.com/api/chat.postMessage', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json; charset=utf-8',
+      },
+      body: JSON.stringify({ channel, text }),
+    });
+
+    const body = (await response.json().catch(() => null)) as SlackApiResponse | null;
+    if (!response.ok || !body?.ok) {
+      logger.warn(
+        { filterId: filter.id, status: response.status, body },
+        'Slack notification failed',
+      );
+      return;
     }
+
+    logger.debug({ filterId: filter.id, channel }, 'Slack notification sent');
+  }
 }

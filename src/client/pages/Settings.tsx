@@ -1,9 +1,11 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../hooks/useAuth';
 import { api } from '../lib/api';
+import { ConfirmDialog } from '../components/ConfirmDialog';
 import { toast } from '../components/Toast';
+import { Button, Card, PageHeader, checkboxStyles, cn } from '../components/ui';
 
 type AuthMode = 'none' | 'basic' | 'forms';
 
@@ -42,6 +44,13 @@ interface AppSettingsResponse {
   validationIntervalMinutes: number;
 }
 
+interface NotificationSettingsResponse {
+  slackEnabled: boolean;
+  slackWebhookUrl: string;
+  slackWebhookUrlConfigured: boolean;
+  webhookEnabled: boolean;
+}
+
 interface Directory {
   id: number;
   path: string;
@@ -50,6 +59,55 @@ interface Directory {
   createdAt: string;
 }
 
+function getNotificationsDirty(
+  settings: NotificationSettingsResponse | undefined,
+  values: {
+    slackEnabled: boolean;
+    webhookEnabled: boolean;
+    slackWebhookEdited: boolean;
+    slackWebhookUrl: string;
+  },
+): boolean {
+  if (!settings) return false;
+  if (
+    values.slackEnabled !== settings.slackEnabled ||
+    values.webhookEnabled !== settings.webhookEnabled
+  ) {
+    return true;
+  }
+  if (!values.slackWebhookEdited) return false;
+  if (values.slackWebhookUrl.trim().length > 0) return true;
+  return settings.slackWebhookUrlConfigured;
+}
+
+const SETTINGS_SECTIONS = [
+  {
+    id: 'settings-general',
+    title: 'General',
+    description: 'Background validation and service behavior.',
+  },
+  {
+    id: 'settings-notifications',
+    title: 'Notifications',
+    description: 'Slack and webhook delivery defaults.',
+  },
+  {
+    id: 'settings-storage',
+    title: 'Paths & Storage',
+    description: 'Directories that Filtarr should monitor.',
+  },
+  {
+    id: 'settings-auth',
+    title: 'Authentication',
+    description: 'How users sign in and secure the app.',
+  },
+  {
+    id: 'settings-api-keys',
+    title: 'API Keys',
+    description: 'Programmatic access for external tools.',
+  },
+] as const;
+
 export default function Settings() {
   const { session } = useAuth();
   const navigate = useNavigate();
@@ -57,6 +115,9 @@ export default function Settings() {
   const [confirmRotate, setConfirmRotate] = useState<number | null>(null);
   const [newKey, setNewKey] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [activeSection, setActiveSection] = useState<(typeof SETTINGS_SECTIONS)[number]['id']>(
+    'settings-general',
+  );
 
   // Directories state
   const [newDirPath, setNewDirPath] = useState('');
@@ -64,6 +125,7 @@ export default function Settings() {
   const [editingDir, setEditingDir] = useState<Directory | null>(null);
   const [editDirPath, setEditDirPath] = useState('');
   const [editDirRecursive, setEditDirRecursive] = useState(true);
+  const [directoryToDelete, setDirectoryToDelete] = useState<Directory | null>(null);
 
   // Auth mode change state
   const [showAuthModeChange, setShowAuthModeChange] = useState(false);
@@ -71,6 +133,16 @@ export default function Settings() {
   const [authUsername, setAuthUsername] = useState('admin');
   const [authPassword, setAuthPassword] = useState('');
   const [confirmAuthChange, setConfirmAuthChange] = useState(false);
+  const [slackEnabled, setSlackEnabled] = useState(false);
+  const [webhookEnabled, setWebhookEnabled] = useState(false);
+  const [slackWebhookUrl, setSlackWebhookUrl] = useState('');
+  const [slackWebhookEdited, setSlackWebhookEdited] = useState(false);
+  const [generalFormInitialized, setGeneralFormInitialized] = useState(false);
+  const [generalFormDirty, setGeneralFormDirty] = useState(false);
+  const [notificationFormInitialized, setNotificationFormInitialized] = useState(false);
+  const [notificationFormDirty, setNotificationFormDirty] = useState(false);
+  const generalFormDirtyRef = useRef(false);
+  const notificationFormDirtyRef = useRef(false);
 
   const { data: authModeData } = useQuery({
     queryKey: ['settings', 'auth-mode'],
@@ -87,23 +159,89 @@ export default function Settings() {
     queryFn: () => api.get<AppSettingsResponse>('/settings/app'),
   });
 
-  const [validationInterval, setValidationInterval] = useState('60');
-
-  // Sync validationInterval to fetched state once
-  useQuery({
-    queryKey: ['settings', 'app', 'sync'],
-    queryFn: () => {
-      if (appSettings) setValidationInterval(appSettings.validationIntervalMinutes.toString());
-      return null;
-    },
-    enabled: !!appSettings && validationInterval === '60', // only fire if still default
+  const { data: notificationSettings } = useQuery({
+    queryKey: ['settings', 'notifications'],
+    queryFn: () => api.get<NotificationSettingsResponse>('/settings/notifications'),
   });
+
+  const [validationInterval, setValidationInterval] = useState('');
+
+  const setGeneralDirtyState = (value: boolean) => {
+    generalFormDirtyRef.current = value;
+    setGeneralFormDirty(value);
+  };
+
+  const setNotificationDirtyState = (value: boolean) => {
+    notificationFormDirtyRef.current = value;
+    setNotificationFormDirty(value);
+  };
+
+  const updateNotificationDirtyState = (
+    nextValues: Partial<{
+      slackEnabled: boolean;
+      webhookEnabled: boolean;
+      slackWebhookEdited: boolean;
+      slackWebhookUrl: string;
+    }>,
+  ) => {
+    setNotificationDirtyState(
+      getNotificationsDirty(notificationSettings, {
+        slackEnabled: nextValues.slackEnabled ?? slackEnabled,
+        webhookEnabled: nextValues.webhookEnabled ?? webhookEnabled,
+        slackWebhookEdited: nextValues.slackWebhookEdited ?? slackWebhookEdited,
+        slackWebhookUrl: nextValues.slackWebhookUrl ?? slackWebhookUrl,
+      }),
+    );
+  };
+
+  useEffect(() => {
+    if (!appSettings) return;
+    if (!generalFormInitialized) {
+      setGeneralFormInitialized(true);
+      if (generalFormDirtyRef.current) return;
+    }
+    if (generalFormDirtyRef.current) return;
+    setValidationInterval(appSettings.validationIntervalMinutes.toString());
+  }, [appSettings, generalFormInitialized]);
+
+  useEffect(() => {
+    if (!notificationSettings) return;
+    if (!notificationFormInitialized) {
+      setNotificationFormInitialized(true);
+      if (notificationFormDirtyRef.current) return;
+    }
+    if (notificationFormDirtyRef.current) return;
+    setSlackEnabled(notificationSettings.slackEnabled);
+    setWebhookEnabled(notificationSettings.webhookEnabled);
+    setSlackWebhookUrl('');
+    setSlackWebhookEdited(false);
+    setNotificationDirtyState(false);
+  }, [notificationSettings, notificationFormInitialized]);
 
   const updateAppSettingsMutation = useMutation({
     mutationFn: (data: { validationIntervalMinutes: number }) =>
       api.put<{ success: boolean; message: string }>('/settings/app', data),
     onSuccess: (data) => {
+      setGeneralDirtyState(false);
       queryClient.invalidateQueries({ queryKey: ['settings', 'app'] });
+      toast('success', data.message);
+    },
+    onError: (err: Error) => {
+      toast('error', err.message);
+    },
+  });
+
+  const updateNotificationSettingsMutation = useMutation({
+    mutationFn: (data: {
+      slackEnabled?: boolean;
+      slackWebhookUrl?: string;
+      webhookEnabled?: boolean;
+    }) => api.put<{ success: boolean; message: string }>('/settings/notifications', data),
+    onSuccess: (data) => {
+      setNotificationDirtyState(false);
+      queryClient.invalidateQueries({ queryKey: ['settings', 'notifications'] });
+      setSlackWebhookUrl('');
+      setSlackWebhookEdited(false);
       toast('success', data.message);
     },
     onError: (err: Error) => {
@@ -118,6 +256,23 @@ export default function Settings() {
       return;
     }
     updateAppSettingsMutation.mutate({ validationIntervalMinutes: val });
+  };
+
+  const handleSaveNotificationSettings = () => {
+    const willRetainWebhook = slackWebhookEdited
+      ? slackWebhookUrl.trim().length > 0
+      : Boolean(notificationSettings?.slackWebhookUrlConfigured);
+
+    if (slackEnabled && !willRetainWebhook) {
+      toast('error', 'Provide a Slack webhook URL or disable Slack notifications.');
+      return;
+    }
+
+    updateNotificationSettingsMutation.mutate({
+      slackEnabled,
+      webhookEnabled,
+      ...(slackWebhookEdited ? { slackWebhookUrl: slackWebhookUrl.trim() } : {}),
+    });
   };
 
   // Directories queries
@@ -159,9 +314,13 @@ export default function Settings() {
     mutationFn: (id: number) => api.delete(`/directories/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['directories'] });
+      setDirectoryToDelete(null);
       toast('success', 'Directory removed');
     },
-    onError: (e: Error) => toast('error', e.message),
+    onError: (e: Error) => {
+      setDirectoryToDelete(null);
+      toast('error', e.message);
+    },
   });
 
   const changeAuthModeMutation = useMutation({
@@ -217,10 +376,200 @@ export default function Settings() {
 
   return (
     <div className="space-y-6">
-      <h2 className="text-2xl font-bold">Settings</h2>
+      <PageHeader
+        title="Settings"
+        description="Review core configuration, notification delivery, storage paths, authentication, and API access from one place."
+      />
 
-      {/* Watched Directories */}
-      <div className="rounded-xl border dark:border-gray-800 border-gray-200 dark:bg-gray-900 bg-white shadow-sm p-6">
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+        {SETTINGS_SECTIONS.map((section) => (
+          <button
+            key={section.id}
+            type="button"
+            onClick={() => setActiveSection(section.id)}
+            className={cn(
+              'rounded-2xl border p-4 text-left shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-gray-950',
+              activeSection === section.id
+                ? 'border-blue-200 bg-blue-50 dark:border-blue-500/30 dark:bg-blue-500/10'
+                : 'border-gray-200 bg-white hover:border-blue-400 hover:bg-blue-50/60 dark:border-gray-800 dark:bg-gray-900 dark:hover:border-blue-500 dark:hover:bg-blue-500/10',
+            )}
+          >
+            <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">{section.title}</p>
+            <p className="mt-1 text-xs text-gray-600 dark:text-gray-500">{section.description}</p>
+          </button>
+        ))}
+      </div>
+
+      {activeSection === 'settings-general' && (
+      <section
+        id="settings-general"
+        className="scroll-mt-24 rounded-xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-900"
+      >
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">General</h3>
+        <p className="mt-1 text-sm text-gray-600 dark:text-gray-500">
+          Adjust how often Filtarr validates connected Arr instances in the background.
+        </p>
+
+        <div className="mt-4 space-y-4">
+          <div>
+            <label className="block text-sm font-medium dark:text-gray-400 text-gray-700">
+              Instance Validation Interval (Minutes)
+            </label>
+            <p className="mb-2 text-xs dark:text-gray-500 text-gray-600">
+              How often Filtarr automatically tests enabled instances in the background.
+            </p>
+            <input
+              type="number"
+              min="1"
+              value={validationInterval}
+              onChange={(e) => {
+                const nextValue = e.target.value;
+                setValidationInterval(nextValue);
+                setGeneralDirtyState(
+                  nextValue !== (appSettings?.validationIntervalMinutes.toString() ?? ''),
+                );
+              }}
+              className="mt-1 block w-full max-w-sm rounded-lg border dark:border-gray-700 border-gray-300 dark:bg-gray-800 bg-white px-3 py-2 dark:text-gray-100 text-gray-900 focus:border-blue-500 focus:outline-none"
+            />
+          </div>
+
+          <div className="pt-2">
+            <button
+              onClick={handleSaveGeneralSettings}
+              disabled={updateAppSettingsMutation.isPending || !generalFormDirty}
+              className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+            >
+              {updateAppSettingsMutation.isPending ? 'Saving...' : 'Save general settings'}
+            </button>
+          </div>
+        </div>
+      </section>
+      )}
+
+      {activeSection === 'settings-notifications' && (
+      <section
+        id="settings-notifications"
+        className="scroll-mt-24 rounded-xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-900"
+      >
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Notifications</h3>
+        <p className="mt-1 text-sm text-gray-600 dark:text-gray-500">
+          Configure default notification channels for Slack and outbound webhooks.
+        </p>
+
+        <div className="mt-4 space-y-5">
+          <label className="flex items-start justify-between gap-4 rounded-xl border border-gray-200 px-4 py-3 dark:border-gray-800">
+            <div>
+              <p className="text-sm font-medium text-gray-900 dark:text-gray-100">Slack notifications</p>
+              <p className="mt-1 text-xs text-gray-600 dark:text-gray-500">
+                Enable Slack delivery for notification-capable workflows.
+              </p>
+            </div>
+            <input
+              type="checkbox"
+              checked={slackEnabled}
+              onChange={(e) => {
+                const nextChecked = e.target.checked;
+                setSlackEnabled(nextChecked);
+                updateNotificationDirtyState({ slackEnabled: nextChecked });
+              }}
+              className="mt-1 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            />
+          </label>
+
+          <div>
+            <div className="flex items-center justify-between gap-3">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-400">
+                Slack Webhook URL
+              </label>
+              {notificationSettings?.slackWebhookUrlConfigured && !slackWebhookEdited && (
+                <span className="text-xs text-green-600 dark:text-green-400">Stored securely</span>
+              )}
+            </div>
+            <input
+              type="url"
+              value={slackWebhookUrl}
+              onChange={(e) => {
+                const nextValue = e.target.value;
+                setSlackWebhookEdited(true);
+                setSlackWebhookUrl(nextValue);
+                updateNotificationDirtyState({
+                  slackWebhookEdited: true,
+                  slackWebhookUrl: nextValue,
+                });
+              }}
+              placeholder={
+                notificationSettings?.slackWebhookUrlConfigured
+                  ? 'Leave blank to keep the existing webhook'
+                  : 'https://hooks.slack.com/services/...'
+              }
+              className="mt-2 block w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:border-blue-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
+            />
+            <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-gray-500">
+              <span>
+                {slackWebhookEdited
+                  ? slackWebhookUrl.trim()
+                    ? 'A new webhook will replace the saved value.'
+                    : 'The saved webhook will be cleared when you save.'
+                  : notificationSettings?.slackWebhookUrlConfigured
+                    ? 'A webhook is already stored securely. Leave this blank to keep it.'
+                    : 'Paste a Slack incoming webhook URL to enable Slack alerts.'}
+              </span>
+              {notificationSettings?.slackWebhookUrlConfigured && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSlackWebhookEdited(true);
+                    setSlackWebhookUrl('');
+                    updateNotificationDirtyState({
+                      slackWebhookEdited: true,
+                      slackWebhookUrl: '',
+                    });
+                  }}
+                  className="font-medium text-red-600 hover:text-red-500 dark:text-red-400"
+                >
+                  Clear saved webhook
+                </button>
+              )}
+            </div>
+          </div>
+
+          <label className="flex items-start justify-between gap-4 rounded-xl border border-gray-200 px-4 py-3 dark:border-gray-800">
+            <div>
+              <p className="text-sm font-medium text-gray-900 dark:text-gray-100">Webhook notifications</p>
+              <p className="mt-1 text-xs text-gray-600 dark:text-gray-500">
+                Allow outbound webhook notifications for matching filters and related actions.
+              </p>
+            </div>
+            <input
+              type="checkbox"
+              checked={webhookEnabled}
+              onChange={(e) => {
+                const nextChecked = e.target.checked;
+                setWebhookEnabled(nextChecked);
+                updateNotificationDirtyState({ webhookEnabled: nextChecked });
+              }}
+              className="mt-1 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            />
+          </label>
+
+          <div className="pt-2">
+            <button
+              onClick={handleSaveNotificationSettings}
+              disabled={updateNotificationSettingsMutation.isPending || !notificationFormDirty}
+              className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+            >
+              {updateNotificationSettingsMutation.isPending ? 'Saving...' : 'Save notification settings'}
+            </button>
+          </div>
+        </div>
+      </section>
+      )}
+
+      {activeSection === 'settings-storage' && (
+      <div
+        id="settings-storage"
+        className="scroll-mt-24 rounded-xl border dark:border-gray-800 border-gray-200 dark:bg-gray-900 bg-white shadow-sm p-6"
+      >
         <h3 className="text-lg font-semibold dark:text-gray-100 text-gray-900">
           Watched Directories
         </h3>
@@ -362,10 +711,7 @@ export default function Settings() {
                         Edit
                       </button>
                       <button
-                        onClick={() => {
-                          if (confirm(`Remove directory: ${dir.path}?`))
-                            deleteDirMutation.mutate(dir.id);
-                        }}
+                        onClick={() => setDirectoryToDelete(dir)}
                         className="rounded-lg border dark:border-red-900 border-red-200 px-3 py-1.5 text-xs font-medium dark:text-red-400 text-red-600 dark:hover:bg-red-900/30 hover:bg-red-50"
                       >
                         Remove
@@ -378,9 +724,13 @@ export default function Settings() {
           )}
         </div>
       </div>
+      )}
 
-      {/* Auth Configuration */}
-      <div className="rounded-xl border dark:border-gray-800 border-gray-200 dark:bg-gray-900 bg-white shadow-sm p-6">
+      {activeSection === 'settings-auth' && (
+      <div
+        id="settings-auth"
+        className="scroll-mt-24 rounded-xl border dark:border-gray-800 border-gray-200 dark:bg-gray-900 bg-white shadow-sm p-6"
+      >
         <div className="flex items-center justify-between">
           <h3 className="text-lg font-semibold">Authentication</h3>
           {!showAuthModeChange && (
@@ -528,9 +878,13 @@ export default function Settings() {
           </div>
         )}
       </div>
+      )}
 
-      {/* API Keys */}
-      <div className="rounded-xl border dark:border-gray-800 border-gray-200 dark:bg-gray-900 bg-white shadow-sm p-6">
+      {activeSection === 'settings-api-keys' && (
+      <div
+        id="settings-api-keys"
+        className="scroll-mt-24 rounded-xl border dark:border-gray-800 border-gray-200 dark:bg-gray-900 bg-white shadow-sm p-6"
+      >
         <h3 className="text-lg font-semibold">API Keys</h3>
         <p className="mt-1 text-sm dark:text-gray-500 text-gray-600">
           Manage API keys for programmatic access to Filtarr.
@@ -622,44 +976,25 @@ export default function Settings() {
           )}
         </div>
       </div>
+      )}
 
-      {/* General Settings */}
-      <div className="rounded-xl border dark:border-gray-800 border-gray-200 dark:bg-gray-900 bg-white shadow-sm p-6">
-        <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
-          General configuration
-        </h3>
-
-        <div className="mt-4 space-y-4">
-          <div>
-            <label className="block text-sm font-medium dark:text-gray-400 text-gray-700">
-              Instance Validation Interval (Minutes)
-            </label>
-            <p className="mb-2 text-xs dark:text-gray-500 text-gray-600">
-              How often Filtarr will automatically test all enabled instances in the background.
-            </p>
-            <input
-              type="number"
-              min="1"
-              value={validationInterval}
-              onChange={(e) => setValidationInterval(e.target.value)}
-              className="mt-1 block w-full max-w-sm rounded-lg border dark:border-gray-700 border-gray-300 dark:bg-gray-800 bg-white px-3 py-2 dark:text-gray-100 text-gray-900 focus:border-blue-500 focus:outline-none"
-            />
-          </div>
-
-          <div className="pt-2">
-            <button
-              onClick={handleSaveGeneralSettings}
-              disabled={
-                updateAppSettingsMutation.isPending ||
-                appSettings?.validationIntervalMinutes.toString() === validationInterval
-              }
-              className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-            >
-              {updateAppSettingsMutation.isPending ? 'Saving...' : 'Save Settings'}
-            </button>
-          </div>
-        </div>
-      </div>
+      <ConfirmDialog
+        isOpen={!!directoryToDelete}
+        title="Remove watched directory?"
+        description={
+          directoryToDelete
+            ? `Filtarr will stop monitoring ${directoryToDelete.path}. Existing files stay untouched.`
+            : ''
+        }
+        confirmLabel="Remove directory"
+        isPending={deleteDirMutation.isPending}
+        onClose={() => setDirectoryToDelete(null)}
+        onConfirm={() => {
+          if (directoryToDelete) {
+            deleteDirMutation.mutate(directoryToDelete.id);
+          }
+        }}
+      />
     </div>
   );
 }

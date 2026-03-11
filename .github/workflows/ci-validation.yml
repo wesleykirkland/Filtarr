@@ -1,0 +1,160 @@
+name: CI validation
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: ci-validation-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: 22.14.0
+
+jobs:
+  validate:
+    name: Validate app and container (blocking)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Use Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies deterministically
+        run: npm ci
+
+      - name: Verify lockfile remains unchanged
+        run: git diff --exit-code -- package-lock.json
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      - name: Build application
+        run: npm run build:all
+
+      - name: Validate container build
+        run: |
+          docker build \
+            --file Containerfile \
+            --build-arg OCI_REVISION="${GITHUB_SHA}" \
+            --build-arg OCI_CREATED="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --build-arg OCI_REF_NAME="${GITHUB_REF_NAME}" \
+            --tag filtarr-ci:${GITHUB_SHA} \
+            .
+
+  lint-baseline:
+    name: Lint baseline (advisory)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Use Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies deterministically
+        run: npm ci
+
+      - name: Verify lockfile remains unchanged
+        run: git diff --exit-code -- package-lock.json
+
+      - name: Run lint baseline
+        shell: bash
+        run: |
+          set +e
+          npm run lint
+          status=$?
+          set -e
+
+          if [ "$status" -ne 0 ]; then
+            {
+              echo "### Advisory lint baseline"
+              echo
+              echo '- `npm run lint` currently fails on known pre-existing repo issues outside this workflow task.'
+              echo "- Keep this job non-blocking until the existing lint backlog is remediated in a separate cleanup task."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::warning title=Advisory lint baseline::npm run lint currently fails on known pre-existing repo issues; see logs."
+          fi
+
+  audit-baseline:
+    name: Audit baseline (advisory)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Use Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies deterministically
+        run: npm ci
+
+      - name: Verify lockfile remains unchanged
+        run: git diff --exit-code -- package-lock.json
+
+      - name: Run production audit baseline
+        shell: bash
+        run: |
+          set +e
+          npm audit --omit=dev --audit-level=high
+          status=$?
+          set -e
+
+          if [ "$status" -ne 0 ]; then
+            {
+              echo "### Advisory npm audit baseline"
+              echo
+              echo '- `npm audit --omit=dev --audit-level=high` currently reports a known pre-existing high-severity advisory.'
+              echo "- Keep this job non-blocking until the dependency is updated in a separate approved dependency-maintenance task."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::warning title=Advisory npm audit baseline::Production npm audit currently reports a known pre-existing high-severity advisory; see logs."
+          fi
+
+  dependency-review:
+    name: Dependency review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Review dependency changes
+        uses: actions/dependency-review-action@v4
+        with:
+          config-file: ./.github/dependency-review-config.yml

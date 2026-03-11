@@ -120,6 +120,33 @@ describe('watcher service', () => {
     expect(state.watch).toHaveBeenCalledTimes(2);
   });
 
+  it('no-ops when wrapper helpers are called without an active singleton manager', async () => {
+    reloadWatcher();
+    stopWatcher();
+    await flush();
+
+    expect(state.watch).not.toHaveBeenCalled();
+    expect(state.logger.error).not.toHaveBeenCalled();
+  });
+
+  it('swallows wrapper-level reload and stop rejections from the active singleton manager', async () => {
+    const { watcher } = createWatcher();
+    watcher.close.mockRejectedValue(new Error('close failed'));
+    state.getAllDirectories.mockReturnValue([{ path: '/downloads', enabled: 1, recursive: 1 }]);
+    state.watch.mockReturnValue(watcher);
+
+    initWatcher(db);
+    await flush();
+
+    reloadWatcher();
+    stopWatcher();
+    await flush();
+
+    expect(state.watch).toHaveBeenCalledTimes(1);
+    expect(watcher.close).toHaveBeenCalledTimes(2);
+    expect(state.logger.error).not.toHaveBeenCalled();
+  });
+
   it('manages the singleton wrapper lifecycle and startup failures', async () => {
     state.getAllDirectories.mockImplementation(() => {
       throw new Error('db unavailable');

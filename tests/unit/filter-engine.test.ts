@@ -25,7 +25,7 @@ vi.mock('../../src/server/routes/instances.js', () => ({ createArrClient: state.
 vi.mock('../../src/server/services/scriptRunner.js', () => ({ runSandboxedScript: state.runSandboxedScript }));
 vi.mock('../../src/server/lib/logger.js', () => ({ logger: state.logger }));
 
-import { SecurityPolicyError } from '../../src/services/security.js';
+import * as security from '../../src/services/security.js';
 import { FilterEngine } from '../../src/server/services/filterEngine.js';
 
 const db = {} as never;
@@ -84,6 +84,7 @@ describe('FilterEngine', () => {
     expect(engine.evaluateSizeRule('>1KB', 2048)).toBe(true);
     expect(engine.evaluateSizeRule('<2KB', 1024)).toBe(true);
     expect(engine.evaluateSizeRule('5MB', 5 * 1024 * 1024)).toBe(true);
+    expect(engine.evaluateSizeRule('512', 512)).toBe(true);
     expect(engine.evaluateSizeRule('bad-size', 1024)).toBe(false);
   });
 
@@ -95,6 +96,7 @@ describe('FilterEngine', () => {
     expect(await engine.matches(makeFilter({ target_path: '/other' }), file)).toBe(false);
     expect(await engine.matches(makeFilter({ rule_type: 'extension', rule_payload: 'avi, mkv' }), file)).toBe(true);
     expect(await engine.matches(makeFilter({ rule_type: 'regex', rule_payload: 'movie\\.mkv' }), file)).toBe(true);
+    expect(await engine.matches(makeFilter({ rule_type: 'regex', rule_payload: null as never }), file)).toBe(true);
     expect(await engine.matches(makeFilter({ rule_type: 'size', rule_payload: '>1MB' }), file)).toBe(true);
     expect(await engine.matches(makeFilter({ rule_type: 'script', rule_payload: 'return true;' }), file)).toBe(true);
     expect(await engine.matches(makeFilter({ rule_type: 'script', rule_payload: 'return 0;' }), file)).toBe(false);
@@ -181,6 +183,32 @@ describe('FilterEngine', () => {
     });
   });
 
+  it('leaves delete, move, and script actions untouched when prerequisites are missing', async () => {
+    const engine = new FilterEngine(db) as any;
+    state.fs.existsSync.mockReturnValue(false);
+
+    await engine.executeAction(makeFilter({ id: 17, name: 'Delete Missing', action_type: 'delete' }), file);
+    await engine.executeAction(makeFilter({ id: 18, name: 'Move Missing', action_type: 'move', action_payload: '/archive' }), file);
+    await engine.executeAction(makeFilter({ id: 19, name: 'Move Without Target', action_type: 'move', action_payload: null }), file);
+    await engine.executeAction(makeFilter({ id: 20, name: 'Script Without Payload', action_type: 'script', action_payload: null }), file);
+
+    expect(state.fs.unlinkSync).not.toHaveBeenCalled();
+    expect(state.fs.mkdirSync).not.toHaveBeenCalled();
+    expect(state.fs.renameSync).not.toHaveBeenCalled();
+    expect(state.runSandboxedScript).not.toHaveBeenCalled();
+    expect(state.recordActivityEvent).not.toHaveBeenCalled();
+  });
+
+  it('moves files without recreating an existing destination directory', async () => {
+    const engine = new FilterEngine(db) as any;
+    state.fs.existsSync.mockImplementation((target: string) => target === file.path || target === '/archive');
+
+    await engine.executeAction(makeFilter({ id: 21, name: 'Move Existing Dir', action_type: 'move', action_payload: '/archive' }), file);
+
+    expect(state.fs.mkdirSync).not.toHaveBeenCalled();
+    expect(state.fs.renameSync).toHaveBeenCalledWith(file.path, '/archive/movie.mkv');
+  });
+
   it('skips or fails blocklisting when no linked instance is available', async () => {
     const engine = new FilterEngine(db) as any;
 
@@ -260,6 +288,66 @@ describe('FilterEngine', () => {
     );
   });
 
+  it('dispatches blocklist actions through executeAction and falls back to the local path when no mapping applies', async () => {
+    const engine = new FilterEngine(db) as any;
+    const blocklistAndRemove = vi.fn().mockResolvedValue(undefined);
+    state.getInstanceConfigById.mockReturnValue({
+      id: 5,
+      name: 'Radarr',
+      type: 'radarr',
+      url: 'https://arr.example',
+      apiKey: 'key',
+      timeout: 1000,
+      skipSslVerify: false,
+      localPath: '/elsewhere',
+      remotePath: '/remote',
+    });
+    state.createArrClient.mockReturnValue({
+      getQueue: vi.fn().mockResolvedValue({
+        records: [
+          { id: 14, title: 'No Output Path' },
+          { id: 15, title: 'Movie', outputPath: '/downloads' },
+        ],
+      }),
+      blocklistAndRemove,
+    });
+
+    await engine.executeAction(makeFilter({ id: 15, name: 'Execute Blocklist', action_type: 'blocklist', instance_id: 5 }), file);
+
+    expect(blocklistAndRemove).toHaveBeenCalledWith(15);
+    expect(state.recordActivityEvent).toHaveBeenCalledWith(
+      db,
+      expect.objectContaining({
+        message: 'Blocklisted "Movie" via filter "Execute Blocklist"',
+        details: expect.objectContaining({ actionType: 'blocklist', status: 'success', instanceId: 5, queueItemId: 15 }),
+      }),
+    );
+  });
+
+  it('falls back to the original file path when blocklist path mapping is not configured', async () => {
+    const engine = new FilterEngine(db) as any;
+    const blocklistAndRemove = vi.fn().mockResolvedValue(undefined);
+    state.getInstanceConfigById.mockReturnValue({
+      id: 6,
+      name: 'Sonarr',
+      type: 'sonarr',
+      url: 'https://arr.example',
+      apiKey: 'key',
+      timeout: 1000,
+      skipSslVerify: false,
+      localPath: '/downloads',
+      remotePath: null,
+    });
+    state.createArrClient.mockReturnValue({
+      getQueue: vi.fn().mockResolvedValue({ records: [{ id: 22, title: 'Movie', outputPath: '/downloads' }] }),
+      blocklistAndRemove,
+    });
+
+    await engine.handleBlocklist(makeFilter({ id: 22, name: 'Unmapped Queue Filter', action_type: 'blocklist', instance_id: 6 }), file);
+
+    expect(blocklistAndRemove).toHaveBeenCalledWith(22);
+  });
+
   it('validates webhook targets and records success, failure, and thrown notification outcomes', async () => {
     const engine = new FilterEngine(db) as any;
 
@@ -296,6 +384,20 @@ describe('FilterEngine', () => {
       { filterId: 14, err: 'offline' },
       'Error sending webhook notification',
     );
-    expect(SecurityPolicyError).toBeTypeOf('function');
+    expect(security.SecurityPolicyError).toBeTypeOf('function');
+  });
+
+  it('rethrows unexpected webhook validation failures', async () => {
+    const engine = new FilterEngine(db) as any;
+    const validatorError = new Error('validator exploded');
+    vi.spyOn(security, 'validateWebhookUrl').mockImplementationOnce(() => {
+      throw validatorError;
+    });
+
+    await expect(
+      engine.sendNotification(makeFilter({ id: 16, notify_webhook_url: 'https://example.com/hook' }), file),
+    ).rejects.toThrow('validator exploded');
+
+    expect(global.fetch).not.toHaveBeenCalled();
   });
 });

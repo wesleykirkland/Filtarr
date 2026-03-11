@@ -1,6 +1,11 @@
 import type Database from 'better-sqlite3';
 import { decryptStoredSecret, encryptStoredSecret } from '../../services/encryption.js';
 
+interface FilterSchemaError extends Error {
+  code?: string;
+  statusCode?: number;
+}
+
 export interface FilterRow {
   id: number;
   name: string;
@@ -10,6 +15,7 @@ export interface FilterRow {
   rule_payload: string;
   action_type: string;
   action_payload: string | null;
+  script_runtime: string;
   target_path: string | null;
   is_built_in: number;
   notify_on_match: number;
@@ -39,6 +45,7 @@ export interface CreateFilterInput {
   rulePayload: string;
   actionType: string;
   actionPayload?: string;
+  scriptRuntime?: string;
   targetPath?: string;
   notifyOnMatch?: boolean;
   notifyWebhookUrl?: string;
@@ -58,6 +65,7 @@ export interface UpdateFilterInput {
   rulePayload?: string;
   actionType?: string;
   actionPayload?: string;
+  scriptRuntime?: string;
   targetPath?: string;
   notifyOnMatch?: boolean;
   notifyWebhookUrl?: string;
@@ -105,6 +113,11 @@ export function getFilterById(db: Database.Database, id: number): FilterRow | nu
   return result ? rowToFilter(result) : null;
 }
 
+function arrInstanceExists(db: Database.Database, id: number): boolean {
+  const result = db.prepare<[number], { id: number }>('SELECT id FROM arr_instances WHERE id = ?').get(id);
+  return !!result;
+}
+
 export function createFilter(db: Database.Database, input: CreateFilterInput): FilterRow {
   const notifyWebhookUrl = normalizeNullableText(input.notifyWebhookUrl);
   const notifySlackToken = normalizeNullableText(input.notifySlackToken);
@@ -129,6 +142,7 @@ export function createFilter(db: Database.Database, input: CreateFilterInput): F
       input.rulePayload,
       input.actionType,
       input.actionPayload || null,
+      input.scriptRuntime || 'shell',
       input.targetPath || null,
       input.notifyOnMatch ? 1 : 0,
       encryptStoredSecret(notifyWebhookUrl),
@@ -161,6 +175,7 @@ export function updateFilter(
   const actionType = input.actionType ?? current.action_type;
   const actionPayload =
     input.actionPayload !== undefined ? input.actionPayload : current.action_payload;
+  const scriptRuntime = input.scriptRuntime ?? current.script_runtime;
   const targetPath = input.targetPath !== undefined ? input.targetPath : current.target_path;
   const notifyOnMatch =
     input.notifyOnMatch !== undefined ? (input.notifyOnMatch ? 1 : 0) : current.notify_on_match;
@@ -198,6 +213,7 @@ export function updateFilter(
     rulePayload,
     actionType,
     actionPayload || null,
+    scriptRuntime,
     targetPath || null,
     notifyOnMatch,
     encryptStoredSecret(notifyWebhookUrl),

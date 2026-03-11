@@ -3,6 +3,7 @@ import { logger } from './lib/logger.js';
 import { getDatabase, closeDatabase } from '../db/index.js';
 import { createApp } from './app.js';
 import { startInstanceValidator, stopInstanceValidator } from './cron/instanceValidator.js';
+import { startSettingsBackupScheduler, stopSettingsBackupScheduler } from './cron/settingsBackup.js';
 import { initWatcher, stopWatcher } from './services/watcher.js';
 import { initScheduler, stopScheduler } from './cron/scheduler.js';
 import { recordActivityEvent } from './lib/activity.js';
@@ -23,6 +24,7 @@ function main(): void {
 
   // Start background services
   startInstanceValidator(db);
+  startSettingsBackupScheduler(db);
   initWatcher(db);
   initScheduler(db);
 
@@ -37,6 +39,7 @@ function main(): void {
   const shutdown = (signal: string) => {
     logger.info(`Received ${signal}, shutting down gracefully...`);
     stopInstanceValidator();
+    stopSettingsBackupScheduler();
     stopWatcher();
     stopScheduler();
     server.close(() => {

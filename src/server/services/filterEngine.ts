@@ -7,7 +7,18 @@ import { getInstanceConfigById } from '../../db/schemas/instances.js';
 import { recordActivityEvent } from '../lib/activity.js';
 import { SecurityPolicyError, validateWebhookUrl } from '../../services/security.js';
 import { createArrClient } from '../routes/instances.js';
-import { runSandboxedScript } from './scriptRunner.js';
+import { isPathWithinTarget, normalizeFilterTargetPath } from './filterPaths.js';
+import { NotificationService } from './NotificationService.js';
+import { normalizeScriptRuntime, runConfiguredScript } from './scriptRunner.js';
+
+function didScriptRuleMatch(output: unknown, runtime: 'javascript' | 'shell'): boolean {
+  if (runtime === 'shell') {
+    const normalized = String(output ?? '').trim().toLowerCase();
+    return ['1', 'true', 'yes', 'match'].includes(normalized);
+  }
+
+  return Boolean(output);
+}
 
 export interface FileEvent {
   path: string;
@@ -16,17 +27,29 @@ export interface FileEvent {
   extension: string;
 }
 
+export type FilterEventType = 'watcher' | 'cron' | 'manual';
+
+interface ProcessFileOptions {
+  filterIds?: number[];
+}
+
 export class FilterEngine {
   private db: Database.Database;
+  private notificationService: NotificationService;
 
   constructor(db: Database.Database) {
     this.db = db;
+    this.notificationService = new NotificationService(db);
   }
 
   /**
    * Process a file through all applicable filters.
    */
-  public async processFile(filePath: string, eventType: 'watcher' | 'cron' | 'manual' = 'watcher') {
+  public async processFile(
+    filePath: string,
+    eventType: FilterEventType = 'watcher',
+    options: ProcessFileOptions = {},
+  ) {
     const fileName = path.basename(filePath);
     const extension = path.extname(filePath).toLowerCase().replace('.', '');
     let stats: fs.Stats;
@@ -48,11 +71,15 @@ export class FilterEngine {
       extension,
     };
 
-    const filters = getAllFilters(this.db).filter((f) => f.enabled === 1);
+    const allowedFilterIds = options.filterIds ? new Set(options.filterIds) : null;
+
+    const filters = getAllFilters(this.db).filter((filter) =>
+      this.shouldEvaluateFilter(filter, eventType, allowedFilterIds),
+    );
 
     for (const filter of filters) {
       try {
-        if (await this.matches(filter, fileEvent)) {
+        if (await this.matches(filter, fileEvent, eventType)) {
           logger.info(
             { filterId: filter.id, filterName: filter.name, file: fileName },
             'Filter match detected',
@@ -72,10 +99,7 @@ export class FilterEngine {
             },
           });
           await this.executeAction(filter, fileEvent);
-
-          if (filter.notify_on_match && filter.notify_webhook_url) {
-            await this.sendNotification(filter, fileEvent);
-          }
+          await this.notificationService.notifyFilterMatch(filter, fileEvent);
         }
       } catch (err: any) {
         logger.error({ filterId: filter.id, err: err.message }, 'Error processing filter');
@@ -83,14 +107,35 @@ export class FilterEngine {
     }
   }
 
-  private async matches(filter: FilterRow, file: FileEvent): Promise<boolean> {
+  private shouldEvaluateFilter(
+    filter: FilterRow,
+    eventType: FilterEventType,
+    allowedFilterIds: Set<number> | null,
+  ): boolean {
+    if (filter.enabled !== 1) return false;
+    if (allowedFilterIds && !allowedFilterIds.has(filter.id)) return false;
+    if (filter.trigger_source !== eventType) return false;
+
+    if (eventType === 'watcher') {
+      return normalizeFilterTargetPath(filter.target_path) !== null;
+    }
+
+    return true;
+  }
+
+  private async matches(
+    filter: FilterRow,
+    file: FileEvent,
+    eventType: FilterEventType,
+  ): Promise<boolean> {
     // 1. Check target path if specified
-    if (filter.target_path) {
-      const absoluteTarget = path.resolve(filter.target_path);
-      const absoluteFile = path.resolve(file.path);
-      if (!absoluteFile.startsWith(absoluteTarget)) {
+    const hasConfiguredTargetPath = typeof filter.target_path === 'string' && filter.target_path.trim().length > 0;
+    if (hasConfiguredTargetPath) {
+      if (!isPathWithinTarget(file.path, filter.target_path as string)) {
         return false;
       }
+    } else if (eventType === 'watcher') {
+      return false;
     }
 
     // 2. Evaluate rule
@@ -110,8 +155,9 @@ export class FilterEngine {
         return this.evaluateSizeRule(filter.rule_payload, file.size);
       }
       case 'script': {
-        const result = await runSandboxedScript(filter.rule_payload, { file });
-        return !!result.success && !!result.output;
+        const runtime = normalizeScriptRuntime(filter.script_runtime);
+        const result = await runConfiguredScript(filter.rule_payload, { file }, runtime);
+        return result.success && didScriptRuleMatch(result.output, runtime);
       }
       default:
         return false;

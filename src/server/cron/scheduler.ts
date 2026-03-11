@@ -153,6 +153,8 @@ export class CronManager {
         return;
       }
 
+      const pendingFiles: Promise<void>[] = [];
+
       // Simple recursive crawl of the target path
       let queuedFiles = 0;
       const crawl = (dir: string) => {

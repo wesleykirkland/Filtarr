@@ -929,18 +929,9 @@ export default function Settings() {
                 key={key.id}
                 className="flex items-center justify-between rounded-lg dark:bg-gray-800/50 bg-gray-50 border dark:border-transparent border-gray-200 px-4 py-3"
               >
-                <div className="flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="font-medium text-gray-900 dark:text-gray-100">{key.name}</span>
-                    <span className="font-mono text-sm dark:text-gray-500 text-gray-600">
-                      {key.maskedKey}
-                    </span>
-                  </div>
-                  <div className="mt-1 text-xs dark:text-gray-500 text-gray-600">
-                    Created: {new Date(key.createdAt).toLocaleDateString()}
-                    {key.lastUsedAt &&
-                      ` • Last used: ${new Date(key.lastUsedAt).toLocaleDateString()}`}
-                  </div>
+                <div className="text-sm font-medium">{section.label}</div>
+                <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  {section.description}
                 </div>
                 <div className="flex items-center gap-2">
                   {confirmRotate === key.id ? (

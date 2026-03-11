@@ -14,6 +14,7 @@ interface ChangeAuthModeRequest {
   authMode: AuthMode;
   username?: string;
   password?: string;
+  oidc?: Partial<OidcAuthConfig>;
 }
 
 interface AppSettings {
@@ -67,6 +68,7 @@ function hasAdminUser(db: Database.Database): boolean {
 export function createSettingsRoutes(
   db: Database.Database,
   onAuthModeChange?: (authMode: AuthMode) => void,
+  backupService: SettingsBackupService = new SettingsBackupService(db),
 ): Router {
   const router = Router();
 
@@ -74,7 +76,7 @@ export function createSettingsRoutes(
   router.get('/auth-mode', (_req: Request, res: Response): void => {
     const authMode = getCurrentAuthMode(db);
     const hasAdmin = hasAdminUser(db);
-    res.json({ authMode, hasAdminUser: hasAdmin });
+    res.json({ authMode, hasAdminUser: hasAdmin, oidc: getOidcSettings(db) });
   });
 
   // PUT /api/v1/settings/auth-mode — change authentication mode
@@ -82,18 +84,41 @@ export function createSettingsRoutes(
     '/auth-mode',
     async (req: Request, res: Response, next: NextFunction): Promise<void> => {
       try {
-        const { authMode, username, password } = req.body as ChangeAuthModeRequest;
+        const { authMode, username, password, oidc } = req.body as ChangeAuthModeRequest;
 
         // Validate authMode
-        if (!['none', 'basic', 'forms'].includes(authMode)) {
-          res.status(400).json({ error: 'Invalid auth mode. Must be none, basic, or forms' });
+        if (!['none', 'basic', 'forms', 'oidc'].includes(authMode)) {
+          res.status(400).json({ error: 'Invalid auth mode. Must be none, basic, forms, or oidc' });
           return;
         }
 
         const hasAdmin = hasAdminUser(db);
 
+        if (oidc || authMode === 'oidc') {
+          const existingOidc = getOidcSettings(db);
+          const oidcCandidate = {
+            issuerUrl: oidc?.issuerUrl?.trim() ?? existingOidc.issuerUrl,
+            clientId: oidc?.clientId?.trim() ?? existingOidc.clientId,
+            clientSecret: oidc?.clientSecret?.trim() ?? existingOidc.clientSecret,
+            callbackUrl: oidc?.callbackUrl?.trim() ?? existingOidc.callbackUrl,
+            scopes: normalizeScopes(oidc?.scopes ?? existingOidc.scopes),
+          };
+
+          const parsedOidc = OidcAuthConfigSchema.safeParse(oidcCandidate);
+          if (!parsedOidc.success) {
+            res.status(400).json({ error: parsedOidc.error.issues[0]?.message || 'Invalid OIDC configuration' });
+            return;
+          }
+
+          upsertSetting(db, 'oidc_issuer_url', parsedOidc.data.issuerUrl);
+          upsertSetting(db, 'oidc_client_id', parsedOidc.data.clientId);
+          upsertSetting(db, 'oidc_client_secret', parsedOidc.data.clientSecret);
+          upsertSetting(db, 'oidc_callback_url', parsedOidc.data.callbackUrl);
+          upsertSetting(db, 'oidc_scopes', parsedOidc.data.scopes.join(','));
+        }
+
         // If switching TO basic/forms and no admin exists, require username/password
-        if (authMode !== 'none' && !hasAdmin) {
+        if ((authMode === 'basic' || authMode === 'forms') && !hasAdmin) {
           if (!username || username.length < 1) {
             res.status(400).json({
               error: 'Username is required when enabling authentication without existing users',
@@ -151,9 +176,9 @@ export function createSettingsRoutes(
           { value: string }
         >(`SELECT value FROM settings WHERE key = 'validation_interval_minutes'`)
         .get();
-      const interval = parseInt(result?.value || '60', 10);
+      const interval = parseInt(result?.value || '15', 10);
       res.json({
-        validationIntervalMinutes: isNaN(interval) ? 60 : interval,
+        validationIntervalMinutes: isNaN(interval) ? 15 : interval,
       });
     } catch {
       res.status(500).json({ error: 'Failed to fetch app settings' });

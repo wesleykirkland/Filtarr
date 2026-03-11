@@ -372,6 +372,7 @@ export function createInstancesRouter(db: Database): Router {
 
       res.json(result);
     } catch (error) {
+      logger.error({ err: error, id: req.params['id'] }, 'Failed to test saved instance connection');
       res.status(500).json({
         success: false,
         error: error instanceof Error ? error.message : 'Connection test failed',

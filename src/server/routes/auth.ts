@@ -53,8 +53,16 @@ export function createAuthRoutes(db: Database.Database, config: AuthConfig): Rou
   // Rate limit all auth endpoints
   router.use(authRateLimiter(config.rateLimitAuth));
 
-  // --- Login ---
-  router.post('/login', (req: Request, res: Response, next: NextFunction): void => {
+  const handleOidcLogin = (req: Request, res: Response, next: NextFunction): void => {
+    if (!hasOidcStrategy()) {
+      res.status(503).json({ error: 'OIDC strategy is not configured in this build' });
+      return;
+    }
+
+    passport.authenticate('openidconnect')(req, res, next);
+  };
+
+  const handleLogin = (req: Request, res: Response, next: NextFunction): void => {
     // Get current auth mode dynamically from database
     const authMode = getCurrentAuthMode(db);
 
@@ -93,12 +101,16 @@ export function createAuthRoutes(db: Database.Database, config: AuthConfig): Rou
 
     if (authMode === 'oidc') {
       // OIDC login redirects to the identity provider
-      passport.authenticate('openidconnect')(req, res, next);
+      handleOidcLogin(req, res, next);
       return;
     }
 
     res.status(400).json({ error: 'Unknown auth mode' });
-  });
+  };
+
+  // --- Login ---
+  router.get('/login', handleLogin);
+  router.post('/login', handleLogin);
 
   // --- Logout ---
   router.post('/logout', (req: Request, res: Response, next: NextFunction): void => {
@@ -154,15 +166,21 @@ export function createAuthRoutes(db: Database.Database, config: AuthConfig): Rou
   });
 
   // --- OIDC callback ---
-  if (config.mode === 'oidc') {
-    router.get(
-      '/oidc/callback',
-      passport.authenticate('openidconnect', { failureRedirect: '/login' }),
-      (_req: Request, res: Response) => {
-        res.redirect('/');
-      },
-    );
-  }
+  router.get('/oidc/callback', (req: Request, res: Response, next: NextFunction): void => {
+    if (getCurrentAuthMode(db) !== 'oidc') {
+      res.status(404).json({ error: 'OIDC authentication is not enabled' });
+      return;
+    }
+
+    if (!hasOidcStrategy()) {
+      res.status(503).json({ error: 'OIDC strategy is not configured in this build' });
+      return;
+    }
+
+    passport.authenticate('openidconnect', { failureRedirect: '/login' })(req, res, () => {
+      res.redirect('/');
+    });
+  });
 
   // --- API Key Management ---
   router.use('/api-keys', requireAuthenticatedRequest(db));

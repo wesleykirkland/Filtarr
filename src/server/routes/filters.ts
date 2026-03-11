@@ -17,6 +17,7 @@ import {
 import { recordActivityEvent } from '../lib/activity.js';
 import { FILTER_PRESETS } from '../lib/filterPresets.js';
 import { logger } from '../lib/logger.js';
+import { reloadWatcher } from '../services/watcher.js';
 
 const createFilterSchema = z.object({
   name: z.string().min(1, 'Name is required'),
@@ -26,6 +27,7 @@ const createFilterSchema = z.object({
   rulePayload: z.string().min(1, 'Rule payload is required'),
   actionType: z.enum(['blocklist', 'delete', 'move', 'script', 'notify']),
   actionPayload: z.string().optional(),
+  scriptRuntime: z.enum(['shell', 'javascript']).default('shell'),
   targetPath: z.string().optional(),
   notifyOnMatch: z.boolean().optional(),
   notifyWebhookUrl: z.string().url().optional().or(z.literal('')),
@@ -45,6 +47,7 @@ const updateFilterSchema = z.object({
   rulePayload: z.string().min(1).optional(),
   actionType: z.enum(['blocklist', 'delete', 'move', 'script', 'notify']).optional(),
   actionPayload: z.string().optional(),
+  scriptRuntime: z.enum(['shell', 'javascript']).optional(),
   targetPath: z.string().optional(),
   notifyOnMatch: z.boolean().optional(),
   notifyWebhookUrl: z.string().url().optional().or(z.literal('')),

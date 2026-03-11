@@ -9,8 +9,6 @@
   --variant-dark: .dark &;
 }
 
-@custom-variant dark (&:where(.dark, .dark *));
-
 /* Dark mode default, light mode via class toggle */
 :root {
   color-scheme: dark;

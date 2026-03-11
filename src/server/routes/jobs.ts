@@ -7,8 +7,6 @@ import { recordActivityEvent } from '../lib/activity.js';
 import { logger } from '../lib/logger.js';
 import { reloadScheduler } from '../cron/scheduler.js';
 
-const JOB_TYPES = ['custom_script', 'built_in', 'filter_run'] as const;
-
 const createJobSchema = z.object({
   name: z.string().min(1, 'Name is required'),
   description: z.string().optional(),

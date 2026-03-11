@@ -1,11 +1,6 @@
 import type Database from 'better-sqlite3';
 import { decryptStoredSecret, encryptStoredSecret } from '../../services/encryption.js';
 
-interface FilterSchemaError extends Error {
-  code?: string;
-  statusCode?: number;
-}
-
 export interface FilterRow {
   id: number;
   name: string;
@@ -23,6 +18,7 @@ export interface FilterRow {
   notify_slack: number;
   notify_slack_token: string | null;
   notify_slack_channel: string | null;
+  override_notifications: number;
   instance_id: number | null;
   enabled: number;
   sort_order: number;
@@ -52,6 +48,7 @@ export interface CreateFilterInput {
   notifySlack?: boolean;
   notifySlackToken?: string;
   notifySlackChannel?: string;
+  overrideNotifications?: boolean;
   instanceId?: number;
   enabled?: boolean;
   sortOrder?: number;
@@ -72,6 +69,7 @@ export interface UpdateFilterInput {
   notifySlack?: boolean;
   notifySlackToken?: string;
   notifySlackChannel?: string;
+  overrideNotifications?: boolean;
   instanceId?: number;
   enabled?: boolean;
   sortOrder?: number;
@@ -113,11 +111,6 @@ export function getFilterById(db: Database.Database, id: number): FilterRow | nu
   return result ? rowToFilter(result) : null;
 }
 
-function arrInstanceExists(db: Database.Database, id: number): boolean {
-  const result = db.prepare<[number], { id: number }>('SELECT id FROM arr_instances WHERE id = ?').get(id);
-  return !!result;
-}
-
 export function createFilter(db: Database.Database, input: CreateFilterInput): FilterRow {
   const notifyWebhookUrl = normalizeNullableText(input.notifyWebhookUrl);
   const notifySlackToken = normalizeNullableText(input.notifySlackToken);
@@ -126,13 +119,13 @@ export function createFilter(db: Database.Database, input: CreateFilterInput): F
     .prepare(
       `INSERT INTO filters (
          name, description, trigger_source, rule_type, rule_payload,
-         action_type, action_payload, target_path,
+         action_type, action_payload, script_runtime, target_path,
          notify_on_match, notify_webhook_url, notify_slack,
-         notify_slack_token, notify_slack_channel,
+         notify_slack_token, notify_slack_channel, override_notifications,
          instance_id,
          enabled, sort_order, created_at, updated_at
        )
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
     )
     .run(
       input.name,
@@ -142,13 +135,14 @@ export function createFilter(db: Database.Database, input: CreateFilterInput): F
       input.rulePayload,
       input.actionType,
       input.actionPayload || null,
-      input.scriptRuntime || 'shell',
+      input.scriptRuntime || 'javascript',
       input.targetPath || null,
       input.notifyOnMatch ? 1 : 0,
       encryptStoredSecret(notifyWebhookUrl),
       input.notifySlack ? 1 : 0,
       encryptStoredSecret(notifySlackToken),
       notifySlackChannel,
+      input.overrideNotifications ? 1 : 0,
       input.instanceId || null,
       input.enabled !== false ? 1 : 0,
       input.sortOrder || 0,
@@ -193,6 +187,10 @@ export function updateFilter(
     input.notifySlackChannel !== undefined
       ? normalizeNullableText(input.notifySlackChannel)
       : current.notify_slack_channel;
+  const overrideNotifications =
+    input.overrideNotifications !== undefined
+      ? (input.overrideNotifications ? 1 : 0)
+      : current.override_notifications;
   const instanceId = input.instanceId !== undefined ? input.instanceId : current.instance_id;
   const enabled = input.enabled !== undefined ? (input.enabled ? 1 : 0) : current.enabled;
   const sortOrder = input.sortOrder ?? current.sort_order;
@@ -200,9 +198,9 @@ export function updateFilter(
   db.prepare(
     `UPDATE filters
      SET name = ?, description = ?, trigger_source = ?, rule_type = ?, rule_payload = ?,
-         action_type = ?, action_payload = ?, target_path = ?,
+         action_type = ?, action_payload = ?, script_runtime = ?, target_path = ?,
          notify_on_match = ?, notify_webhook_url = ?, notify_slack = ?,
-         notify_slack_token = ?, notify_slack_channel = ?,
+         notify_slack_token = ?, notify_slack_channel = ?, override_notifications = ?,
          instance_id = ?, enabled = ?, sort_order = ?, updated_at = datetime('now')
      WHERE id = ?`,
   ).run(
@@ -220,6 +218,7 @@ export function updateFilter(
     notifySlack,
     encryptStoredSecret(notifySlackToken),
     notifySlackChannel || null,
+    overrideNotifications,
     instanceId,
     enabled,
     sortOrder,

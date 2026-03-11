@@ -577,22 +577,59 @@ export default function Settings() {
           Map local file system paths that Filtarr should monitor. These should be the same paths
           your Arr instances write downloads to.
         </p>
-      </div>
 
-      <div className="grid gap-6 lg:grid-cols-[280px_minmax(0,1fr)]">
-        <nav className="rounded-xl border border-gray-200 bg-white p-3 shadow-sm dark:border-gray-800 dark:bg-gray-900">
-          <div className="space-y-2">
-            {sections.map((section) => (
-              <NavLink
-                key={section.path}
-                to={section.path}
-                className={({ isActive }) =>
-                  `block rounded-lg border px-4 py-3 transition-colors ${
-                    isActive
-                      ? 'border-blue-500 bg-blue-50 text-blue-700 dark:bg-blue-500/10 dark:text-blue-300'
-                      : 'border-transparent text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800/70'
-                  }`
-                }
+        {/* Add directory form */}
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!newDirPath.trim()) return;
+            createDirMutation.mutate({ path: newDirPath.trim(), recursive: newDirRecursive });
+          }}
+          className="mt-4 flex flex-wrap items-end gap-3"
+        >
+          <div className="flex-1 min-w-48">
+            <label className="block text-xs font-medium dark:text-gray-400 text-gray-700">
+              Path
+            </label>
+            <input
+              value={newDirPath}
+              onChange={(e) => setNewDirPath(e.target.value)}
+              placeholder="/downloads/complete"
+              className="mt-1 block w-full rounded-lg border dark:border-gray-700 border-gray-300 dark:bg-gray-800 bg-white px-3 py-2 dark:text-gray-100 text-gray-900 focus:border-blue-500 focus:outline-none text-sm"
+            />
+          </div>
+          <div className="flex items-center gap-2 pb-2">
+            <input
+              type="checkbox"
+              id="newDirRecursive"
+              checked={newDirRecursive}
+              onChange={(e) => setNewDirRecursive(e.target.checked)}
+              className="h-4 w-4 rounded dark:border-gray-700 border-gray-300 dark:bg-gray-800 bg-white text-blue-600"
+            />
+            <label htmlFor="newDirRecursive" className="text-sm dark:text-gray-400 text-gray-600">
+              Recursive
+            </label>
+          </div>
+          <button
+            type="submit"
+            disabled={createDirMutation.isPending || !newDirPath.trim()}
+            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+          >
+            {createDirMutation.isPending ? 'Adding...' : 'Add Directory'}
+          </button>
+        </form>
+
+        {/* Directory list */}
+        <div className="mt-4 space-y-2">
+          {!directories || directories.length === 0 ? (
+            <p className="text-sm dark:text-gray-500 text-gray-600 py-2">
+              No directories configured. Add one above.
+            </p>
+          ) : (
+            directories.map((dir) => (
+              <div
+                key={dir.id}
+                className="rounded-lg border dark:border-gray-700 border-gray-200 dark:bg-gray-800/50 bg-gray-50 px-4 py-3"
               >
                 {editingDir?.id === dir.id ? (
                   <form
@@ -726,7 +763,9 @@ export default function Settings() {
               </div>
             )}
           </div>
-        </nav>
+        ) : (
+          <div className="mt-4 space-y-4">
+            <p className="text-sm text-gray-400">Select a new authentication mode:</p>
 
             <div className="space-y-2">
               {(['none', 'basic', 'forms'] as const).map((mode) => (

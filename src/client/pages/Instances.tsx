@@ -6,6 +6,7 @@ import {
   useDeleteInstance,
   useTestInstance,
   useTestUnsavedInstance,
+  type TestResult,
   type Instance,
   type CreateInstanceInput,
 } from '../hooks/useInstances';
@@ -44,28 +45,22 @@ function InstanceForm({
   const [remotePath, setRemotePath] = useState(initial?.remotePath ?? '');
   const [localPath, setLocalPath] = useState(initial?.localPath ?? '');
   const [testStatus, setTestStatus] = useState<'idle' | 'success' | 'error'>('idle');
-  const [testError, setTestError] = useState<string | null>(null);
 
   const testUnsavedMutation = useTestUnsavedInstance();
 
-  const resetTestState = () => {
-    setTestStatus('idle');
-    setTestError(null);
-  };
-
   const handleUrlChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setUrl(e.target.value);
-    resetTestState();
+    setTestStatus('idle');
   };
 
   const handleApiKeyChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setApiKey(e.target.value);
-    resetTestState();
+    setTestStatus('idle');
   };
 
   const handleSkipSslVerifyChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setSkipSslVerify(e.target.checked);
-    resetTestState();
+    setTestStatus('idle');
   };
 
   const handleTestConnection = (e: React.MouseEvent) => {
@@ -88,15 +83,12 @@ function InstanceForm({
         onSuccess: (data: { success: boolean; error?: string }) => {
           if (data.success) {
             setTestStatus('success');
-            setTestError(null);
           } else {
             setTestStatus('error');
-            setTestError(data.error || 'Connection failed');
           }
         },
-        onError: (error: Error) => {
+        onError: () => {
           setTestStatus('error');
-          setTestError(error.message || 'Connection failed');
         },
       },
     );
@@ -177,10 +169,7 @@ function InstanceForm({
             id="instance-timeout"
             type="number"
             value={timeout}
-            onChange={(e) => {
-              setTimeout_(e.target.value);
-              resetTestState();
-            }}
+            onChange={(e) => setTimeout_(e.target.value)}
             min="1"
           />
         </Field>
@@ -264,9 +253,6 @@ function InstanceForm({
           Cancel
         </Button>
       </div>
-      {testError && (
-        <p className="text-sm font-medium text-red-600 dark:text-red-400">{testError}</p>
-      )}
     </form>
   );
 }
@@ -423,15 +409,6 @@ export default function Instances() {
           }
         />
       )}
-      <ConfirmModal
-        isOpen={deletingId !== null}
-        title="Delete Instance"
-        message={`Are you sure you want to delete the instance "${instances?.find(i => i.id === deletingId)?.name}"? This will also remove all associated filters.`}
-        confirmLabel="Delete"
-        isDestructive={true}
-        onConfirm={() => deletingId && deleteMutation.mutate(deletingId)}
-        onClose={() => setDeletingId(null)}
-      />
     </div>
   );
 }

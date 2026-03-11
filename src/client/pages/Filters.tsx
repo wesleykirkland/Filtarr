@@ -1,13 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
-import {
-  canDeleteFilter,
-  FILTER_CARD_CLASS_NAME,
-  getFilterNotificationChannels,
-  hasConfiguredPath,
-  trimToUndefined,
-} from '../lib/filterUi';
 import { toast } from '../components/Toast';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { FiltersIcon, PlusIcon } from '../components/Icons';
@@ -54,7 +47,6 @@ interface Filter {
   rule_payload: string;
   action_type: 'blocklist' | 'delete' | 'move' | 'script' | 'notify';
   action_payload?: string;
-  script_runtime: 'javascript' | 'shell';
   target_path?: string;
   is_built_in: number;
   notify_on_match: number;
@@ -66,26 +58,18 @@ interface Filter {
   created_at: string;
 }
 
-interface NotificationSettingsResponse {
-  slackEnabled: boolean;
-  webhookEnabled: boolean;
-  defaultWebhookUrl: string;
-  defaultSlackToken: string;
-  defaultSlackChannel: string;
-}
-
 const RULE_TYPE_LABELS: Record<Filter['rule_type'], string> = {
   regex: 'Regex Pattern',
   extension: 'File Extension',
   size: 'File Size',
-  script: 'Script Rule',
+  script: 'Custom Script',
 };
 
 const ACTION_TYPE_LABELS: Record<Filter['action_type'], string> = {
   blocklist: 'Blocklist in Arr',
   delete: 'Delete File',
   move: 'Move to Folder',
-  script: 'Run Script Action',
+  script: 'Run Script',
   notify: 'Send Notification',
 };
 
@@ -94,22 +78,6 @@ const RULE_PLACEHOLDERS: Record<Filter['rule_type'], string> = {
   extension: 'e.g. exe,bat,sh',
   size: 'e.g. >100MB or <1KB',
   script: '// JS — return true to match\nreturn file.name.endsWith(".exe");',
-};
-
-const SCRIPT_RUNTIME_LABELS: Record<Filter['script_runtime'], string> = {
-  shell: 'Shell script (bash)',
-  javascript: 'Legacy JavaScript (sandbox)',
-};
-
-const SCRIPT_RULE_PLACEHOLDERS: Record<Filter['script_runtime'], string> = {
-  javascript: '// JS — return true to match\nreturn context.file.name.endsWith(".exe");',
-  shell:
-    'if [[ "$FILTARR_FILE_NAME" == *.exe ]]; then\n  echo true\nfi',
-};
-
-const SCRIPT_ACTION_PLACEHOLDERS: Record<Filter['script_runtime'], string> = {
-  javascript: '// JS action\nconsole.log(`Matched ${context.file.path}`);',
-  shell: 'echo "Matched $FILTARR_FILE_PATH"',
 };
 
 const ACTION_BADGE: Record<Filter['action_type'], string> = {
@@ -142,9 +110,6 @@ function FilterForm({ initial, instances, onClose, onSaved }: FilterFormProps) {
     initial?.action_type ?? 'blocklist',
   );
   const [actionPayload, setActionPayload] = useState(initial?.action_payload ?? '');
-  const [scriptRuntime, setScriptRuntime] = useState<Filter['script_runtime']>(
-    initial?.script_runtime ?? 'shell',
-  );
   const [targetPath, setTargetPath] = useState(initial?.target_path ?? '');
   const [instanceId, setInstanceId] = useState<number | undefined>(
     initial?.instance_id ?? (instances.length === 1 ? instances[0].id : undefined),
@@ -186,25 +151,8 @@ function FilterForm({ initial, instances, onClose, onSaved }: FilterFormProps) {
 
   const handleSubmit = (evt: React.FormEvent) => {
     evt.preventDefault();
-    const trimmedTargetPath = trimToUndefined(targetPath);
-    const trimmedWebhookUrl = trimToUndefined(notifyWebhookUrl);
-    const trimmedSlackToken = trimToUndefined(notifySlackToken);
-    const trimmedSlackChannel = trimToUndefined(notifySlackChannel);
-
-    if (!trimmedTargetPath) {
-      setErr('Please choose a watched directory for this filter');
-      return;
-    }
     if (!instanceId) {
       setErr('Please select an Arr instance');
-      return;
-    }
-    if (overrideNotifications && notifyOnMatch && !trimmedWebhookUrl) {
-      setErr('Please provide a webhook URL or turn off webhook notifications');
-      return;
-    }
-    if (overrideNotifications && notifySlack && (!trimmedSlackToken || !trimmedSlackChannel)) {
-      setErr('Slack notifications require both a bot token and a channel');
       return;
     }
     setErr('');
@@ -216,8 +164,7 @@ function FilterForm({ initial, instances, onClose, onSaved }: FilterFormProps) {
       rulePayload,
       actionType,
       actionPayload: actionPayload || undefined,
-      scriptRuntime,
-      targetPath: trimmedTargetPath,
+      targetPath: targetPath || undefined,
       instanceId,
       notifyOnMatch,
       notifyWebhookUrl: clearStoredWebhook ? '' : notifyWebhookUrl || undefined,
@@ -226,11 +173,6 @@ function FilterForm({ initial, instances, onClose, onSaved }: FilterFormProps) {
   };
 
   const isScript = ruleType === 'script';
-  const usesScriptRuntime = isScript || actionType === 'script';
-  const scriptRuntimeHelpText =
-    scriptRuntime === 'shell'
-      ? 'Shell scripts execute through bash. Use FILTARR_FILE_* plus FILTARR_CONTEXT_JSON; rule scripts should print true to match.'
-      : 'Legacy JavaScript filters run in the sandbox and should use context.file. Use this only when you specifically want the older JS path.';
 
   return (
     <>
@@ -483,20 +425,12 @@ function FilterForm({ initial, instances, onClose, onSaved }: FilterFormProps) {
 interface FilterCardProps {
   filter: Filter;
   instances: Instance[];
-  notificationSettings?: NotificationSettingsResponse;
   onEdit: () => void;
   onToggle: () => void;
   onDelete: (() => void) | null;
 }
 
-function FilterCard({
-  filter: f,
-  instances,
-  notificationSettings,
-  onEdit,
-  onToggle,
-  onDelete,
-}: FilterCardProps) {
+function FilterCard({ filter: f, instances, onEdit, onToggle, onDelete }: FilterCardProps) {
   const linkedInstance = instances.find((i) => i.id === f.instance_id);
 
   return (
@@ -519,6 +453,11 @@ function FilterCard({
               <span className={`rounded px-2 py-0.5 text-[11px] font-medium uppercase ${ACTION_BADGE[f.action_type]}`}>
                 {ACTION_TYPE_LABELS[f.action_type]}
               </span>
+              {!!f.notify_on_match && (
+                <span title="Webhook notification enabled" className="text-xs">
+                  🔔
+                </span>
+              )}
             </div>
             {f.description && (
               <p className="mt-0.5 truncate text-sm text-gray-500">{f.description}</p>
@@ -531,41 +470,6 @@ function FilterCard({
               {f.target_path && (
                 <span className="rounded bg-gray-100 px-1.5 py-0.5 font-mono dark:bg-gray-800">{f.target_path}</span>
               )}
-            </div>
-            <div className="mt-3 grid gap-2 lg:grid-cols-2">
-              <div className="rounded-xl border border-gray-200 bg-gray-50/80 px-3 py-2 dark:border-gray-800 dark:bg-gray-950/40">
-                <div className="text-[11px] font-semibold uppercase tracking-wide dark:text-gray-500 text-gray-500">
-                  Watched directory
-                </div>
-                <div
-                  className={`mt-1 break-all font-mono text-xs ${
-                    pathConfigured ? 'dark:text-gray-200 text-gray-800' : 'dark:text-amber-300 text-amber-700'
-                  }`}
-                >
-                  {pathConfigured ? f.target_path : 'Path required before watcher runs this filter'}
-                </div>
-              </div>
-              <div className="rounded-xl border border-gray-200 bg-gray-50/80 px-3 py-2 dark:border-gray-800 dark:bg-gray-950/40">
-                <div className="text-[11px] font-semibold uppercase tracking-wide dark:text-gray-500 text-gray-500">
-                  Notifications
-                </div>
-                <div className="mt-1 flex flex-wrap gap-1.5">
-                  {notificationChannels.length > 0 ? (
-                    notificationChannels.map((channel) => (
-                      <span
-                        key={channel.key}
-                        title={channel.detail}
-                        className="rounded-full border border-blue-500/30 bg-blue-500/10 px-2 py-1 text-[11px] font-medium text-blue-600 dark:text-blue-300"
-                      >
-                        {channel.label}
-                        {channel.detail ? ` · ${channel.detail}` : ''}
-                      </span>
-                    ))
-                  ) : (
-                    <span className="text-xs dark:text-gray-500 text-gray-600">Disabled</span>
-                  )}
-                </div>
-              </div>
             </div>
             {linkedInstance && (
               <div className="mt-1.5 flex flex-wrap gap-1.5">
@@ -613,11 +517,6 @@ export default function Filters() {
     queryFn: () => api.get('/instances'),
   });
 
-  const { data: notificationSettings } = useQuery<NotificationSettingsResponse>({
-    queryKey: ['settings', 'notifications'],
-    queryFn: () => api.get('/settings/notifications'),
-  });
-
   const toggleMutation = useMutation({
     mutationFn: ({ id, enabled }: { id: number; enabled: boolean }) =>
       api.put(`/filters/${id}`, { enabled }),
@@ -634,20 +533,7 @@ export default function Filters() {
     onError: (e: Error) => toast('error', e.message),
   });
 
-  const isEditorModalOpen = showForm || editing !== null;
-
-  const closeEditorModal = () => {
-    setShowForm(false);
-    setEditing(null);
-  };
-
-  const handleConfirmDelete = () => {
-    if (!deleting) return;
-
-    deleteMutation.mutate(deleting.id, {
-      onSuccess: () => setDeleting(null),
-    });
-  };
+  const isModalOpen = showForm || editing !== null;
 
   return (
     <div className="mx-auto max-w-6xl space-y-8">
@@ -678,14 +564,23 @@ export default function Filters() {
 
       <Modal
         title={editing ? 'Edit Filter' : 'Add Filter'}
-        isOpen={isEditorModalOpen}
-        onClose={closeEditorModal}
+        isOpen={isModalOpen}
+        onClose={() => {
+          setShowForm(false);
+          setEditing(null);
+        }}
       >
         <FilterForm
           initial={editing ?? undefined}
           instances={instances}
-          onClose={closeEditorModal}
-          onSaved={closeEditorModal}
+          onClose={() => {
+            setShowForm(false);
+            setEditing(null);
+          }}
+          onSaved={() => {
+            setShowForm(false);
+            setEditing(null);
+          }}
         />
       </Modal>
 
@@ -728,7 +623,6 @@ export default function Filters() {
                   key={f.id}
                   filter={f}
                   instances={instances}
-                  notificationSettings={notificationSettings}
                   onEdit={() => setEditing(f)}
                   onToggle={() => toggleMutation.mutate({ id: f.id, enabled: !f.enabled })}
                   onDelete={!f.is_built_in ? () => setPendingDelete(f) : null}

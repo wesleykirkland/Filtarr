@@ -16,14 +16,26 @@ describe('security utilities', () => {
   it('validates webhook and Arr URLs with named policies', () => {
     expect(validateWebhookUrl(' https://example.com/path ')).toBe('https://example.com/path');
     expect(validateArrInstanceUrl('http://127.0.0.1:8989')).toBe('http://127.0.0.1:8989/');
+    expect(validateArrInstanceUrl('https://localhost.localdomain:8989')).toBe(
+      'https://localhost.localdomain:8989/',
+    );
 
     expect(() => validateWebhookUrl('not-a-url')).toThrow('url must be a valid URL');
     expect(() => validateWebhookUrl('ftp://example.com')).toThrow('https protocol');
     expect(() => validateWebhookUrl('https://user:pass@example.com')).toThrow(
       'must not include embedded credentials',
     );
+    expect(() => validateWebhookUrl('https://printer.local')).toThrow('private network');
+    expect(() => validateWebhookUrl('https://10.0.0.9')).toThrow('private network');
+    expect(() => validateWebhookUrl('https://172.16.0.9')).toThrow('private network');
+    expect(() => validateWebhookUrl('https://192.168.1.20')).toThrow('private network');
     expect(() => validateWebhookUrl('https://127.0.0.1')).toThrow('private network');
     expect(() => validateWebhookUrl('https://[::1]')).toThrow('private network');
+    expect(() => validateWebhookUrl('https://[fd00::1]')).toThrow('private network');
+    expect(() => validateWebhookUrl('https://[fe80::1]')).toThrow('private network');
+    expect(() => validateWebhookUrl('   ', { fieldName: 'slackWebhookUrl' })).toThrow(
+      'slackWebhookUrl is required',
+    );
     expect(() => validateArrInstanceUrl('http://example.com', true)).toThrow('https URLs');
   });
 

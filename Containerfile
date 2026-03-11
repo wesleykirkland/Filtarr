@@ -30,6 +30,22 @@ LABEL org.opencontainers.image.title="Filtarr" \
       org.opencontainers.image.created="${OCI_CREATED}" \
       org.opencontainers.image.ref.name="${OCI_REF_NAME}"
 
+ARG OCI_VERSION=0.1.0
+ARG OCI_REVISION=unknown
+ARG OCI_CREATED=unknown
+ARG OCI_SOURCE=https://github.com/wesleykirkland/Filtarr
+ARG OCI_REF_NAME=dev
+
+LABEL org.opencontainers.image.title="Filtarr" \
+      org.opencontainers.image.description="Arr stack companion — file monitoring, blocklist management, and automation" \
+      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.source="${OCI_SOURCE}" \
+      org.opencontainers.image.url="${OCI_SOURCE}" \
+      org.opencontainers.image.version="${OCI_VERSION}" \
+      org.opencontainers.image.revision="${OCI_REVISION}" \
+      org.opencontainers.image.created="${OCI_CREATED}" \
+      org.opencontainers.image.ref.name="${OCI_REF_NAME}"
+
 RUN addgroup -g 1001 -S filtarr && \
     adduser -u 1001 -S filtarr -G filtarr
 

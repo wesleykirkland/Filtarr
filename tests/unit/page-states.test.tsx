@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import Activity from '../../src/client/pages/Activity';
 import Dashboard from '../../src/client/pages/Dashboard';
 import Settings from '../../src/client/pages/Settings';
-import { click, render } from '../support/render';
+import { click, render, waitFor } from '../support/render';
 
 const { api, useInstances } = vi.hoisted(() => ({
   api: { get: vi.fn(), put: vi.fn(), post: vi.fn(), delete: vi.fn() },
@@ -40,12 +40,6 @@ function createWrapper(node: React.ReactNode, client?: QueryClient) {
       </MemoryRouter>
     ),
   };
-}
-
-async function flush() {
-  await act(async () => {
-    await Promise.resolve();
-  });
 }
 
 async function setInputValue(input: HTMLInputElement | HTMLTextAreaElement, value: string) {
@@ -108,10 +102,10 @@ describe('page loading and error states', () => {
 
     const { ui } = createWrapper(<Dashboard />, queryClient);
     const view = await render(ui);
-    await flush();
-
-    expect(document.body.textContent).toContain('Unable to load dashboard data');
-    expect(document.body.textContent).not.toContain('What to do next');
+    await waitFor(() => {
+      expect(document.body.textContent).toContain('Unable to load dashboard data');
+      expect(document.body.textContent).not.toContain('What to do next');
+    });
     await view.unmount();
   });
 
@@ -132,10 +126,10 @@ describe('page loading and error states', () => {
 
     const { ui } = createWrapper(<Activity />, queryClient);
     const view = await render(ui);
-    await flush();
-
-    expect(document.body.textContent).toContain('Unable to load activity');
-    expect(document.body.textContent).toContain('Timeline offline');
+    await waitFor(() => {
+      expect(document.body.textContent).toContain('Unable to load activity');
+      expect(document.body.textContent).toContain('Timeline offline');
+    });
     await view.unmount();
   });
 });
@@ -157,7 +151,9 @@ describe('settings form state', () => {
   it('preserves unsaved general settings when the query cache refetches', async () => {
     const { queryClient, ui } = createWrapper(<Settings />);
     const view = await render(ui);
-    await flush();
+    await waitFor(() => {
+      expect(document.body.querySelector('input[type="number"]')).toBeTruthy();
+    });
 
     const input = document.body.querySelector('input[type="number"]') as HTMLInputElement;
     await setInputValue(input, '15');
@@ -165,22 +161,29 @@ describe('settings form state', () => {
     act(() => {
       queryClient.setQueryData(['settings', 'app'], { validationIntervalMinutes: 60 });
     });
-    await flush();
-
-    expect(input.value).toBe('15');
+    await waitFor(() => {
+      expect(input.value).toBe('15');
+    });
     await view.unmount();
   });
 
   it('preserves unsaved notification edits when the query cache refetches', async () => {
     const { queryClient, ui } = createWrapper(<Settings />);
     const view = await render(ui);
-    await flush();
+    let notificationsButton: Element | null = null;
+    await waitFor(() => {
+      notificationsButton =
+        Array.from(document.body.querySelectorAll('button')).find(
+          (node) => node.textContent?.includes('Notifications') ?? false,
+        ) ?? null;
+      expect(notificationsButton).toBeTruthy();
+    });
 
-    await click(
-      Array.from(document.body.querySelectorAll('button')).find(
-        (node) => node.textContent?.includes('Notifications') ?? false,
-      ) ?? null,
-    );
+    await click(notificationsButton);
+
+    await waitFor(() => {
+      expect(document.body.querySelector('input[type="url"]')).toBeTruthy();
+    });
 
     const urlInput = document.body.querySelector('input[type="url"]') as HTMLInputElement;
     await setInputValue(urlInput, 'https://hooks.slack.com/services/T/B/NEW');
@@ -193,9 +196,9 @@ describe('settings form state', () => {
         webhookEnabled: true,
       });
     });
-    await flush();
-
-    expect(urlInput.value).toBe('https://hooks.slack.com/services/T/B/NEW');
+    await waitFor(() => {
+      expect(urlInput.value).toBe('https://hooks.slack.com/services/T/B/NEW');
+    });
     await view.unmount();
   });
 });

@@ -15,6 +15,7 @@ const IV_LENGTH = 12; // 96 bits for GCM
 const TAG_LENGTH = 16; // 128 bits auth tag
 const KEY_LENGTH = 32; // 256 bits
 const PBKDF2_ITERATIONS = 100_000;
+const STORED_SECRET_PREFIX = 'enc:';
 
 let _derivedKey: Buffer | null = null;
 
@@ -91,6 +92,31 @@ export function decrypt(encryptedHex: string, dataDir?: string): string {
   const decrypted = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
 
   return decrypted.toString('utf-8');
+}
+
+/**
+ * Mark whether a persisted secret value is already encrypted-at-rest.
+ */
+export function isEncryptedStoredSecret(value: string | null | undefined): boolean {
+  return Boolean(value?.startsWith(STORED_SECRET_PREFIX));
+}
+
+/**
+ * Encrypt a secret before storing it in the database.
+ */
+export function encryptStoredSecret(plaintext: string | null | undefined, dataDir?: string): string | null {
+  if (!plaintext) return null;
+  return `${STORED_SECRET_PREFIX}${encrypt(plaintext, dataDir)}`;
+}
+
+/**
+ * Decrypt a stored secret, while remaining backward-compatible with legacy
+ * plaintext rows that have not been migrated yet.
+ */
+export function decryptStoredSecret(value: string | null | undefined, dataDir?: string): string | null {
+  if (!value) return null;
+  if (!isEncryptedStoredSecret(value)) return value;
+  return decrypt(value.slice(STORED_SECRET_PREFIX.length), dataDir);
 }
 
 /**

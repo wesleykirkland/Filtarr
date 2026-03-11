@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../lib/api';
+import { Modal } from './Modal';
+import { Button, Field, Input, buttonStyles, cn } from './ui';
 
 interface BrowseEntry {
   name: string;
@@ -41,35 +43,10 @@ export function FilesystemPicker({ value, onSelect, onClose }: FilesystemPickerP
   const parts = (data?.current || browsePath).split('/').filter(Boolean);
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-      <div
-        className="w-full max-w-lg rounded-2xl border dark:border-gray-700 border-gray-200 dark:bg-gray-900 bg-white shadow-2xl flex flex-col"
-        style={{ maxHeight: '80vh' }}
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between border-b dark:border-gray-800 border-gray-200 px-5 py-4">
-          <h3 className="font-semibold dark:text-gray-100 text-gray-900">Browse File System</h3>
-          <button
-            onClick={onClose}
-            className="rounded-lg p-1 dark:text-gray-400 text-gray-500 dark:hover:bg-gray-800 hover:bg-gray-100"
-          >
-            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M6 18L18 6M6 6l12 12"
-              />
-            </svg>
-          </button>
-        </div>
-
-        {/* Breadcrumb */}
-        <div className="flex items-center gap-1 flex-wrap px-5 py-2 border-b dark:border-gray-800 border-gray-100 text-sm dark:text-gray-400 text-gray-600 overflow-x-auto">
-          <button
-            onClick={() => navigate('/')}
-            className="dark:hover:text-gray-100 hover:text-gray-900"
-          >
+    <Modal title="Browse file system" isOpen={true} onClose={onClose} size="sm">
+      <div className="space-y-4">
+        <div className="flex flex-wrap items-center gap-1 overflow-x-auto rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-600 dark:border-gray-800 dark:bg-gray-800/50 dark:text-gray-300">
+          <button onClick={() => navigate('/')} className={buttonStyles({ variant: 'ghost', size: 'sm' })}>
             /
           </button>
           {parts.map((part, i) => {
@@ -79,7 +56,7 @@ export function FilesystemPicker({ value, onSelect, onClose }: FilesystemPickerP
                 <span className="opacity-40">/</span>
                 <button
                   onClick={() => navigate(fullPath)}
-                  className="dark:hover:text-gray-100 hover:text-gray-900"
+                  className={buttonStyles({ variant: 'ghost', size: 'sm' })}
                 >
                   {part}
                 </button>
@@ -88,87 +65,79 @@ export function FilesystemPicker({ value, onSelect, onClose }: FilesystemPickerP
           })}
         </div>
 
-        {/* Directory listing */}
-        <div className="flex-1 overflow-y-auto px-3 py-2">
-          {isLoading && (
-            <div className="py-8 text-center dark:text-gray-500 text-gray-500 text-sm">
-              Loading...
-            </div>
-          )}
-          {error && (
-            <div className="py-8 text-center text-red-400 text-sm">
+        <div className="max-h-[50vh] space-y-1 overflow-y-auto rounded-2xl border border-gray-200 bg-gray-50 p-2 dark:border-gray-800 dark:bg-gray-800/50">
+          {isLoading ? <div className="py-8 text-center text-sm text-gray-500">Loading…</div> : null}
+          {error ? (
+            <div className="py-8 text-center text-sm text-red-500">
               {error instanceof Error ? error.message : 'Cannot read directory'}
             </div>
-          )}
-          {!isLoading && !error && (
+          ) : null}
+          {!isLoading && !error ? (
             <>
-              {data?.parent && (
+              {data?.parent ? (
                 <button
                   onClick={() => navigate(data.parent!)}
-                  className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm dark:hover:bg-gray-800 hover:bg-gray-100 dark:text-gray-400 text-gray-600"
+                  className={buttonStyles({
+                    variant: 'ghost',
+                    className: 'w-full justify-start rounded-xl px-3 py-2 text-left',
+                  })}
                 >
-                  <span className="text-lg">↑</span>
+                  <span aria-hidden="true">↑</span>
                   <span>..</span>
                 </button>
-              )}
-              {data?.entries.length === 0 && (
-                <p className="py-6 text-center text-sm dark:text-gray-500 text-gray-500">
-                  No subdirectories here
-                </p>
-              )}
+              ) : null}
+              {data?.entries.length === 0 ? (
+                <p className="py-6 text-center text-sm text-gray-500">No subdirectories here</p>
+              ) : null}
               {data?.entries.map((entry) => (
                 <button
                   key={entry.path}
                   onClick={() => navigate(entry.path)}
-                  className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-left transition-colors ${
+                  className={cn(
+                    buttonStyles({
+                      variant: 'ghost',
+                      className: 'w-full justify-start rounded-xl px-3 py-2 text-left',
+                    }),
                     pending === entry.path
-                      ? 'dark:bg-blue-500/20 bg-blue-50 dark:text-blue-300 text-blue-700'
-                      : 'dark:hover:bg-gray-800 hover:bg-gray-100 dark:text-gray-200 text-gray-800'
-                  }`}
+                      ? 'bg-blue-50 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300'
+                      : '',
+                  )}
                 >
-                  <span className="text-lg flex-shrink-0">📁</span>
+                  <span aria-hidden="true">📁</span>
                   <span className="truncate">{entry.name}</span>
                 </button>
               ))}
             </>
-          )}
+          ) : null}
         </div>
 
-        {/* Selected path + confirm */}
-        <div className="border-t dark:border-gray-800 border-gray-200 px-5 py-4 space-y-3">
-          <div>
-            <label className="block text-xs font-medium dark:text-gray-400 text-gray-600 mb-1">
-              Selected Path
-            </label>
-            <input
-              value={pending}
-              onChange={(e) => {
-                setPending(e.target.value);
-                setBrowsePath(e.target.value);
-              }}
-              className="block w-full rounded-lg border dark:border-gray-700 border-gray-300 dark:bg-gray-800 bg-white px-3 py-2 font-mono text-sm dark:text-gray-100 text-gray-900 focus:border-blue-500 focus:outline-none"
-            />
-          </div>
-          <div className="flex gap-2 justify-end">
-            <button
-              onClick={onClose}
-              className="rounded-lg border dark:border-gray-700 border-gray-300 px-4 py-2 text-sm font-medium dark:text-gray-400 text-gray-700 dark:hover:bg-gray-800 hover:bg-gray-100"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={() => {
-                onSelect(pending);
-                onClose();
-              }}
-              disabled={!pending}
-              className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-            >
-              Select Path
-            </button>
-          </div>
+        <Field label="Selected Path" htmlFor="selected-path">
+          <Input
+            id="selected-path"
+            value={pending}
+            onChange={(e) => {
+              setPending(e.target.value);
+              setBrowsePath(e.target.value);
+            }}
+            className="font-mono"
+          />
+        </Field>
+
+        <div className="flex flex-col-reverse justify-end gap-2 sm:flex-row">
+          <Button variant="secondary" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            onClick={() => {
+              onSelect(pending);
+              onClose();
+            }}
+            disabled={!pending}
+          >
+            Select Path
+          </Button>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }

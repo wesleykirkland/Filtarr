@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { toast } from '../components/Toast';
-import { ConfirmModal } from '../components/ConfirmModal';
+import { ConfirmDialog } from '../components/ConfirmDialog';
 import { Modal } from '../components/Modal';
 import {
   getWatcherAutomationDeletePatch,
@@ -454,8 +454,7 @@ export default function Scheduler() {
   const queryClient = useQueryClient();
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Job | null>(null);
-  const [editingWatcher, setEditingWatcher] = useState<Filter | null>(null);
-  const [deletingWatcher, setDeletingWatcher] = useState<Filter | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<Job | null>(null);
 
   const { data: rawJobs, isLoading } = useQuery<Job[]>({
     queryKey: ['jobs'],
@@ -487,6 +486,7 @@ export default function Scheduler() {
     mutationFn: (id: number) => api.delete(`/jobs/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['jobs'] });
+      setPendingDelete(null);
       toast('success', 'Job deleted');
     },
     onError: (e: Error) => toast('error', e.message),
@@ -546,84 +546,19 @@ export default function Scheduler() {
         />
       </Modal>
 
-      <div className="rounded-xl border dark:border-gray-800 border-gray-200 dark:bg-gray-900 bg-white shadow-sm p-6">
-        <div className="flex items-center justify-between gap-4">
-          <div>
-            <h3 className="text-lg font-semibold dark:text-gray-100 text-gray-900">
-              Built-in watcher automations
-            </h3>
-            <p className="mt-1 text-sm dark:text-gray-500 text-gray-600">
-              Filters in watcher mode run automatically when matching files appear under their target path.
-            </p>
-          </div>
-          <span className="rounded-full dark:bg-gray-800 bg-gray-100 px-3 py-1 text-xs font-medium dark:text-gray-300 text-gray-700">
-            {watcherFilters.length} active
-          </span>
-        </div>
-
-        {watcherFilters.length > 0 ? (
-          <div className="mt-4 space-y-3">
-            {watcherFilters.map((filter) => (
-              <div
-                key={filter.id}
-                className="rounded-xl border dark:border-gray-800 border-gray-200 dark:bg-gray-900 bg-white shadow-sm px-6 py-4"
-              >
-                <div className="flex items-start justify-between gap-4">
-                  <div className="flex items-center gap-3 flex-1 min-w-0">
-                    <button
-                      onClick={() =>
-                        toggleWatcherMutation.mutate({ id: filter.id, enabled: filter.enabled !== 1 })
-                      }
-                      className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${filter.enabled === 1 ? 'bg-blue-600' : 'dark:bg-gray-700 bg-gray-300'}`}
-                    >
-                      <span
-                        className={`inline-block h-4 w-4 rounded-full bg-white shadow transform transition-transform ${filter.enabled === 1 ? 'translate-x-4' : 'translate-x-0'}`}
-                      />
-                    </button>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <h3 className="font-semibold dark:text-gray-100 text-gray-900">{filter.name}</h3>
-                        <span
-                          className={`rounded px-2 py-0.5 text-[11px] font-medium uppercase ${filter.enabled === 1 ? 'bg-green-500/20 text-green-400' : 'bg-gray-500/20 text-gray-400'}`}
-                        >
-                          {filter.enabled === 1 ? 'enabled' : 'disabled'}
-                        </span>
-                      </div>
-                      {filter.target_path ? (
-                        <p className="mt-1 font-mono text-xs dark:text-gray-500 text-gray-600">
-                          {filter.target_path}
-                        </p>
-                      ) : (
-                        <p className="mt-1 text-xs dark:text-yellow-400 text-yellow-600">
-                          No target path configured yet.
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex gap-2 flex-shrink-0">
-                    <button
-                      onClick={() => setEditingWatcher(filter)}
-                      className="rounded-lg border dark:border-gray-700 border-gray-300 px-3 py-1.5 text-xs font-medium dark:text-gray-400 text-gray-700 dark:hover:bg-gray-800 hover:bg-gray-100"
-                    >
-                      Edit
-                    </button>
-                    <button
-                      onClick={() => setDeletingWatcher(filter)}
-                      className="rounded-lg border dark:border-red-900 border-red-200 px-3 py-1.5 text-xs font-medium dark:text-red-400 text-red-600 dark:hover:bg-red-900/30 hover:bg-red-50"
-                    >
-                      Delete
-                    </button>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <p className="mt-4 text-sm dark:text-gray-500 text-gray-600">
-            No filters are currently using the built-in watcher.
-          </p>
-        )}
-      </div>
+      <ConfirmDialog
+        isOpen={pendingDelete !== null}
+        title="Delete scheduled job?"
+        description={
+          pendingDelete
+            ? <>Delete <span className="font-medium text-gray-900 dark:text-gray-100">{pendingDelete.name}</span>? Future scheduled runs will stop immediately.</>
+            : ''
+        }
+        confirmLabel="Delete job"
+        isPending={deleteMutation.isPending}
+        onClose={() => setPendingDelete(null)}
+        onConfirm={() => pendingDelete && deleteMutation.mutate(pendingDelete.id)}
+      />
 
       {isLoading ? (
         <p className="dark:text-gray-400 text-gray-500">Loading jobs...</p>
@@ -684,9 +619,7 @@ export default function Scheduler() {
                       Edit
                     </button>
                     <button
-                      onClick={() => {
-                        if (confirm(`Delete job "${job.name}"?`)) deleteMutation.mutate(job.id);
-                      }}
+                      onClick={() => setPendingDelete(job)}
                       className="rounded-lg border dark:border-red-900 border-red-200 px-3 py-1.5 text-xs font-medium dark:text-red-400 text-red-600 dark:hover:bg-red-900/30 hover:bg-red-50"
                     >
                       Delete

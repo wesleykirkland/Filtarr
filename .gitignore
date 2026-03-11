@@ -28,6 +28,7 @@ npm-debug.log*
 
 # Filtarr data
 data/
+.encryption-key
 *.db
 *.db-wal
 *.db-shm

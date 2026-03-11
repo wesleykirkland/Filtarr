@@ -21,12 +21,26 @@ function getCurrentAuthMode(db: Database.Database): AuthMode {
   }
 }
 
-function hasOidcStrategy(): boolean {
-  const passportWithStrategy = passport as unknown as { _strategy?: (name: string) => unknown };
+function requireAuthenticatedRequest(db: Database.Database) {
+  return (req: Request, res: Response, next: NextFunction): void => {
+    const authMode = getCurrentAuthMode(db);
 
-  return typeof passportWithStrategy._strategy === 'function'
-    ? Boolean(passportWithStrategy._strategy('openidconnect'))
-    : false;
+    if (authMode === 'none') {
+      next();
+      return;
+    }
+
+    if (req.apiKey || req.isAuthenticated?.() || (authMode === 'basic' && (req as any)._basicAuthValid)) {
+      next();
+      return;
+    }
+
+    if (authMode === 'basic') {
+      res.setHeader('WWW-Authenticate', 'Basic realm="Filtarr"');
+    }
+
+    res.status(401).json({ error: 'Authentication required' });
+  };
 }
 
 /**
@@ -169,7 +183,9 @@ export function createAuthRoutes(db: Database.Database, config: AuthConfig): Rou
   });
 
   // --- API Key Management ---
-  // These require an authenticated session (not just API key)
+  router.use('/api-keys', requireAuthenticatedRequest(db));
+
+  // --- API Key Management ---
   router.get('/api-keys', (req: Request, res: Response): void => {
     const keys = db
       .prepare<

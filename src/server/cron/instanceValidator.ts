@@ -1,6 +1,7 @@
 import type Database from 'better-sqlite3';
 import { logger } from '../lib/logger.js';
 import { getAllInstances, getInstanceConfigById } from '../../db/schemas/instances.js';
+import { recordActivityEvent } from '../lib/activity.js';
 import { createArrClient } from '../routes/instances.js';
 import { NotificationService } from '../services/NotificationService.js';
 
@@ -55,21 +56,28 @@ async function validateInstances(db: Database.Database) {
             { instanceId: instance.id, name: instance.name },
             'Scheduled instance validation succeeded',
           );
+          recordActivityEvent(db, {
+            type: 'validation',
+            source: 'instances',
+            message: `Scheduled validation succeeded for ${instance.name}`,
+            details: { instanceId: instance.id, instanceType: instance.type, success: true },
+          });
         } else {
           logger.warn(
             { instanceId: instance.id, name: instance.name, error: result.error },
             'Scheduled instance validation failed',
           );
-
-          await notificationService.notifyInstanceHealthcheckFailure(
-            {
-              id: instance.id,
-              name: instance.name,
-              type: config.type,
-              url: config.url,
+          recordActivityEvent(db, {
+            type: 'validation',
+            source: 'instances',
+            message: `Scheduled validation failed for ${instance.name}`,
+            details: {
+              instanceId: instance.id,
+              instanceType: instance.type,
+              success: false,
+              error: result.error,
             },
-            result.error ?? 'Unknown healthcheck failure',
-          );
+          });
         }
       } catch (err: unknown) {
         const errorMessage = getErrorMessage(err);
@@ -77,19 +85,17 @@ async function validateInstances(db: Database.Database) {
           { instanceId: instance.id, name: instance.name, err },
           'Failed to test instance during scheduled validation',
         );
-
-        const config = getInstanceConfigById(db, instance.id);
-        if (!config) continue;
-
-        await notificationService.notifyInstanceHealthcheckFailure(
-          {
-            id: instance.id,
-            name: instance.name,
-            type: config.type,
-            url: config.url,
+        recordActivityEvent(db, {
+          type: 'validation',
+          source: 'instances',
+          message: `Scheduled validation crashed for ${instance.name}`,
+          details: {
+            instanceId: instance.id,
+            instanceType: instance.type,
+            success: false,
+            error: err instanceof Error ? err.message : 'Unknown error',
           },
-          errorMessage,
-        );
+        });
       }
     }
   } catch (err) {

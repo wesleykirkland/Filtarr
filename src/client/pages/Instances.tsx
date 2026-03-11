@@ -9,9 +9,20 @@ import {
   type Instance,
   type CreateInstanceInput,
 } from '../hooks/useInstances';
+import { InstancesIcon, PlusIcon } from '../components/Icons';
+import { ConfirmDialog } from '../components/ConfirmDialog';
 import { Modal } from '../components/Modal';
-import { useTheme } from '../contexts/ThemeContext';
-import { ConfirmModal } from '../components/ConfirmModal';
+import {
+  Badge,
+  Button,
+  Card,
+  EmptyState,
+  Field,
+  Input,
+  PageHeader,
+  Select,
+  checkboxStyles,
+} from '../components/ui';
 
 const ARR_TYPES = ['sonarr', 'radarr', 'lidarr'] as const;
 
@@ -108,70 +119,62 @@ function InstanceForm({
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <div className="grid gap-4 sm:grid-cols-2">
-        <div>
-          <label className="block text-sm font-medium dark:text-gray-400 text-gray-700">Name</label>
-          <input
+        <Field label="Name" htmlFor="instance-name">
+          <Input
+            id="instance-name"
             value={name}
             onChange={(e) => setName(e.target.value)}
             required
-            className="mt-1 block w-full rounded-lg border dark:border-gray-700 border-gray-300 dark:bg-gray-800 bg-white px-3 py-2 dark:text-gray-100 text-gray-900 focus:border-blue-500 focus:outline-none"
           />
-        </div>
-        <div>
-          <label className="block text-sm font-medium dark:text-gray-400 text-gray-700">Type</label>
+        </Field>
+        <Field label="Type" htmlFor="instance-type">
           {initial ? (
             <div className="mt-1 flex items-center gap-2">
-              <span className="inline-flex items-center rounded-lg border dark:border-gray-700 border-gray-300 dark:bg-gray-800 bg-gray-100 px-3 py-2 text-sm font-medium dark:text-gray-300 text-gray-700 capitalize">
+              <Badge>{initial.type}</Badge>
+              <span className="text-xs text-gray-500">
                 {initial.type}
               </span>
-              <span className="text-xs dark:text-gray-500 text-gray-500">
-                Cannot be changed after creation
-              </span>
+              <span className="text-xs text-gray-500">Cannot be changed after creation</span>
             </div>
           ) : (
-            <select
+            <Select
+              id="instance-type"
               value={type}
-              onChange={(e) => {
-                setType(e.target.value);
-                resetTestState();
-              }}
-              className="mt-1 block w-full rounded-lg border dark:border-gray-700 border-gray-300 dark:bg-gray-800 bg-white px-3 py-2 dark:text-gray-100 text-gray-900 focus:border-blue-500 focus:outline-none"
+              onChange={(e) => setType(e.target.value)}
             >
               {ARR_TYPES.map((t) => (
                 <option key={t} value={t}>
                   {t.charAt(0).toUpperCase() + t.slice(1)}
                 </option>
               ))}
-            </select>
+            </Select>
           )}
-        </div>
-        <div>
-          <label className="block text-sm font-medium dark:text-gray-400 text-gray-700">URL</label>
-          <input
+        </Field>
+        <Field label="URL" htmlFor="instance-url">
+          <Input
+            id="instance-url"
             value={url}
             onChange={handleUrlChange}
             required
             placeholder="http://localhost:8989"
-            className="mt-1 block w-full rounded-lg border dark:border-gray-700 border-gray-300 dark:bg-gray-800 bg-white px-3 py-2 dark:text-gray-100 text-gray-900 focus:border-blue-500 focus:outline-none"
           />
-        </div>
-        <div>
-          <label className="block text-sm font-medium dark:text-gray-400 text-gray-700">
-            API Key {initial && '(leave blank to keep, but must re-enter to test)'}
-          </label>
-          <input
+        </Field>
+        <Field
+          label="API Key"
+          htmlFor="instance-api-key"
+          description={initial ? 'Leave blank to keep the saved key. Re-enter it if you want to test before saving.' : undefined}
+        >
+          <Input
+            id="instance-api-key"
             value={apiKey}
             onChange={handleApiKeyChange}
             required={!initial}
             placeholder={initial ? '••••••••' : 'API Key'}
-            className="mt-1 block w-full rounded-lg border dark:border-gray-700 border-gray-300 dark:bg-gray-800 bg-white px-3 py-2 dark:text-gray-100 text-gray-900 focus:border-blue-500 focus:outline-none"
           />
-        </div>
-        <div>
-          <label className="block text-sm font-medium dark:text-gray-400 text-gray-700">
-            Timeout (seconds)
-          </label>
-          <input
+        </Field>
+        <Field label="Timeout (seconds)" htmlFor="instance-timeout">
+          <Input
+            id="instance-timeout"
             type="number"
             value={timeout}
             onChange={(e) => {
@@ -179,71 +182,56 @@ function InstanceForm({
               resetTestState();
             }}
             min="1"
-            className="mt-1 block w-full rounded-lg border dark:border-gray-700 border-gray-300 dark:bg-gray-800 bg-white px-3 py-2 dark:text-gray-100 text-gray-900 focus:border-blue-500 focus:outline-none"
           />
-        </div>
+        </Field>
         <div className="col-span-2 flex items-center gap-2 pt-2">
           <input
             type="checkbox"
             id="skipSslVerify"
             checked={skipSslVerify}
             onChange={handleSkipSslVerifyChange}
-            className="h-4 w-4 rounded dark:border-gray-700 border-gray-300 dark:bg-gray-800 bg-white text-blue-600 focus:ring-blue-500 focus:ring-offset-gray-900"
+            className={checkboxStyles()}
           />
-          <label
-            htmlFor="skipSslVerify"
-            className="text-sm font-medium dark:text-gray-400 text-gray-600"
-          >
+          <label htmlFor="skipSslVerify" className="text-sm font-medium text-gray-600 dark:text-gray-300">
             Disable SSL verification (allows self-signed certificates, use with caution)
           </label>
         </div>
 
-        <div className="col-span-2 border-t dark:border-gray-800 border-gray-100 pt-4">
-          <h4 className="text-sm font-semibold dark:text-gray-300 text-gray-800 mb-3">
-            Path Mapping (Optional)
-          </h4>
-          <p className="text-xs dark:text-gray-500 text-gray-500 mb-4">
+        <div className="col-span-2 rounded-2xl border border-gray-200 bg-gray-50 p-4 dark:border-gray-800 dark:bg-gray-800/40">
+          <h4 className="mb-2 text-sm font-semibold text-gray-800 dark:text-gray-200">Path Mapping (Optional)</h4>
+          <p className="mb-4 text-xs text-gray-500">
             If Filtarr is running in a different environment (e.g. separate Docker containers), use
             these fields to translate paths reported by this Arr instance to local paths accessible
             by Filtarr.
           </p>
           <div className="grid gap-4 sm:grid-cols-2">
-            <div>
-              <label className="block text-sm font-medium dark:text-gray-400 text-gray-700">
-                Remote Path (Arr's view)
-              </label>
-              <input
+            <Field label="Remote Path (Arr's view)" htmlFor="instance-remote-path">
+              <Input
+                id="instance-remote-path"
                 value={remotePath}
                 onChange={(e) => setRemotePath(e.target.value)}
                 placeholder="/downloads"
-                className="mt-1 block w-full rounded-lg border dark:border-gray-700 border-gray-300 dark:bg-gray-800 bg-white px-3 py-2 dark:text-gray-100 text-gray-900 focus:border-blue-500 focus:outline-none font-mono text-sm"
+                className="font-mono text-sm"
               />
-            </div>
-            <div>
-              <label className="block text-sm font-medium dark:text-gray-400 text-gray-700">
-                Local Path (Filtarr's view)
-              </label>
-              <input
+            </Field>
+            <Field label="Local Path (Filtarr's view)" htmlFor="instance-local-path">
+              <Input
+                id="instance-local-path"
                 value={localPath}
                 onChange={(e) => setLocalPath(e.target.value)}
                 placeholder="/mnt/downloads"
-                className="mt-1 block w-full rounded-lg border dark:border-gray-700 border-gray-300 dark:bg-gray-800 bg-white px-3 py-2 dark:text-gray-100 text-gray-900 focus:border-blue-500 focus:outline-none font-mono text-sm"
+                className="font-mono text-sm"
               />
-            </div>
+            </Field>
           </div>
         </div>
       </div>
       <div className="flex gap-2">
-        <button
+        <Button
           type="button"
           onClick={handleTestConnection}
           disabled={testUnsavedMutation.isPending || !url || (!apiKey && !initial)}
-          className={`rounded-lg px-4 py-2 text-sm font-medium text-white disabled:opacity-50 transition-colors ${testStatus === 'error'
-            ? 'bg-red-600 hover:bg-red-700'
-            : testStatus === 'success'
-              ? 'bg-green-600 hover:bg-green-700'
-              : 'bg-gray-700 hover:bg-gray-600'
-            }`}
+          variant={testStatus === 'error' ? 'danger' : testStatus === 'success' ? 'success' : 'secondary'}
         >
           {testUnsavedMutation.isPending
             ? 'Testing...'
@@ -252,32 +240,29 @@ function InstanceForm({
               : testStatus === 'success'
                 ? 'Test Passed'
                 : 'Test Connection'}
-        </button>
-        <button
+        </Button>
+        <Button
           type="submit"
           disabled={testStatus !== 'success'}
           title={testStatus !== 'success' ? 'Must successfully test connection before saving' : ''}
-          className="rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed hidden sm:block"
+          variant="success"
+          className="hidden sm:inline-flex"
         >
           {initial ? 'Update Connection' : 'Create Connection'}
-        </button>
-        {/* Mobile version of create button to keep gap nice */}
-        <button
+        </Button>
+        <Button
           type="submit"
           disabled={testStatus !== 'success'}
           title={testStatus !== 'success' ? 'Must successfully test connection before saving' : ''}
-          className="rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed sm:hidden"
+          variant="success"
+          className="sm:hidden"
         >
           {initial ? 'Update' : 'Create'}
-        </button>
+        </Button>
         <div className="flex-1" />
-        <button
-          type="button"
-          onClick={onCancel}
-          className="rounded-lg border dark:border-gray-700 border-gray-300 px-4 py-2 text-sm font-medium dark:text-gray-400 text-gray-700 dark:hover:bg-gray-800 hover:bg-gray-100"
-        >
+        <Button type="button" variant="secondary" onClick={onCancel}>
           Cancel
-        </button>
+        </Button>
       </div>
       {testError && (
         <p className="text-sm font-medium text-red-600 dark:text-red-400">{testError}</p>
@@ -288,31 +273,30 @@ function InstanceForm({
 
 export default function Instances() {
   const { data: instances, isLoading } = useInstances();
-  const { darkMode } = useTheme();
   const createMutation = useCreateInstance();
   const updateMutation = useUpdateInstance();
   const deleteMutation = useDeleteInstance();
   const testMutation = useTestInstance();
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Instance | null>(null);
-  const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<Instance | null>(null);
 
-  if (isLoading)
-    return <div className="dark:text-gray-400 text-gray-500">Loading instances...</div>;
+  if (isLoading) return <div className="text-gray-500">Loading instances...</div>;
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-bold dark:text-gray-100 text-gray-900">Instances</h2>
-        {!showForm && !editing && (
-          <button
-            onClick={() => setShowForm(true)}
-            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
-          >
-            + Add Instance
-          </button>
-        )}
-      </div>
+      <PageHeader
+        title="Instances"
+        description="Connect Sonarr, Radarr, and Lidarr so Filtarr can validate items, blocklist releases, and monitor the right paths."
+        actions={
+          !showForm && !editing ? (
+            <Button onClick={() => setShowForm(true)}>
+              <PlusIcon className="h-4 w-4" />
+              Add Instance
+            </Button>
+          ) : null
+        }
+      />
 
       <Modal
         title={editing ? 'Edit Instance' : 'Add Instance'}
@@ -351,18 +335,33 @@ export default function Instances() {
         )}
       </Modal>
 
+      <ConfirmDialog
+        isOpen={pendingDelete !== null}
+        title="Delete instance?"
+        description={
+          pendingDelete
+            ? <>Remove <span className="font-medium text-gray-900 dark:text-gray-100">{pendingDelete.name}</span> from Filtarr? This only removes the saved connection details.</>
+            : ''
+        }
+        confirmLabel="Delete instance"
+        isPending={deleteMutation.isPending}
+        onClose={() => setPendingDelete(null)}
+        onConfirm={() => {
+          if (pendingDelete) {
+            deleteMutation.mutate(pendingDelete.id, { onSuccess: () => setPendingDelete(null) });
+          }
+        }}
+      />
+
       {instances && instances.length > 0 ? (
         <div className="space-y-3">
           {instances.map((inst) => (
-            <div
+            <Card
               key={inst.id}
-              className={`group relative overflow-hidden rounded-2xl border p-5 transition-all hover:shadow-xl ${darkMode
-                ? 'bg-gray-900/40 border-gray-800 hover:border-gray-700/50'
-                : 'bg-white border-gray-200'
-                }`}
+              className="group relative overflow-hidden p-5 transition-all hover:border-blue-200 hover:shadow-lg dark:hover:border-blue-500/20"
             >
               <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-blue-600/50 via-green-600/50 to-blue-600/50 opacity-0 transition-opacity group-hover:opacity-100" />
-              <div className="flex items-center justify-between gap-4">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                 <div className="flex items-start gap-4">
                   <div className="mt-1 flex-shrink-0">
                     <span
@@ -371,64 +370,58 @@ export default function Instances() {
                   </div>
                   <div>
                     <div className="flex items-center gap-2">
-                      <p className="font-bold dark:text-gray-100 text-gray-900">{inst.name}</p>
-                      <span className="rounded dark:bg-gray-800 bg-gray-100 px-2 py-0.5 text-[10px] font-bold dark:text-gray-400 text-gray-500 uppercase tracking-wider border dark:border-gray-700 border-gray-200">
-                        {inst.type}
-                      </span>
+                      <p className="font-bold text-gray-900 dark:text-gray-100">{inst.name}</p>
+                      <Badge>{inst.type}</Badge>
                     </div>
-                    <p className="mt-0.5 text-sm dark:text-gray-500 text-gray-600 font-medium">
-                      {inst.url}
-                    </p>
+                    <p className="mt-0.5 text-sm font-medium text-gray-500">{inst.url}</p>
                     {inst.skipSslVerify && (
-                      <span className="mt-1 inline-flex items-center rounded-full bg-yellow-500/10 px-2 py-0.5 text-[10px] font-semibold text-yellow-600 dark:text-yellow-500 border border-yellow-500/20 lowercase">
-                        ⚠️ insecure ssl
-                      </span>
+                      <Badge variant="warning" className="mt-2">Insecure SSL</Badge>
                     )}
                     {(inst.remotePath || inst.localPath) && (
-                      <p className="mt-2 flex items-center gap-2 text-xs font-medium dark:text-gray-400 text-gray-500">
-                        <span className="rounded bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 font-mono">
+                      <p className="mt-2 flex items-center gap-2 text-xs font-medium text-gray-500">
+                        <span className="rounded bg-gray-100 px-1.5 py-0.5 font-mono dark:bg-gray-800">
                           {inst.remotePath || 'None'}
                         </span>
                         <span className="opacity-40">➔</span>
-                        <span className="rounded bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 font-mono">
+                        <span className="rounded bg-gray-100 px-1.5 py-0.5 font-mono dark:bg-gray-800">
                           {inst.localPath || 'None'}
                         </span>
                       </p>
                     )}
                   </div>
                 </div>
-                <div className="flex gap-2 flex-shrink-0">
-                  <button
+                <div className="flex flex-wrap gap-2 lg:flex-shrink-0">
+                  <Button
                     onClick={() => testMutation.mutate(inst.id)}
                     disabled={testMutation.isPending}
-                    className="rounded-lg border dark:border-gray-700 border-gray-300 px-3 py-1.5 text-xs font-medium dark:text-gray-400 text-gray-700 dark:hover:bg-gray-800 hover:bg-gray-100 disabled:opacity-50"
+                    variant="secondary"
+                    size="sm"
                   >
                     {testMutation.isPending ? 'Testing...' : 'Test'}
-                  </button>
-                  <button
-                    onClick={() => setEditing(inst)}
-                    className="rounded-lg border dark:border-gray-700 border-gray-300 px-3 py-1.5 text-xs font-medium dark:text-gray-400 text-gray-700 dark:hover:bg-gray-800 hover:bg-gray-100"
-                  >
+                  </Button>
+                  <Button onClick={() => setEditing(inst)} variant="secondary" size="sm">
                     Edit
-                  </button>
-                  <button
-                    onClick={() => setDeletingId(inst.id)}
-                    className="rounded-lg border dark:border-red-900 border-red-200 px-3 py-1.5 text-xs font-medium dark:text-red-400 text-red-600 dark:hover:bg-red-900/30 hover:bg-red-50"
-                  >
+                  </Button>
+                  <Button onClick={() => setPendingDelete(inst)} variant="danger" size="sm">
                     Delete
-                  </button>
+                  </Button>
                 </div>
               </div>
-            </div>
+            </Card>
           ))}
         </div>
       ) : (
-        <div className="rounded-xl border dark:border-gray-800 border-gray-200 dark:bg-gray-900 bg-white shadow-sm p-12 text-center">
-          <p className="text-lg dark:text-gray-500 text-gray-600">No instances configured</p>
-          <p className="mt-1 text-sm dark:text-gray-600 text-gray-500">
-            Add your first Arr instance to get started.
-          </p>
-        </div>
+        <EmptyState
+          icon={<InstancesIcon className="h-7 w-7" />}
+          title="No instances configured"
+          description="Add your first Arr instance to get started."
+          action={
+            <Button onClick={() => setShowForm(true)}>
+              <PlusIcon className="h-4 w-4" />
+              Add Instance
+            </Button>
+          }
+        />
       )}
       <ConfirmModal
         isOpen={deletingId !== null}

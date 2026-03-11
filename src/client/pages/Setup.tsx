@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
+import { Badge, Button, Card, Field, Input, checkboxStyles, cn } from '../components/ui';
 import { api } from '../lib/api';
 import { toast } from '../components/Toast';
 
@@ -87,12 +88,12 @@ export default function Setup() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center dark:bg-gray-950 bg-gray-50">
-      <div className="w-full max-w-md rounded-xl border dark:border-gray-800 border-gray-200 dark:bg-gray-900 bg-white shadow-sm p-8">
+    <div className="flex min-h-screen items-center justify-center bg-gray-50 px-4 dark:bg-gray-950">
+      <Card className="w-full max-w-md">
         {/* Header */}
         <div className="mb-6 text-center">
           <span className="text-5xl">🎬</span>
-          <h1 className="mt-2 text-2xl font-bold dark:text-gray-100 text-gray-900">
+          <h1 className="mt-2 text-2xl font-bold text-gray-900 dark:text-gray-100">
             {step === 'complete' ? 'Setup Complete!' : 'Welcome to Filtarr'}
           </h1>
           {step !== 'complete' && (
@@ -103,7 +104,7 @@ export default function Setup() {
                   className={`h-2 w-8 rounded ${
                     ['welcome', 'auth-mode', 'account'].indexOf(step) >= i
                       ? 'bg-blue-500'
-                      : 'dark:bg-gray-700 bg-gray-200'
+                      : 'bg-gray-200 dark:bg-gray-700'
                   }`}
                 />
               ))}
@@ -114,35 +115,28 @@ export default function Setup() {
         {/* Step: Welcome */}
         {step === 'welcome' && (
           <div className="space-y-4">
-            <p className="dark:text-gray-400 text-gray-700">
+            <p className="text-gray-700 dark:text-gray-300">
               Filtarr helps you manage your Arr stack with intelligent file monitoring, blocklist
               management, and automation tools.
             </p>
-            <p className="dark:text-gray-400 text-gray-700">
-              Let's get you set up in just a few steps.
-            </p>
-            <button
-              onClick={nextStep}
-              className="w-full rounded-lg bg-blue-600 px-4 py-3 font-medium text-white hover:bg-blue-700"
-            >
+            <p className="text-gray-700 dark:text-gray-300">Let's get you set up in just a few steps.</p>
+            <Button fullWidth size="lg" onClick={nextStep}>
               Get Started
-            </button>
+            </Button>
           </div>
         )}
 
         {/* Step: Auth Mode */}
         {step === 'auth-mode' && (
           <div className="space-y-4">
-            <p className="text-sm dark:text-gray-400 text-gray-700">
-              Choose how you want to secure your Filtarr instance:
-            </p>
+            <p className="text-sm text-gray-700 dark:text-gray-300">Choose how you want to secure your Filtarr instance:</p>
             <div className="space-y-3">
               <label
-                className={`flex cursor-pointer items-start gap-3 rounded-lg border p-4 ${
+                className={cn(`flex cursor-pointer items-start gap-3 rounded-xl border p-4 transition-colors ${
                   authMode === 'forms'
                     ? 'border-blue-500 dark:bg-blue-500/10 bg-blue-50'
-                    : 'dark:border-gray-700 border-gray-300'
-                }`}
+                    : 'border-gray-300 dark:border-gray-700'
+                }`, 'focus-within:ring-2 focus-within:ring-blue-500 focus-within:ring-offset-2 focus-within:ring-offset-white dark:focus-within:ring-offset-gray-900')}
               >
                 <input
                   type="radio"
@@ -150,24 +144,20 @@ export default function Setup() {
                   value="forms"
                   checked={authMode === 'forms'}
                   onChange={() => setAuthMode('forms')}
-                  className="mt-1"
+                  className={checkboxStyles('mt-1 rounded-full')}
                 />
                 <div>
-                  <div className="font-medium dark:text-gray-100 text-gray-900">
-                    Forms Authentication
-                  </div>
-                  <div className="text-sm dark:text-gray-400 text-gray-600">
-                    Username/password login form (recommended)
-                  </div>
+                  <div className="font-medium text-gray-900 dark:text-gray-100">Forms Authentication</div>
+                  <div className="text-sm text-gray-500">Username/password login form (recommended)</div>
                 </div>
               </label>
 
               <label
-                className={`flex cursor-pointer items-start gap-3 rounded-lg border p-4 ${
+                className={cn(`flex cursor-pointer items-start gap-3 rounded-xl border p-4 transition-colors ${
                   authMode === 'basic'
                     ? 'border-blue-500 dark:bg-blue-500/10 bg-blue-50'
-                    : 'dark:border-gray-700 border-gray-300'
-                }`}
+                    : 'border-gray-300 dark:border-gray-700'
+                }`, 'focus-within:ring-2 focus-within:ring-blue-500 focus-within:ring-offset-2 focus-within:ring-offset-white dark:focus-within:ring-offset-gray-900')}
               >
                 <input
                   type="radio"
@@ -175,24 +165,20 @@ export default function Setup() {
                   value="basic"
                   checked={authMode === 'basic'}
                   onChange={() => setAuthMode('basic')}
-                  className="mt-1"
+                  className={checkboxStyles('mt-1 rounded-full')}
                 />
                 <div>
-                  <div className="font-medium dark:text-gray-100 text-gray-900">
-                    Basic Authentication
-                  </div>
-                  <div className="text-sm dark:text-gray-400 text-gray-600">
-                    HTTP Basic auth (browser login prompt)
-                  </div>
+                  <div className="font-medium text-gray-900 dark:text-gray-100">Basic Authentication</div>
+                  <div className="text-sm text-gray-500">HTTP Basic auth (browser login prompt)</div>
                 </div>
               </label>
 
               <label
-                className={`flex cursor-pointer items-start gap-3 rounded-lg border p-4 ${
+                className={cn(`flex cursor-pointer items-start gap-3 rounded-xl border p-4 transition-colors ${
                   authMode === 'none'
                     ? 'border-yellow-500 dark:bg-yellow-500/10 bg-yellow-50'
-                    : 'dark:border-gray-700 border-gray-300'
-                }`}
+                    : 'border-gray-300 dark:border-gray-700'
+                }`, 'focus-within:ring-2 focus-within:ring-blue-500 focus-within:ring-offset-2 focus-within:ring-offset-white dark:focus-within:ring-offset-gray-900')}
               >
                 <input
                   type="radio"
@@ -200,136 +186,93 @@ export default function Setup() {
                   value="none"
                   checked={authMode === 'none'}
                   onChange={() => setAuthMode('none')}
-                  className="mt-1"
+                  className={checkboxStyles('mt-1 rounded-full')}
                 />
                 <div>
-                  <div className="font-medium dark:text-gray-100 text-gray-900">
-                    No Authentication
-                  </div>
-                  <div className="text-sm text-yellow-600 dark:text-yellow-400">
-                    ⚠️ Only use on trusted networks
-                  </div>
+                  <div className="font-medium text-gray-900 dark:text-gray-100">No Authentication</div>
+                  <div className="text-sm text-yellow-600 dark:text-yellow-400">⚠️ Only use on trusted networks</div>
                 </div>
               </label>
             </div>
 
-            <button
-              onClick={nextStep}
-              disabled={submitting}
-              className="w-full rounded-lg bg-blue-600 px-4 py-3 font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-            >
+            <Button fullWidth size="lg" onClick={nextStep} disabled={submitting}>
               {submitting ? 'Setting up...' : 'Continue'}
-            </button>
+            </Button>
           </div>
         )}
 
         {/* Step: Account */}
         {step === 'account' && (
           <form onSubmit={handleSubmit} className="space-y-4">
-            <p className="text-sm dark:text-gray-400 text-gray-700">Create your admin account:</p>
+            <p className="text-sm text-gray-700 dark:text-gray-300">Create your admin account:</p>
 
-            <div>
-              <label
-                htmlFor="username"
-                className="block text-sm font-medium dark:text-gray-400 text-gray-700"
-              >
-                Username
-              </label>
-              <input
+            <Field label="Username" htmlFor="username">
+              <Input
                 id="username"
                 type="text"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 required
-                className="mt-1 block w-full rounded-lg border dark:border-gray-700 border-gray-300 dark:bg-gray-800 bg-white px-3 py-2 dark:text-gray-100 text-gray-900 focus:border-blue-500 focus:outline-none"
               />
-            </div>
+            </Field>
 
-            <div>
-              <label
-                htmlFor="password"
-                className="block text-sm font-medium dark:text-gray-400 text-gray-700"
-              >
-                Password
-              </label>
-              <input
+            <Field label="Password" htmlFor="password" description="Minimum 8 characters">
+              <Input
                 id="password"
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
                 minLength={8}
-                className="mt-1 block w-full rounded-lg border dark:border-gray-700 border-gray-300 dark:bg-gray-800 bg-white px-3 py-2 dark:text-gray-100 text-gray-900 focus:border-blue-500 focus:outline-none"
               />
-              <p className="mt-1 text-xs dark:text-gray-500 text-gray-600">Minimum 8 characters</p>
-            </div>
+            </Field>
 
-            <div>
-              <label
-                htmlFor="confirmPassword"
-                className="block text-sm font-medium dark:text-gray-400 text-gray-700"
-              >
-                Confirm Password
-              </label>
-              <input
+            <Field label="Confirm Password" htmlFor="confirmPassword">
+              <Input
                 id="confirmPassword"
                 type="password"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 required
-                className="mt-1 block w-full rounded-lg border dark:border-gray-700 border-gray-300 dark:bg-gray-800 bg-white px-3 py-2 dark:text-gray-100 text-gray-900 focus:border-blue-500 focus:outline-none"
               />
-            </div>
+            </Field>
 
-            <button
-              type="submit"
-              disabled={submitting}
-              className="w-full rounded-lg bg-blue-600 px-4 py-3 font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-            >
+            <Button type="submit" fullWidth size="lg" disabled={submitting}>
               {submitting ? 'Creating account...' : 'Complete Setup'}
-            </button>
+            </Button>
           </form>
         )}
 
         {/* Step: Complete */}
         {step === 'complete' && (
           <div className="space-y-4">
-            <div className="rounded-lg border border-green-500/50 bg-green-500/10 p-4">
-              <p className="text-sm text-green-400">✓ Your Filtarr instance is ready to use!</p>
+            <div className="rounded-xl border border-green-500/40 bg-green-500/10 p-4">
+              <Badge variant="success">Ready</Badge>
+              <p className="mt-2 text-sm text-green-700 dark:text-green-300">✓ Your Filtarr instance is ready to use!</p>
             </div>
 
-            <div>
-              <label className="block text-sm font-medium dark:text-gray-400 text-gray-700">
-                Your API Key
-              </label>
-              <div className="mt-1 flex gap-2">
-                <input
+            <Field label="Your API Key" htmlFor="setup-api-key">
+              <div className="flex gap-2">
+                <Input
+                  id="setup-api-key"
                   type="text"
                   readOnly
                   value={apiKey}
-                  className="block w-full rounded-lg border dark:border-gray-700 border-gray-300 dark:bg-gray-800 bg-white px-3 py-2 font-mono text-sm dark:text-gray-100 text-gray-900"
+                  className="font-mono"
                 />
-                <button
-                  onClick={copyApiKey}
-                  className="rounded-lg border dark:border-gray-700 border-gray-300 dark:bg-gray-800 bg-white px-3 py-2 dark:text-gray-400 text-gray-600 dark:hover:bg-gray-700 hover:bg-gray-50"
-                >
+                <Button variant="secondary" onClick={copyApiKey} aria-label="Copy API key">
                   {copied ? '✓' : '📋'}
-                </button>
+                </Button>
               </div>
-              <p className="mt-2 text-xs text-yellow-600 dark:text-yellow-400">
-                ⚠️ Save this API key — it will not be shown again!
-              </p>
-            </div>
+              <p className="mt-2 text-xs text-yellow-600 dark:text-yellow-400">⚠️ Save this API key — it will not be shown again!</p>
+            </Field>
 
-            <button
-              onClick={handleContinue}
-              className="w-full rounded-lg bg-blue-600 px-4 py-3 font-medium text-white hover:bg-blue-700"
-            >
+            <Button fullWidth size="lg" onClick={handleContinue}>
               {authMode === 'forms' ? 'Continue to Login' : 'Continue to Dashboard'}
-            </button>
+            </Button>
           </div>
         )}
-      </div>
+      </Card>
     </div>
   );
 }

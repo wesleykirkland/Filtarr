@@ -8,6 +8,7 @@
  */
 
 import { Agent } from 'undici';
+import { validateArrInstanceUrl } from '../security.js';
 
 import {
   type ArrClientOptions,
@@ -37,8 +38,12 @@ export class ArrClient {
   protected readonly skipSslVerify: boolean;
 
   constructor(options: ArrClientOptions) {
+    const normalizedBaseUrl = validateArrInstanceUrl(options.baseUrl, options.skipSslVerify, {
+      fieldName: 'Arr instance url',
+    });
+
     // Normalize URL: remove trailing slash
-    this.baseUrl = options.baseUrl.replace(/\/+$/, '');
+    this.baseUrl = normalizedBaseUrl.replace(/\/+$/, '');
     this.apiKey = options.apiKey;
     this.timeout = options.timeout ?? DEFAULT_TIMEOUT;
     this.maxRetries = options.maxRetries ?? DEFAULT_MAX_RETRIES;

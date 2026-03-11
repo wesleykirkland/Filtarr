@@ -6,6 +6,7 @@ import { startInstanceValidator, stopInstanceValidator } from './cron/instanceVa
 import { startSettingsBackupScheduler, stopSettingsBackupScheduler } from './cron/settingsBackup.js';
 import { initWatcher, stopWatcher } from './services/watcher.js';
 import { initScheduler, stopScheduler } from './cron/scheduler.js';
+import { recordActivityEvent } from './lib/activity.js';
 
 function main(): void {
   const config = loadConfig();
@@ -14,6 +15,12 @@ function main(): void {
   // Initialize database (runs migrations on first start)
   const db = getDatabase();
   logger.info('Database initialized.');
+  recordActivityEvent(db, {
+    type: 'started',
+    source: 'system',
+    message: `Filtarr started in ${config.nodeEnv} mode`,
+    details: { nodeEnv: config.nodeEnv, host: config.host, port: config.port },
+  });
 
   // Start background services
   startInstanceValidator(db);

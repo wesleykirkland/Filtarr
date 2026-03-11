@@ -3,10 +3,16 @@ import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
-const router = Router();
+export const publicSystemRoutes = Router();
+export const protectedSystemRoutes = Router();
 
 // Read version from package.json
 function getVersion(): string {
+  const envVersion = process.env['FILTARR_VERSION']?.trim();
+  if (envVersion) {
+    return envVersion;
+  }
+
   try {
     const __dirname = path.dirname(fileURLToPath(import.meta.url));
     // Walk up to find package.json (works from src/ or dist/)
@@ -24,15 +30,13 @@ function getVersion(): string {
   return '0.0.0';
 }
 
-const version = getVersion();
-
-router.get('/health', (_req, res) => {
-  res.json({ status: 'ok', version });
+publicSystemRoutes.get('/health', (_req, res) => {
+  res.json({ status: 'ok', version: getVersion() });
 });
 
 // GET /api/v1/system/browse?path=/some/dir
 // Returns subdirectories at the given path for the filesystem picker UI
-router.get('/browse', (req, res) => {
+protectedSystemRoutes.get('/browse', (req, res) => {
   try {
     const requestedPath = (req.query['path'] as string) || '/';
     const resolved = path.resolve(requestedPath);
@@ -67,5 +71,3 @@ router.get('/browse', (req, res) => {
     res.status(500).json({ error: err instanceof Error ? err.message : 'Browse failed' });
   }
 });
-
-export default router;

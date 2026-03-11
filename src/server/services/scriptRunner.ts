@@ -1,5 +1,6 @@
 import vm from 'node:vm';
 import { logger } from '../lib/logger.js';
+import { assertCustomScriptsEnabled, SecurityPolicyError } from '../../services/security.js';
 
 export interface ScriptResult {
   success: boolean;
@@ -33,6 +34,19 @@ export async function runSandboxedScript(
   timeoutMs = 5000,
 ): Promise<ScriptResult> {
   const logs: string[] = [];
+
+  try {
+    assertCustomScriptsEnabled();
+  } catch (error) {
+    if (error instanceof SecurityPolicyError) {
+      return {
+        success: false,
+        error: error.message,
+        logs,
+      };
+    }
+    throw error;
+  }
 
   // Provide a safe, crippled console
   const sandboxConsole = {

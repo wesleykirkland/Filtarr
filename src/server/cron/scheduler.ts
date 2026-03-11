@@ -2,6 +2,7 @@ import cron from 'node-cron';
 import type Database from 'better-sqlite3';
 import { logger } from '../lib/logger.js';
 import { getAllJobs, updateJob } from '../../db/schemas/jobs.js';
+import { recordActivityEvent } from '../lib/activity.js';
 import { runSandboxedScript } from '../services/scriptRunner.js';
 import { FilterEngine } from '../services/filterEngine.js';
 import fs from 'node:fs';
@@ -55,6 +56,12 @@ export class CronManager {
     const task = cron.schedule(job.schedule, async () => {
       logger.info({ jobId: job.id, name: job.name }, 'Executing scheduled job');
       const startTime = new Date().toISOString();
+      recordActivityEvent(this.db, {
+        type: 'run',
+        source: 'jobs',
+        message: `Started scheduled job "${job.name}"`,
+        details: { jobId: job.id, jobType: job.type, schedule: job.schedule, status: 'started' },
+      });
 
       try {
         if (job.type === 'custom_script' && job.payload) {
@@ -66,22 +73,46 @@ export class CronManager {
               { jobId: job.id, output: result.output },
               'Job script completed successfully',
             );
+            recordActivityEvent(this.db, {
+              type: 'run',
+              source: 'jobs',
+              message: `Scheduled job "${job.name}" completed successfully`,
+              details: { jobId: job.id, jobType: job.type, status: 'success' },
+            });
           } else {
             logger.warn(
               { jobId: job.id, error: result.error, logs: result.logs },
               'Job script reported failure',
             );
+            recordActivityEvent(this.db, {
+              type: 'run',
+              source: 'jobs',
+              message: `Scheduled job "${job.name}" reported failure`,
+              details: { jobId: job.id, jobType: job.type, status: 'failure', error: result.error },
+            });
           }
         } else if (job.type === 'filter_run' && job.payload) {
           await this.executeFilterJob(job);
         } else {
           logger.warn({ jobId: job.id, type: job.type }, 'Built-in job types not yet implemented');
+          recordActivityEvent(this.db, {
+            type: 'run',
+            source: 'jobs',
+            message: `Scheduled job "${job.name}" was skipped`,
+            details: { jobId: job.id, jobType: job.type, status: 'skipped' },
+          });
         }
 
         // Update last run time
         updateJob(this.db, job.id, { lastRun: startTime });
       } catch (err: any) {
         logger.error({ jobId: job.id, err: err.message }, 'Scheduled job failed unexpectedly');
+        recordActivityEvent(this.db, {
+          type: 'run',
+          source: 'jobs',
+          message: `Scheduled job "${job.name}" failed`,
+          details: { jobId: job.id, jobType: job.type, status: 'failure', error: err.message },
+        });
       }
     });
 
@@ -99,6 +130,12 @@ export class CronManager {
 
       if (!filter.target_path) {
         logger.warn({ jobId: job.id, filterId }, 'Scheduled filter run skipped: no target path');
+        recordActivityEvent(this.db, {
+          type: 'run',
+          source: 'jobs',
+          message: `Scheduled filter job "${job.name}" skipped because no target path is configured`,
+          details: { jobId: job.id, filterId, status: 'skipped' },
+        });
         return;
       }
 
@@ -107,10 +144,17 @@ export class CronManager {
           { jobId: job.id, filterId, path: filter.target_path },
           'Scheduled filter run failed: target path does not exist',
         );
+        recordActivityEvent(this.db, {
+          type: 'run',
+          source: 'jobs',
+          message: `Scheduled filter job "${job.name}" failed because ${filter.target_path} does not exist`,
+          details: { jobId: job.id, filterId, status: 'failure', targetPath: filter.target_path },
+        });
         return;
       }
 
       // Simple recursive crawl of the target path
+      let queuedFiles = 0;
       const crawl = (dir: string) => {
         const entries = fs.readdirSync(dir, { withFileTypes: true });
         for (const entry of entries) {
@@ -118,6 +162,7 @@ export class CronManager {
           if (entry.isDirectory()) {
             crawl(fullPath);
           } else {
+            queuedFiles += 1;
             this.filterEngine.processFile(fullPath, 'cron').catch((err) => {
               logger.error({ err, fullPath }, 'Scheduled filter failed to process file');
             });
@@ -126,9 +171,21 @@ export class CronManager {
       };
 
       crawl(filter.target_path);
-      logger.info({ jobId: job.id, filterId }, 'Scheduled filter crawl completed');
+      logger.info({ jobId: job.id, filterId, queuedFiles }, 'Scheduled filter crawl completed');
+      recordActivityEvent(this.db, {
+        type: 'run',
+        source: 'jobs',
+        message: `Scheduled filter job "${job.name}" completed`,
+        details: { jobId: job.id, filterId, status: 'success', queuedFiles },
+      });
     } catch (err: any) {
       logger.error({ jobId: job.id, err: err.message }, 'Failed to execute filter job');
+      recordActivityEvent(this.db, {
+        type: 'run',
+        source: 'jobs',
+        message: `Scheduled filter job "${job.name}" failed`,
+        details: { jobId: job.id, status: 'failure', error: err.message },
+      });
     }
   }
 }

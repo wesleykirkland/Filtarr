@@ -1,15 +1,27 @@
+import { useState } from 'react';
 import { NavLink } from 'react-router-dom';
-import { useState, useEffect } from 'react';
+import {
+  ActivityIcon,
+  DashboardIcon,
+  FiltersIcon,
+  InstancesIcon,
+  MenuIcon,
+  MoonIcon,
+  SchedulerIcon,
+  SettingsIcon,
+  SunIcon,
+} from './Icons';
+import { Button, cn } from './ui';
 import { useAuth } from '../hooks/useAuth';
 import { useTheme } from '../contexts/ThemeContext';
 
 const navItems = [
-  { to: '/', label: 'Dashboard', icon: '📊' },
-  { to: '/instances', label: 'Instances', icon: '🔗' },
-  { to: '/filters', label: 'Filters', icon: '🔍' },
-  { to: '/scheduler', label: 'Scheduler', icon: '⏰' },
-  { to: '/activity', label: 'Activity', icon: '📋' },
-  { to: '/settings', label: 'Settings', icon: '⚙️' },
+  { to: '/', label: 'Dashboard', Icon: DashboardIcon },
+  { to: '/instances', label: 'Instances', Icon: InstancesIcon },
+  { to: '/filters', label: 'Filters', Icon: FiltersIcon },
+  { to: '/scheduler', label: 'Scheduler', Icon: SchedulerIcon },
+  { to: '/activity', label: 'Activity', Icon: ActivityIcon },
+  { to: '/settings', label: 'Settings', Icon: SettingsIcon },
 ];
 
 export default function Layout({ children }: { children: React.ReactNode }) {
@@ -20,101 +32,92 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const userName = session?.user?.displayName || session?.user?.username || 'User';
 
   return (
-    <div
-      className={`flex h-screen ${darkMode ? 'bg-gray-950 text-gray-100' : 'bg-gray-50 text-gray-900'}`}
-    >
-      {/* Mobile overlay */}
-      {sidebarOpen && (
-        <div
+    <div className={cn('flex h-screen bg-gray-50 text-gray-900 dark:bg-gray-950 dark:text-gray-100')}>
+      {sidebarOpen ? (
+        <button
+          type="button"
+          aria-label="Close navigation"
           className="fixed inset-0 z-30 bg-black/50 lg:hidden"
           onClick={() => setSidebarOpen(false)}
         />
-      )}
+      ) : null}
 
-      {/* Sidebar */}
       <aside
-        className={`fixed inset-y-0 left-0 z-40 flex w-64 flex-col transition-transform lg:static lg:translate-x-0 ${
-          sidebarOpen ? 'translate-x-0' : '-translate-x-full'
-        } ${darkMode ? 'bg-gray-900 border-gray-800' : 'bg-white border-gray-200'} border-r`}
+        className={cn(
+          'fixed inset-y-0 left-0 z-40 flex w-72 flex-col border-r border-gray-200 bg-white transition-transform lg:static lg:translate-x-0 dark:border-gray-800 dark:bg-gray-900',
+          sidebarOpen ? 'translate-x-0' : '-translate-x-full',
+        )}
       >
-        <div className="flex h-16 items-center gap-2 px-6 border-b border-inherit">
-          <span className="text-2xl">🎬</span>
-          <h1 className="text-xl font-bold">Filtarr</h1>
+        <div className="border-b border-inherit px-6 py-5">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-blue-600 text-lg font-bold text-white shadow-lg shadow-blue-600/20">
+              F
+            </div>
+            <div>
+              <h1 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Filtarr</h1>
+              <p className="text-xs text-gray-500">Automation hub for your Arr stack</p>
+            </div>
+          </div>
         </div>
 
-        <nav className="flex-1 overflow-y-auto p-4 space-y-1">
-          {navItems.map((item) => (
+        <nav className="flex-1 space-y-1 overflow-y-auto p-4">
+          {navItems.map(({ to, label, Icon }) => (
             <NavLink
-              key={item.to}
-              to={item.to}
-              end={item.to === '/'}
+              key={to}
+              to={to}
+              end={to === '/'}
               onClick={() => setSidebarOpen(false)}
               className={({ isActive }) =>
-                `flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+                cn(
+                  'flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-gray-900',
                   isActive
-                    ? darkMode
-                      ? 'bg-blue-600/20 text-blue-400'
-                      : 'bg-blue-50 text-blue-700'
-                    : darkMode
-                      ? 'text-gray-400 hover:bg-gray-800 hover:text-gray-200'
-                      : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
-                }`
+                    ? 'bg-blue-50 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300'
+                    : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-300 dark:hover:bg-gray-800 dark:hover:text-white',
+                )
               }
             >
-              <span>{item.icon}</span>
-              {item.label}
+              <Icon className="h-4 w-4" />
+              <span>{label}</span>
             </NavLink>
           ))}
         </nav>
 
-        <div className={`border-t p-4 ${darkMode ? 'border-gray-800' : 'border-gray-200'}`}>
-          <button
-            onClick={toggleDarkMode}
-            className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm transition-colors ${
-              darkMode ? 'text-gray-400 hover:bg-gray-800' : 'text-gray-600 hover:bg-gray-100'
-            }`}
-          >
-            {darkMode ? '☀️' : '🌙'} {darkMode ? 'Light Mode' : 'Dark Mode'}
-          </button>
+        <div className="border-t border-gray-200 p-4 dark:border-gray-800">
+          <Button variant="secondary" fullWidth onClick={toggleDarkMode} className="justify-start">
+            {darkMode ? <SunIcon className="h-4 w-4" /> : <MoonIcon className="h-4 w-4" />}
+            {darkMode ? 'Light mode' : 'Dark mode'}
+          </Button>
         </div>
       </aside>
 
-      {/* Main content */}
-      <div className="flex flex-1 flex-col overflow-hidden">
-        {/* Header */}
-        <header
-          className={`flex h-16 items-center justify-between border-b px-6 ${
-            darkMode ? 'bg-gray-900 border-gray-800' : 'bg-white border-gray-200'
-          }`}
-        >
-          <button
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        <header className="flex h-16 items-center justify-between border-b border-gray-200 bg-white px-4 sm:px-6 dark:border-gray-800 dark:bg-gray-900">
+          <Button
+            variant="ghost"
+            className="lg:hidden"
+            aria-label="Open navigation"
             onClick={() => setSidebarOpen(true)}
-            className="lg:hidden text-gray-400 hover:text-gray-200"
           >
-            ☰
-          </button>
+            <MenuIcon className="h-5 w-5" />
+          </Button>
           <div className="flex-1" />
-          <div className="flex items-center gap-4">
-            {session?.authenticated && (
+          <div className="flex items-center gap-3">
+            {session?.authenticated ? (
               <>
-                <span className={`text-sm ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                <div className="hidden rounded-full bg-gray-100 px-3 py-1.5 text-sm text-gray-600 dark:bg-gray-800 dark:text-gray-300 sm:block">
                   {userName}
-                </span>
-                {session.mode !== 'none' && (
-                  <button
-                    onClick={() => logout()}
-                    className="text-sm text-red-400 hover:text-red-300"
-                  >
+                </div>
+                {session.mode !== 'none' ? (
+                  <Button variant="ghost" size="sm" onClick={() => logout()}>
                     Logout
-                  </button>
-                )}
+                  </Button>
+                ) : null}
               </>
-            )}
+            ) : null}
           </div>
         </header>
 
-        {/* Page content */}
-        <main className="flex-1 overflow-y-auto p-6">{children}</main>
+        <main className="flex-1 overflow-y-auto p-4 sm:p-6">{children}</main>
       </div>
     </div>
   );

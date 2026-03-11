@@ -128,4 +128,33 @@ describe('client hooks', () => {
 
     await view.unmount();
   });
+
+  it('shows mutation and connection errors through toasts', async () => {
+    api.get
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce({ success: false, error: 'Denied' })
+      .mockRejectedValueOnce(new Error('Instance test failed'));
+    api.post.mockRejectedValueOnce(new Error('Create failed'));
+    api.put.mockRejectedValueOnce(new Error('Update failed'));
+    api.delete.mockRejectedValueOnce(new Error('Delete failed'));
+
+    const view = await render(wrap(<InstancesHarness />));
+    await waitFor(() => {
+      expect(api.get).toHaveBeenCalledWith('/instances');
+    });
+
+    for (const label of ['create', 'update', 'delete', 'test-saved', 'test-saved']) {
+      await click(Array.from(document.body.querySelectorAll('button')).find((node) => node.textContent === label) ?? null);
+    }
+
+    await waitFor(() => {
+      expect(toast).toHaveBeenCalledWith('error', 'Create failed');
+      expect(toast).toHaveBeenCalledWith('error', 'Update failed');
+      expect(toast).toHaveBeenCalledWith('error', 'Delete failed');
+      expect(toast).toHaveBeenCalledWith('error', 'Denied');
+      expect(toast).toHaveBeenCalledWith('error', 'Instance test failed');
+    });
+
+    await view.unmount();
+  });
 });

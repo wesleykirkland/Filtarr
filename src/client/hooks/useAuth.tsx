@@ -12,8 +12,10 @@ interface AuthSession {
 interface AuthContextValue {
   session: AuthSession | undefined;
   isLoading: boolean;
+  error: Error | null;
   login: (username: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
+  retrySession: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -31,12 +33,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener('auth:401', handleAuthError);
   }, [queryClient]);
 
-  const { data: session, isLoading } = useQuery({
+  const { data: session, isLoading, error, refetch } = useQuery({
     queryKey: ['auth', 'session'],
     queryFn: () => api.get<AuthSession>('/auth/session'),
     retry: false,
     staleTime: 60_000,
   });
+
+  const retrySession = useCallback(async () => {
+    await refetch();
+  }, [refetch]);
 
   const login = useCallback(
     async (username: string, password: string) => {
@@ -52,7 +58,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [queryClient]);
 
   return (
-    <AuthContext.Provider value={{ session, isLoading, login, logout }}>
+    <AuthContext.Provider value={{ session, isLoading, error, login, logout, retrySession }}>
       {children}
     </AuthContext.Provider>
   );

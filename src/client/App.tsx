@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useAuth } from './hooks/useAuth';
 import { api } from './lib/api';
 import Layout from './components/Layout';
+import { Button, Card } from './components/ui';
 import Dashboard from './pages/Dashboard';
 import Instances from './pages/Instances';
 import Filters from './pages/Filters';
@@ -12,15 +13,17 @@ import Settings from './pages/Settings';
 import Login from './pages/Login';
 import Setup from './pages/Setup';
 import { ThemeProvider, useTheme } from './contexts/ThemeContext';
+import { getProtectedRouteState } from './lib/session';
 
 interface SetupStatus {
   needsSetup: boolean;
 }
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { session, isLoading } = useAuth();
+  const { session, isLoading, error, retrySession } = useAuth();
 
   const { darkMode } = useTheme();
+  const routeState = getProtectedRouteState({ session, error });
 
   if (isLoading) {
     return (
@@ -32,7 +35,26 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
     );
   }
 
-  if (!session?.authenticated && session?.mode !== 'none') {
+  if (routeState.state === 'retry') {
+    return (
+      <div
+        className={`flex min-h-screen items-center justify-center px-4 ${darkMode ? 'bg-gray-950' : 'bg-gray-50'}`}
+      >
+        <Card className="max-w-lg">
+          <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100">{routeState.title}</h2>
+          <p className="mt-2 text-sm text-gray-500">{routeState.description}</p>
+          <div className="mt-5 flex flex-wrap gap-2">
+            <Button onClick={() => retrySession()}>Retry session check</Button>
+            <Button variant="secondary" onClick={() => window.location.reload()}>
+              Reload page
+            </Button>
+          </div>
+        </Card>
+      </div>
+    );
+  }
+
+  if (routeState.state === 'login') {
     return <Navigate to="/login" replace />;
   }
 

@@ -4,7 +4,8 @@ import {
   assertCustomScriptsEnabled,
   assertSkipSslVerifyAllowed,
   customScriptsEnabled,
-  validateOutboundUrl,
+  validateArrInstanceUrl,
+  validateWebhookUrl,
 } from '../../src/services/security.js';
 
 describe('security utilities', () => {
@@ -12,22 +13,18 @@ describe('security utilities', () => {
     delete process.env['FILTARR_ENABLE_CUSTOM_SCRIPTS'];
   });
 
-  it('validates outbound URLs and rejects unsafe targets', () => {
-    expect(validateOutboundUrl(' https://example.com/path ')).toBe('https://example.com/path');
-    expect(validateOutboundUrl('http://example.com', { allowHttp: true, fieldName: 'webhook' })).toBe(
-      'http://example.com/',
-    );
-    expect(
-      validateOutboundUrl('https://127.0.0.1:8989', { allowHttp: true, allowPrivateHosts: true }),
-    ).toBe('https://127.0.0.1:8989/');
+  it('validates webhook and Arr URLs with named policies', () => {
+    expect(validateWebhookUrl(' https://example.com/path ')).toBe('https://example.com/path');
+    expect(validateArrInstanceUrl('http://127.0.0.1:8989')).toBe('http://127.0.0.1:8989/');
 
-    expect(() => validateOutboundUrl('not-a-url')).toThrow('url must be a valid URL');
-    expect(() => validateOutboundUrl('ftp://example.com')).toThrow('https protocol');
-    expect(() => validateOutboundUrl('https://user:pass@example.com')).toThrow(
+    expect(() => validateWebhookUrl('not-a-url')).toThrow('url must be a valid URL');
+    expect(() => validateWebhookUrl('ftp://example.com')).toThrow('https protocol');
+    expect(() => validateWebhookUrl('https://user:pass@example.com')).toThrow(
       'must not include embedded credentials',
     );
-    expect(() => validateOutboundUrl('https://127.0.0.1')).toThrow('private network');
-    expect(() => validateOutboundUrl('https://[::1]')).toThrow('private network');
+    expect(() => validateWebhookUrl('https://127.0.0.1')).toThrow('private network');
+    expect(() => validateWebhookUrl('https://[::1]')).toThrow('private network');
+    expect(() => validateArrInstanceUrl('http://example.com', true)).toThrow('https URLs');
   });
 
   it('enforces skipSslVerify and custom-script policies', () => {

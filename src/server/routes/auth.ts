@@ -21,6 +21,28 @@ function getCurrentAuthMode(db: Database.Database): AuthMode {
   }
 }
 
+function requireAuthenticatedRequest(db: Database.Database) {
+  return (req: Request, res: Response, next: NextFunction): void => {
+    const authMode = getCurrentAuthMode(db);
+
+    if (authMode === 'none') {
+      next();
+      return;
+    }
+
+    if (req.apiKey || req.isAuthenticated?.() || (authMode === 'basic' && (req as any)._basicAuthValid)) {
+      next();
+      return;
+    }
+
+    if (authMode === 'basic') {
+      res.setHeader('WWW-Authenticate', 'Basic realm="Filtarr"');
+    }
+
+    res.status(401).json({ error: 'Authentication required' });
+  };
+}
+
 /**
  * Create auth routes for login, logout, session, and API key management.
  * Rate limiting is applied to auth endpoints (5 attempts/min).
@@ -143,7 +165,9 @@ export function createAuthRoutes(db: Database.Database, config: AuthConfig): Rou
   }
 
   // --- API Key Management ---
-  // These require an authenticated session (not just API key)
+  router.use('/api-keys', requireAuthenticatedRequest(db));
+
+  // --- API Key Management ---
   router.get('/api-keys', (req: Request, res: Response): void => {
     const keys = db
       .prepare<

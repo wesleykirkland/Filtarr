@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { toast } from '../components/Toast';
+import { ConfirmDialog } from '../components/ConfirmDialog';
 import { Modal } from '../components/Modal';
 
 interface Filter {
@@ -272,6 +273,7 @@ export default function Scheduler() {
   const queryClient = useQueryClient();
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Job | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<Job | null>(null);
 
   const { data: rawJobs, isLoading } = useQuery<Job[]>({
     queryKey: ['jobs'],
@@ -296,6 +298,7 @@ export default function Scheduler() {
     mutationFn: (id: number) => api.delete(`/jobs/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['jobs'] });
+      setPendingDelete(null);
       toast('success', 'Job deleted');
     },
     onError: (e: Error) => toast('error', e.message),
@@ -346,6 +349,20 @@ export default function Scheduler() {
           }}
         />
       </Modal>
+
+      <ConfirmDialog
+        isOpen={pendingDelete !== null}
+        title="Delete scheduled job?"
+        description={
+          pendingDelete
+            ? <>Delete <span className="font-medium text-gray-900 dark:text-gray-100">{pendingDelete.name}</span>? Future scheduled runs will stop immediately.</>
+            : ''
+        }
+        confirmLabel="Delete job"
+        isPending={deleteMutation.isPending}
+        onClose={() => setPendingDelete(null)}
+        onConfirm={() => pendingDelete && deleteMutation.mutate(pendingDelete.id)}
+      />
 
       {isLoading ? (
         <p className="dark:text-gray-400 text-gray-500">Loading jobs...</p>
@@ -406,9 +423,7 @@ export default function Scheduler() {
                       Edit
                     </button>
                     <button
-                      onClick={() => {
-                        if (confirm(`Delete job "${job.name}"?`)) deleteMutation.mutate(job.id);
-                      }}
+                      onClick={() => setPendingDelete(job)}
                       className="rounded-lg border dark:border-red-900 border-red-200 px-3 py-1.5 text-xs font-medium dark:text-red-400 text-red-600 dark:hover:bg-red-900/30 hover:bg-red-50"
                     >
                       Delete

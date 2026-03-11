@@ -4,6 +4,8 @@ import type Database from 'better-sqlite3';
 import { logger } from '../lib/logger.js';
 import { getAllFilters, type FilterRow } from '../../db/schemas/filters.js';
 import { getInstanceConfigById } from '../../db/schemas/instances.js';
+import { recordActivityEvent } from '../lib/activity.js';
+import { SecurityPolicyError, validateWebhookUrl } from '../../services/security.js';
 import { createArrClient } from '../routes/instances.js';
 import { runSandboxedScript } from './scriptRunner.js';
 
@@ -55,6 +57,20 @@ export class FilterEngine {
             { filterId: filter.id, filterName: filter.name, file: fileName },
             'Filter match detected',
           );
+          recordActivityEvent(this.db, {
+            type: 'matched',
+            source: 'filters',
+            message: `Filter "${filter.name}" matched ${fileName}`,
+            details: {
+              filterId: filter.id,
+              filterName: filter.name,
+              trigger: eventType,
+              ruleType: filter.rule_type,
+              actionType: filter.action_type,
+              filePath: fileEvent.path,
+              fileName: fileEvent.name,
+            },
+          });
           await this.executeAction(filter, fileEvent);
 
           if (filter.notify_on_match && filter.notify_webhook_url) {
@@ -135,6 +151,12 @@ export class FilterEngine {
         if (fs.existsSync(file.path)) {
           fs.unlinkSync(file.path);
           logger.info({ file: file.path }, 'Deleted file per filter action');
+          recordActivityEvent(this.db, {
+            type: 'action',
+            source: 'filters',
+            message: `Deleted ${file.name} via filter "${filter.name}"`,
+            details: { filterId: filter.id, actionType: 'delete', filePath: file.path, fileName: file.name },
+          });
         }
         break;
 
@@ -146,6 +168,18 @@ export class FilterEngine {
           }
           fs.renameSync(file.path, dest);
           logger.info({ from: file.path, to: dest }, 'Moved file per filter action');
+          recordActivityEvent(this.db, {
+            type: 'action',
+            source: 'filters',
+            message: `Moved ${file.name} via filter "${filter.name}"`,
+            details: {
+              filterId: filter.id,
+              actionType: 'move',
+              filePath: file.path,
+              destinationPath: dest,
+              fileName: file.name,
+            },
+          });
         }
         break;
 
@@ -156,6 +190,12 @@ export class FilterEngine {
       case 'script':
         if (actionPayload) {
           await runSandboxedScript(actionPayload, { file, filter });
+          recordActivityEvent(this.db, {
+            type: 'action',
+            source: 'filters',
+            message: `Ran custom action for ${file.name} via filter "${filter.name}"`,
+            details: { filterId: filter.id, actionType: 'script', filePath: file.path, fileName: file.name },
+          });
         }
         break;
 
@@ -169,6 +209,12 @@ export class FilterEngine {
   private async handleBlocklist(filter: FilterRow, file: FileEvent) {
     if (!filter.instance_id) {
       logger.warn({ filterId: filter.id }, 'Blocklist action triggered but no instance linked');
+      recordActivityEvent(this.db, {
+        type: 'action',
+        source: 'filters',
+        message: `Blocklist action skipped for filter "${filter.name}" because no instance is linked`,
+        details: { filterId: filter.id, actionType: 'blocklist', status: 'skipped', filePath: file.path },
+      });
       return;
     }
 
@@ -178,6 +224,18 @@ export class FilterEngine {
         { filterId: filter.id, instanceId: filter.instance_id },
         'Linked instance config not found',
       );
+      recordActivityEvent(this.db, {
+        type: 'action',
+        source: 'filters',
+        message: `Blocklist action failed for filter "${filter.name}" because the linked instance no longer exists`,
+        details: {
+          filterId: filter.id,
+          actionType: 'blocklist',
+          status: 'failure',
+          instanceId: filter.instance_id,
+          filePath: file.path,
+        },
+      });
       return;
     }
 
@@ -225,22 +283,73 @@ export class FilterEngine {
           { instance: config.name, title: matchingItem.title },
           'Successfully blocklisted release',
         );
+        recordActivityEvent(this.db, {
+          type: 'action',
+          source: 'filters',
+          message: `Blocklisted "${matchingItem.title}" via filter "${filter.name}"`,
+          details: {
+            filterId: filter.id,
+            actionType: 'blocklist',
+            status: 'success',
+            instanceId: config.id,
+            queueItemId: matchingItem.id,
+            filePath: file.path,
+          },
+        });
       } else {
         logger.debug(
           { instance: config.name, file: file.name },
           'Could not find matching release in queue for blocklisting',
         );
+        recordActivityEvent(this.db, {
+          type: 'action',
+          source: 'filters',
+          message: `No matching queue item was found to blocklist for ${file.name}`,
+          details: {
+            filterId: filter.id,
+            actionType: 'blocklist',
+            status: 'skipped',
+            instanceId: config.id,
+            filePath: file.path,
+          },
+        });
       }
     } catch (err: any) {
       logger.error(
         { instance: config.name, err: err.message },
         'Failed to perform blocklist action',
       );
+      recordActivityEvent(this.db, {
+        type: 'action',
+        source: 'filters',
+        message: `Blocklist action failed for ${file.name}`,
+        details: {
+          filterId: filter.id,
+          actionType: 'blocklist',
+          status: 'failure',
+          instanceId: config.id,
+          filePath: file.path,
+          error: err.message,
+        },
+      });
     }
   }
 
   private async sendNotification(filter: FilterRow, file: FileEvent) {
     if (!filter.notify_webhook_url) return;
+
+    let webhookUrl: string;
+    try {
+      webhookUrl = validateWebhookUrl(filter.notify_webhook_url, {
+        fieldName: 'notify_webhook_url',
+      });
+    } catch (error) {
+      if (error instanceof SecurityPolicyError) {
+        logger.warn({ filterId: filter.id, error: error.message }, 'Blocked unsafe notification webhook');
+        return;
+      }
+      throw error;
+    }
 
     const payload = {
       event: 'filter_match',
@@ -257,7 +366,7 @@ export class FilterEngine {
     };
 
     try {
-      const response = await fetch(filter.notify_webhook_url, {
+      const response = await fetch(webhookUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -268,11 +377,47 @@ export class FilterEngine {
           { filterId: filter.id, status: response.status },
           'Webhook notification failed',
         );
+        recordActivityEvent(this.db, {
+          type: 'notification',
+          source: 'filters',
+          message: `Notification delivery failed for filter "${filter.name}"`,
+          details: {
+            filterId: filter.id,
+            filePath: file.path,
+            fileName: file.name,
+            status: response.status,
+            success: false,
+          },
+        });
       } else {
         logger.debug({ filterId: filter.id }, 'Webhook notification sent');
+        recordActivityEvent(this.db, {
+          type: 'notification',
+          source: 'filters',
+          message: `Notification sent for filter "${filter.name}"`,
+          details: {
+            filterId: filter.id,
+            filePath: file.path,
+            fileName: file.name,
+            status: response.status,
+            success: true,
+          },
+        });
       }
     } catch (err: any) {
       logger.error({ filterId: filter.id, err: err.message }, 'Error sending webhook notification');
+      recordActivityEvent(this.db, {
+        type: 'notification',
+        source: 'filters',
+        message: `Notification errored for filter "${filter.name}"`,
+        details: {
+          filterId: filter.id,
+          filePath: file.path,
+          fileName: file.name,
+          success: false,
+          error: err.message,
+        },
+      });
     }
   }
 }

@@ -35,4 +35,8 @@ export function getConfig(): AppConfig {
   return _config;
 }
 
+export function resetConfigCache(): void {
+  _config = null;
+}
+
 export { type AppConfig } from './schema.js';

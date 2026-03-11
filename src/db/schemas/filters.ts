@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3';
+import { decryptStoredSecret, encryptStoredSecret } from '../../services/encryption.js';
 
 export interface FilterRow {
   id: number;
@@ -21,6 +22,13 @@ export interface FilterRow {
   sort_order: number;
   created_at: string;
   updated_at: string;
+}
+
+export interface FilterResponseRow extends Omit<FilterRow, 'notify_webhook_url' | 'notify_slack_token'> {
+  notify_webhook_url: null;
+  notify_webhook_url_configured: boolean;
+  notify_slack_token: null;
+  notify_slack_token_configured: boolean;
 }
 
 export interface CreateFilterInput {
@@ -61,18 +69,46 @@ export interface UpdateFilterInput {
   sortOrder?: number;
 }
 
+function normalizeNullableText(value: string | null | undefined): string | null {
+  if (value === undefined || value === null) return null;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+
+function rowToFilter(row: FilterRow): FilterRow {
+  return {
+    ...row,
+    notify_webhook_url: decryptStoredSecret(row.notify_webhook_url),
+    notify_slack_token: decryptStoredSecret(row.notify_slack_token),
+  };
+}
+
+export function toFilterResponse(row: FilterRow): FilterResponseRow {
+  return {
+    ...row,
+    notify_webhook_url: null,
+    notify_webhook_url_configured: Boolean(row.notify_webhook_url),
+    notify_slack_token: null,
+    notify_slack_token_configured: Boolean(row.notify_slack_token),
+  };
+}
+
 export function getAllFilters(db: Database.Database): FilterRow[] {
   return db
     .prepare<[], FilterRow>('SELECT * FROM filters ORDER BY sort_order ASC, created_at DESC')
-    .all();
+    .all()
+    .map(rowToFilter);
 }
 
 export function getFilterById(db: Database.Database, id: number): FilterRow | null {
   const result = db.prepare<[number], FilterRow>('SELECT * FROM filters WHERE id = ?').get(id);
-  return result || null;
+  return result ? rowToFilter(result) : null;
 }
 
 export function createFilter(db: Database.Database, input: CreateFilterInput): FilterRow {
+  const notifyWebhookUrl = normalizeNullableText(input.notifyWebhookUrl);
+  const notifySlackToken = normalizeNullableText(input.notifySlackToken);
+  const notifySlackChannel = normalizeNullableText(input.notifySlackChannel);
   const result = db
     .prepare(
       `INSERT INTO filters (
@@ -95,10 +131,10 @@ export function createFilter(db: Database.Database, input: CreateFilterInput): F
       input.actionPayload || null,
       input.targetPath || null,
       input.notifyOnMatch ? 1 : 0,
-      input.notifyWebhookUrl || null,
+      encryptStoredSecret(notifyWebhookUrl),
       input.notifySlack ? 1 : 0,
-      input.notifySlackToken || null,
-      input.notifySlackChannel || null,
+      encryptStoredSecret(notifySlackToken),
+      notifySlackChannel,
       input.instanceId || null,
       input.enabled !== false ? 1 : 0,
       input.sortOrder || 0,
@@ -129,13 +165,19 @@ export function updateFilter(
   const notifyOnMatch =
     input.notifyOnMatch !== undefined ? (input.notifyOnMatch ? 1 : 0) : current.notify_on_match;
   const notifyWebhookUrl =
-    input.notifyWebhookUrl !== undefined ? input.notifyWebhookUrl : current.notify_webhook_url;
+    input.notifyWebhookUrl !== undefined
+      ? normalizeNullableText(input.notifyWebhookUrl)
+      : current.notify_webhook_url;
   const notifySlack =
     input.notifySlack !== undefined ? (input.notifySlack ? 1 : 0) : current.notify_slack;
   const notifySlackToken =
-    input.notifySlackToken !== undefined ? input.notifySlackToken : current.notify_slack_token;
+    input.notifySlackToken !== undefined
+      ? normalizeNullableText(input.notifySlackToken)
+      : current.notify_slack_token;
   const notifySlackChannel =
-    input.notifySlackChannel !== undefined ? input.notifySlackChannel : current.notify_slack_channel;
+    input.notifySlackChannel !== undefined
+      ? normalizeNullableText(input.notifySlackChannel)
+      : current.notify_slack_channel;
   const instanceId = input.instanceId !== undefined ? input.instanceId : current.instance_id;
   const enabled = input.enabled !== undefined ? (input.enabled ? 1 : 0) : current.enabled;
   const sortOrder = input.sortOrder ?? current.sort_order;
@@ -158,9 +200,9 @@ export function updateFilter(
     actionPayload || null,
     targetPath || null,
     notifyOnMatch,
-    notifyWebhookUrl || null,
+    encryptStoredSecret(notifyWebhookUrl),
     notifySlack,
-    notifySlackToken || null,
+    encryptStoredSecret(notifySlackToken),
     notifySlackChannel || null,
     instanceId,
     enabled,

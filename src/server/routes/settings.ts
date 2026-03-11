@@ -6,6 +6,9 @@ import { Router, type Request, type Response, type NextFunction } from 'express'
 import bcrypt from 'bcrypt';
 import type Database from 'better-sqlite3';
 import type { AuthMode } from '../../config/auth.js';
+import { decryptStoredSecret, encryptStoredSecret } from '../../services/encryption.js';
+import { SecurityPolicyError, validateWebhookUrl } from '../../services/security.js';
+import { recordActivityEvent } from '../lib/activity.js';
 
 interface ChangeAuthModeRequest {
   authMode: AuthMode;
@@ -21,6 +24,14 @@ interface NotificationSettings {
   slackEnabled: boolean;
   slackWebhookUrl: string;
   webhookEnabled: boolean;
+}
+
+function getSettingValue(db: Database.Database, key: string): string | null {
+  return db.prepare<[string], { value: string }>('SELECT value FROM settings WHERE key = ?').get(key)?.value || null;
+}
+
+function getNotificationSecret(db: Database.Database, key: string): string | null {
+  return decryptStoredSecret(getSettingValue(db, key));
 }
 
 /**
@@ -113,6 +124,13 @@ export function createSettingsRoutes(
           onAuthModeChange(authMode);
         }
 
+        recordActivityEvent(db, {
+          type: 'updated',
+          source: 'settings',
+          message: `Authentication mode changed to ${authMode}`,
+          details: { authMode, createdAdminUser: authMode !== 'none' && !hasAdmin },
+        });
+
         res.json({
           success: true,
           authMode,
@@ -157,6 +175,13 @@ export function createSettingsRoutes(
          VALUES ('validation_interval_minutes', ?, datetime('now'))`,
       ).run(validationIntervalMinutes.toString());
 
+      recordActivityEvent(db, {
+        type: 'updated',
+        source: 'settings',
+        message: 'General settings updated',
+        details: { validationIntervalMinutes },
+      });
+
       res.json({
         success: true,
         validationIntervalMinutes,
@@ -174,12 +199,7 @@ export function createSettingsRoutes(
         db
           .prepare<[], { value: string }>(`SELECT value FROM settings WHERE key = 'slack_enabled'`)
           .get()?.value === '1';
-      const slackWebhookUrl =
-        db
-          .prepare<[], { value: string }>(
-            `SELECT value FROM settings WHERE key = 'slack_webhook_url'`,
-          )
-          .get()?.value || '';
+      const slackWebhookUrl = getNotificationSecret(db, 'slack_webhook_url');
       const webhookEnabled =
         db
           .prepare<[], { value: string }>(
@@ -189,7 +209,8 @@ export function createSettingsRoutes(
 
       res.json({
         slackEnabled,
-        slackWebhookUrl,
+        slackWebhookUrl: '',
+        slackWebhookUrlConfigured: Boolean(slackWebhookUrl),
         webhookEnabled,
       });
     } catch {
@@ -210,10 +231,19 @@ export function createSettingsRoutes(
       }
 
       if (slackWebhookUrl !== undefined) {
+        if (typeof slackWebhookUrl !== 'string') {
+          res.status(400).json({ error: 'slackWebhookUrl must be a string' });
+          return;
+        }
+
         db.prepare(
           `INSERT OR REPLACE INTO settings (key, value, updated_at)
            VALUES ('slack_webhook_url', ?, datetime('now'))`,
-        ).run(slackWebhookUrl || '');
+        ).run(
+          encryptStoredSecret(
+            slackWebhookUrl ? validateWebhookUrl(slackWebhookUrl, { fieldName: 'slackWebhookUrl' }) : '',
+          ) || '',
+        );
       }
 
       if (typeof webhookEnabled === 'boolean') {
@@ -223,11 +253,26 @@ export function createSettingsRoutes(
         ).run(webhookEnabled ? '1' : '0');
       }
 
+      recordActivityEvent(db, {
+        type: 'updated',
+        source: 'settings',
+        message: 'Notification settings updated',
+        details: {
+          slackEnabled,
+          webhookEnabled,
+          slackWebhookConfigured: Boolean(slackWebhookUrl),
+        },
+      });
+
       res.json({
         success: true,
         message: 'Notification settings saved successfully',
       });
-    } catch {
+    } catch (err) {
+      if (err instanceof SecurityPolicyError) {
+        res.status(400).json({ error: err.message });
+        return;
+      }
       res.status(500).json({ error: 'Failed to update notification settings' });
     }
   });

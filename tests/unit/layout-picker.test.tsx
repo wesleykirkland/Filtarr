@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import React from 'react';
+import React, { act } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -26,6 +26,14 @@ vi.mock('../../src/client/contexts/ThemeContext', async (importOriginal) => {
 function wrap(node: React.ReactNode, path = '/') {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return <MemoryRouter initialEntries={[path]}><QueryClientProvider client={client}>{node}</QueryClientProvider></MemoryRouter>;
+}
+
+async function setInputValue(input: HTMLInputElement, value: string) {
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set?.call(input, value);
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+  });
 }
 
 describe('layout and filesystem picker', () => {
@@ -84,5 +92,41 @@ describe('layout and filesystem picker', () => {
       expect(document.body.textContent).toContain('Cannot read directory');
     });
     await errorView.unmount();
+  });
+
+  it('supports breadcrumb, parent, empty directory, and manual path navigation', async () => {
+    api.get.mockImplementation((url: string) => {
+      if (url.includes('%2Fmanual')) {
+        return Promise.resolve({ current: '/manual', parent: '/', entries: [] });
+      }
+      if (url.includes('%2Fmovies')) {
+        return Promise.resolve({ current: '/movies', parent: '/', entries: [] });
+      }
+      return Promise.resolve({ current: '/', parent: null, entries: [{ name: 'movies', path: '/movies', isDir: true }] });
+    });
+
+    const view = await render(wrap(<FilesystemPicker value="/movies" onSelect={vi.fn()} onClose={vi.fn()} />));
+    await waitFor(() => {
+      expect(document.body.textContent).toContain('No subdirectories here');
+    });
+
+    await click(Array.from(document.body.querySelectorAll('button')).find((node) => node.textContent === 'movies') ?? null);
+    await waitFor(() => {
+      expect(api.get).toHaveBeenCalledWith('/system/browse?path=%2Fmovies');
+      expect(document.body.textContent).toContain('No subdirectories here');
+    });
+
+    await click(Array.from(document.body.querySelectorAll('button')).find((node) => node.textContent?.includes('..')) ?? null);
+    await waitFor(() => {
+      expect(document.body.textContent).toContain('movies');
+    });
+
+    await setInputValue(document.body.querySelector('#selected-path') as HTMLInputElement, '/manual');
+    await waitFor(() => {
+      expect(api.get).toHaveBeenCalledWith('/system/browse?path=%2Fmanual');
+      expect(document.body.textContent).toContain('No subdirectories here');
+    });
+
+    await view.unmount();
   });
 });

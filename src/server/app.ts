@@ -1,36 +1,45 @@
 import express from 'express';
 import path from 'node:path';
-import systemRoutes from './routes/system.js';
 import { createInstancesRouter } from './routes/instances.js';
 import { createDirectoriesRoutes } from './routes/directories.js';
 import { createFiltersRoutes } from './routes/filters.js';
 import { createJobsRoutes } from './routes/jobs.js';
+import { createEventsRoutes } from './routes/events.js';
 import { createSetupRoutes, getStoredAuthMode } from './routes/setup.js';
 import { createAuthRoutes } from './routes/auth.js';
 import { createSettingsRoutes } from './routes/settings.js';
 import { createAuthMiddleware } from './middleware/auth.js';
+import { applySecurityMiddleware } from './middleware/security.js';
+import { publicSystemRoutes, protectedSystemRoutes } from './routes/system.js';
 import { getDatabase } from '../db/index.js';
 import { errorHandler } from './middleware/errorHandler.js';
+import { loadAuthConfigFromEnv } from '../config/auth.js';
 import type { AuthMode, AuthConfig } from '../config/auth.js';
 import type { Database } from 'better-sqlite3';
 
 /** Get the current auth configuration from database settings */
 function getAuthConfig(db: Database): AuthConfig {
   const mode = getStoredAuthMode(db);
+  const envConfig = loadAuthConfigFromEnv();
   const config: AuthConfig = {
     mode,
     apiKeyBcryptRounds: 12,
     rateLimitAuth: 5,
     rateLimitGeneral: 100,
-    corsOrigin: 'same-origin',
+    corsOrigin: envConfig.corsOrigin ?? 'same-origin',
   };
 
   // For forms mode, we need session config
   if (mode === 'forms') {
     config.forms = {
-      sessionMaxAge: 86400000,
-      cookieName: 'filtarr.sid',
+      sessionSecret: envConfig.forms?.sessionSecret,
+      sessionMaxAge: envConfig.forms?.sessionMaxAge ?? 86400000,
+      cookieName: envConfig.forms?.cookieName ?? 'filtarr.sid',
     };
+  }
+
+  if (mode === 'oidc' && envConfig.oidc) {
+    config.oidc = envConfig.oidc;
   }
 
   // Basic mode doesn't need additional config — credentials are looked up from DB
@@ -38,9 +47,11 @@ function getAuthConfig(db: Database): AuthConfig {
   return config;
 }
 
-export function createApp(): express.Application {
+export function createApp(db: Database = getDatabase()): express.Application {
   const app = express();
-  const db = getDatabase();
+  const authConfig = getAuthConfig(db);
+
+  applySecurityMiddleware(app, authConfig);
 
   // Body parsing
   app.use(express.json());
@@ -48,7 +59,7 @@ export function createApp(): express.Application {
 
   // Unauthenticated routes — setup and health check
   // SECURITY: These routes are intentionally unauthenticated
-  app.use('/api/v1', systemRoutes);
+  app.use('/api/v1', publicSystemRoutes);
   app.use(
     '/api/v1/setup',
     createSetupRoutes(db, (authMode: AuthMode) => {
@@ -56,9 +67,6 @@ export function createApp(): express.Application {
       console.log(`Setup completed with auth mode: ${authMode}`);
     }),
   );
-
-  // Get current auth configuration from database
-  const authConfig = getAuthConfig(db);
 
   // Create auth middleware (applies session, API key, basic auth as needed)
   const { authRouter, requireAuth } = createAuthMiddleware(db, authConfig);
@@ -69,12 +77,14 @@ export function createApp(): express.Application {
   // Auth routes (login, logout, session, API key management)
   // These are mounted AFTER auth middleware so they can use session
   app.use('/api/v1/auth', createAuthRoutes(db, authConfig));
+  app.use('/api/v1', requireAuth, protectedSystemRoutes);
 
   // Protected routes - require authentication
   app.use('/api/v1/instances', requireAuth, createInstancesRouter(db));
   app.use('/api/v1/directories', requireAuth, createDirectoriesRoutes(db));
   app.use('/api/v1/filters', requireAuth, createFiltersRoutes(db));
   app.use('/api/v1/jobs', requireAuth, createJobsRoutes(db));
+  app.use('/api/v1/events', requireAuth, createEventsRoutes(db));
   app.use(
     '/api/v1/settings',
     requireAuth,

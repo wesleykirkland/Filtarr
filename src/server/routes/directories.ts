@@ -8,6 +8,7 @@ import {
   updateDirectory,
   deleteDirectory,
 } from '../../db/schemas/directories.js';
+import { recordActivityEvent } from '../lib/activity.js';
 import { logger } from '../lib/logger.js';
 import { reloadWatcher } from '../services/watcher.js';
 
@@ -68,6 +69,12 @@ export function createDirectoriesRoutes(db: Database.Database): Router {
 
       const dir = createDirectory(db, data);
       logger.info({ dirId: dir.id, path: dir.path }, 'Directory created');
+      recordActivityEvent(db, {
+        type: 'created',
+        source: 'directories',
+        message: `Added watched directory ${dir.path}`,
+        details: { directoryId: dir.id, path: dir.path, recursive: dir.recursive, enabled: dir.enabled },
+      });
       reloadWatcher();
       res.status(201).json(dir);
     } catch (err: any) {
@@ -98,6 +105,18 @@ export function createDirectoriesRoutes(db: Database.Database): Router {
 
       const dir = updateDirectory(db, id, data);
       logger.info({ dirId: dir.id }, 'Directory updated');
+      recordActivityEvent(db, {
+        type: 'updated',
+        source: 'directories',
+        message: `Updated watched directory ${dir.path}`,
+        details: {
+          directoryId: dir.id,
+          path: dir.path,
+          recursive: dir.recursive,
+          enabled: dir.enabled,
+          changedFields: Object.keys(data),
+        },
+      });
       reloadWatcher();
       res.json(dir);
     } catch (err: any) {
@@ -121,12 +140,21 @@ export function createDirectoriesRoutes(db: Database.Database): Router {
         res.status(400).json({ error: 'Invalid ID' });
         return;
       }
+      const current = getDirectoryById(db, id);
       const success = deleteDirectory(db, id);
       if (!success) {
         res.status(404).json({ error: 'Directory not found' });
         return;
       }
       logger.info({ dirId: id }, 'Directory deleted');
+      recordActivityEvent(db, {
+        type: 'deleted',
+        source: 'directories',
+        message: `Removed watched directory ${current?.path || `#${id}`}`,
+        details: current
+          ? { directoryId: current.id, path: current.path, recursive: current.recursive }
+          : { directoryId: id },
+      });
       reloadWatcher();
       res.json({ success: true, message: 'Directory deleted successfully' });
     } catch (err) {

@@ -40,6 +40,7 @@ interface Filter {
   rule_payload: string;
   action_type: 'blocklist' | 'delete' | 'move' | 'script' | 'notify';
   action_payload?: string;
+  script_runtime: 'javascript' | 'shell';
   target_path?: string;
   is_built_in: number;
   notify_on_match: number;
@@ -66,14 +67,14 @@ const RULE_TYPE_LABELS: Record<Filter['rule_type'], string> = {
   regex: 'Regex Pattern',
   extension: 'File Extension',
   size: 'File Size',
-  script: 'Custom Script',
+  script: 'Script Rule',
 };
 
 const ACTION_TYPE_LABELS: Record<Filter['action_type'], string> = {
   blocklist: 'Blocklist in Arr',
   delete: 'Delete File',
   move: 'Move to Folder',
-  script: 'Run Script',
+  script: 'Run Script Action',
   notify: 'Send Notification',
 };
 
@@ -82,6 +83,22 @@ const RULE_PLACEHOLDERS: Record<Filter['rule_type'], string> = {
   extension: 'e.g. exe,bat,sh',
   size: 'e.g. >100MB or <1KB',
   script: '// JS — return true to match\nreturn file.name.endsWith(".exe");',
+};
+
+const SCRIPT_RUNTIME_LABELS: Record<Filter['script_runtime'], string> = {
+  shell: 'Shell script (bash)',
+  javascript: 'Legacy JavaScript (sandbox)',
+};
+
+const SCRIPT_RULE_PLACEHOLDERS: Record<Filter['script_runtime'], string> = {
+  javascript: '// JS — return true to match\nreturn context.file.name.endsWith(".exe");',
+  shell:
+    'if [[ "$FILTARR_FILE_NAME" == *.exe ]]; then\n  echo true\nfi',
+};
+
+const SCRIPT_ACTION_PLACEHOLDERS: Record<Filter['script_runtime'], string> = {
+  javascript: '// JS action\nconsole.log(`Matched ${context.file.path}`);',
+  shell: 'echo "Matched $FILTARR_FILE_PATH"',
 };
 
 const ACTION_BADGE: Record<Filter['action_type'], string> = {
@@ -114,6 +131,9 @@ function FilterForm({ initial, instances, onClose, onSaved }: FilterFormProps) {
     initial?.action_type ?? 'blocklist',
   );
   const [actionPayload, setActionPayload] = useState(initial?.action_payload ?? '');
+  const [scriptRuntime, setScriptRuntime] = useState<Filter['script_runtime']>(
+    initial?.script_runtime ?? 'shell',
+  );
   const [targetPath, setTargetPath] = useState(initial?.target_path ?? '');
   const [instanceId, setInstanceId] = useState<number | undefined>(
     initial?.instance_id ?? (instances.length === 1 ? instances[0].id : undefined),
@@ -190,6 +210,7 @@ function FilterForm({ initial, instances, onClose, onSaved }: FilterFormProps) {
       rulePayload,
       actionType,
       actionPayload: actionPayload || undefined,
+      scriptRuntime,
       targetPath: trimmedTargetPath,
       instanceId,
       overrideNotifications,
@@ -204,6 +225,11 @@ function FilterForm({ initial, instances, onClose, onSaved }: FilterFormProps) {
   };
 
   const isScript = ruleType === 'script';
+  const usesScriptRuntime = isScript || actionType === 'script';
+  const scriptRuntimeHelpText =
+    scriptRuntime === 'shell'
+      ? 'Shell scripts execute through bash. Use FILTARR_FILE_* plus FILTARR_CONTEXT_JSON; rule scripts should print true to match.'
+      : 'Legacy JavaScript filters run in the sandbox and should use context.file. Use this only when you specifically want the older JS path.';
 
   return (
     <>
@@ -357,7 +383,7 @@ function FilterForm({ initial, instances, onClose, onSaved }: FilterFormProps) {
                     onChange={(e) => setRulePayload(e.target.value)}
                     required
                     rows={5}
-                    placeholder={RULE_PLACEHOLDERS[ruleType]}
+                    placeholder={SCRIPT_RULE_PLACEHOLDERS[scriptRuntime]}
                     className="mt-1 block w-full rounded-lg border dark:border-gray-700 border-gray-300 dark:bg-gray-800 bg-white px-3 py-2 font-mono text-sm dark:text-gray-100 text-gray-900 focus:border-blue-500 focus:outline-none"
                   />
                 ) : (
@@ -370,17 +396,48 @@ function FilterForm({ initial, instances, onClose, onSaved }: FilterFormProps) {
                   />
                 )}
               </div>
+              {usesScriptRuntime && (
+                <div className="sm:col-span-2">
+                  <label className="block text-sm font-medium dark:text-gray-400 text-gray-700">
+                    Script Runtime
+                  </label>
+                  <select
+                    value={scriptRuntime}
+                    onChange={(e) => setScriptRuntime(e.target.value as Filter['script_runtime'])}
+                    className="mt-1 block w-full rounded-lg border dark:border-gray-700 border-gray-300 dark:bg-gray-800 bg-white px-3 py-2 dark:text-gray-100 text-gray-900 focus:border-blue-500 focus:outline-none"
+                  >
+                    {Object.entries(SCRIPT_RUNTIME_LABELS).map(([value, label]) => (
+                      <option key={value} value={value}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="mt-1 text-xs dark:text-gray-500 text-gray-600">
+                    {scriptRuntimeHelpText}
+                  </p>
+                </div>
+              )}
               {(actionType === 'move' || actionType === 'script') && (
                 <div className="sm:col-span-2">
                   <label className="block text-sm font-medium dark:text-gray-400 text-gray-700">
                     {actionType === 'move' ? 'Destination Path' : 'Script Payload'}
                   </label>
-                  <input
-                    value={actionPayload}
-                    onChange={(e) => setActionPayload(e.target.value)}
-                    placeholder={actionType === 'move' ? '/mnt/quarantine' : '// JS script'}
-                    className="mt-1 block w-full rounded-lg border dark:border-gray-700 border-gray-300 dark:bg-gray-800 bg-white px-3 py-2 dark:text-gray-100 text-gray-900 focus:border-blue-500 focus:outline-none"
-                  />
+                  {actionType === 'script' ? (
+                    <textarea
+                      value={actionPayload}
+                      onChange={(e) => setActionPayload(e.target.value)}
+                      rows={5}
+                      placeholder={SCRIPT_ACTION_PLACEHOLDERS[scriptRuntime]}
+                      className="mt-1 block w-full rounded-lg border dark:border-gray-700 border-gray-300 dark:bg-gray-800 bg-white px-3 py-2 font-mono text-sm dark:text-gray-100 text-gray-900 focus:border-blue-500 focus:outline-none"
+                    />
+                  ) : (
+                    <input
+                      value={actionPayload}
+                      onChange={(e) => setActionPayload(e.target.value)}
+                      placeholder="/mnt/quarantine"
+                      className="mt-1 block w-full rounded-lg border dark:border-gray-700 border-gray-300 dark:bg-gray-800 bg-white px-3 py-2 dark:text-gray-100 text-gray-900 focus:border-blue-500 focus:outline-none"
+                    />
+                  )}
                 </div>
               )}
             </div>
@@ -608,6 +665,7 @@ function FilterCard({
   const linkedInstance = instances.find((i) => i.id === f.instance_id);
   const notificationChannels = getFilterNotificationChannels(f, notificationSettings);
   const pathConfigured = hasConfiguredPath(f.target_path);
+  const usesScriptRuntime = f.rule_type === 'script' || f.action_type === 'script';
 
   return (
     <div className={FILTER_CARD_CLASS_NAME}>
@@ -648,6 +706,12 @@ function FilterCard({
                 </span>{' '}
                 <span className="font-mono">{f.rule_payload}</span>
               </span>
+              {usesScriptRuntime && (
+                <span>
+                  <span className="dark:text-gray-500 text-gray-500">Runtime:</span>{' '}
+                  {SCRIPT_RUNTIME_LABELS[f.script_runtime]}
+                </span>
+              )}
             </div>
             <div className="mt-3 grid gap-2 lg:grid-cols-2">
               <div className="rounded-xl border border-gray-200 bg-gray-50/80 px-3 py-2 dark:border-gray-800 dark:bg-gray-950/40">
@@ -728,6 +792,7 @@ export default function Filters() {
   const { darkMode } = useTheme();
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Filter | null>(null);
+  const [deleting, setDeleting] = useState<Filter | null>(null);
 
   const { data: filters = [], isLoading } = useQuery<Filter[]>({
     queryKey: ['filters'],
@@ -759,7 +824,20 @@ export default function Filters() {
     onError: (e: Error) => toast('error', e.message),
   });
 
-  const isModalOpen = showForm || editing !== null;
+  const isEditorModalOpen = showForm || editing !== null;
+
+  const closeEditorModal = () => {
+    setShowForm(false);
+    setEditing(null);
+  };
+
+  const handleConfirmDelete = () => {
+    if (!deleting) return;
+
+    deleteMutation.mutate(deleting.id, {
+      onSuccess: () => setDeleting(null),
+    });
+  };
 
   return (
     <div className="mx-auto max-w-6xl space-y-8">
@@ -802,24 +880,51 @@ export default function Filters() {
 
       <Modal
         title={editing ? 'Edit Filter' : 'Add Filter'}
-        isOpen={isModalOpen}
-        onClose={() => {
-          setShowForm(false);
-          setEditing(null);
-        }}
+        isOpen={isEditorModalOpen}
+        onClose={closeEditorModal}
       >
         <FilterForm
           initial={editing ?? undefined}
           instances={instances}
-          onClose={() => {
-            setShowForm(false);
-            setEditing(null);
-          }}
-          onSaved={() => {
-            setShowForm(false);
-            setEditing(null);
-          }}
+          onClose={closeEditorModal}
+          onSaved={closeEditorModal}
         />
+      </Modal>
+
+      <Modal title="Delete Filter" isOpen={deleting !== null} onClose={() => setDeleting(null)}>
+        {deleting && (
+          <div className="space-y-5">
+            <div className="rounded-2xl border border-red-200 bg-red-50/70 p-4 dark:border-red-900/50 dark:bg-red-950/30">
+              <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                Are you sure you want to delete{' '}
+                <span className="font-semibold text-red-600 dark:text-red-300">“{deleting.name}”</span>
+                ?
+              </p>
+              <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
+                This will permanently remove the filter configuration and cannot be undone.
+              </p>
+            </div>
+
+            <div className="flex justify-end gap-2 border-t border-gray-200 pt-4 dark:border-gray-800">
+              <button
+                type="button"
+                onClick={() => setDeleting(null)}
+                disabled={deleteMutation.isPending}
+                className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 disabled:opacity-50 dark:border-gray-700 dark:text-gray-400 dark:hover:bg-gray-800"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDelete}
+                disabled={deleteMutation.isPending}
+                className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
+              >
+                {deleteMutation.isPending ? 'Deleting...' : 'Delete Filter'}
+              </button>
+            </div>
+          </div>
+        )}
       </Modal>
 
       {isLoading ? (
@@ -857,13 +962,7 @@ export default function Filters() {
                   notificationSettings={notificationSettings}
                   onEdit={() => setEditing(f)}
                   onToggle={() => toggleMutation.mutate({ id: f.id, enabled: !f.enabled })}
-                  onDelete={
-                    canDeleteFilter(f)
-                      ? () => {
-                          if (confirm(`Delete filter "${f.name}"?`)) deleteMutation.mutate(f.id);
-                        }
-                      : null
-                  }
+                  onDelete={canDeleteFilter(f) ? () => setDeleting(f) : null}
                 />
               ))}
             </div>

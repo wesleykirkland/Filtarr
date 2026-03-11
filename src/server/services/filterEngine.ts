@@ -7,7 +7,16 @@ import { getInstanceConfigById } from '../../db/schemas/instances.js';
 import { createArrClient } from '../routes/instances.js';
 import { isPathWithinTarget, normalizeFilterTargetPath } from './filterPaths.js';
 import { NotificationService } from './NotificationService.js';
-import { runSandboxedScript } from './scriptRunner.js';
+import { normalizeScriptRuntime, runConfiguredScript } from './scriptRunner.js';
+
+function didScriptRuleMatch(output: unknown, runtime: 'javascript' | 'shell'): boolean {
+  if (runtime === 'shell') {
+    const normalized = String(output ?? '').trim().toLowerCase();
+    return ['1', 'true', 'yes', 'match'].includes(normalized);
+  }
+
+  return Boolean(output);
+}
 
 export interface FileEvent {
   path: string;
@@ -130,8 +139,9 @@ export class FilterEngine {
         return this.evaluateSizeRule(filter.rule_payload, file.size);
       }
       case 'script': {
-        const result = await runSandboxedScript(filter.rule_payload, { file });
-        return !!result.success && !!result.output;
+        const runtime = normalizeScriptRuntime(filter.script_runtime);
+        const result = await runConfiguredScript(filter.rule_payload, { file }, runtime);
+        return result.success && didScriptRuleMatch(result.output, runtime);
       }
       default:
         return false;
@@ -191,7 +201,11 @@ export class FilterEngine {
 
       case 'script':
         if (actionPayload) {
-          await runSandboxedScript(actionPayload, { file, filter });
+          await runConfiguredScript(
+            actionPayload,
+            { file, filter },
+            normalizeScriptRuntime(filter.script_runtime),
+          );
         }
         break;
 

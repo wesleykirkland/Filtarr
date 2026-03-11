@@ -65,6 +65,24 @@ describe('Filter notification overrides', () => {
 
       await request(app).delete(`/api/v1/filters/${res.body.id}`);
     });
+
+    it('defaults custom filter scripts to the shell runtime', async () => {
+      const res = await request(app)
+        .post('/api/v1/filters')
+        .send({
+          name: `Shell Script Filter ${Date.now()}`,
+          triggerSource: 'watcher',
+          ruleType: 'script',
+          rulePayload: 'echo true',
+          actionType: 'script',
+          actionPayload: 'echo "$FILTARR_FILE_PATH"',
+        });
+
+      expect(res.status).toBe(201);
+      expect(res.body).toHaveProperty('script_runtime', 'shell');
+
+      await request(app).delete(`/api/v1/filters/${res.body.id}`);
+    });
   });
 
   describe('PUT /api/v1/filters/:id', () => {

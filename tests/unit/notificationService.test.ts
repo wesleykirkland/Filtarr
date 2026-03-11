@@ -16,6 +16,7 @@ function makeFilter(overrides: Partial<FilterRow> = {}): FilterRow {
     rule_payload: 'mkv',
     action_type: 'notify',
     action_payload: null,
+    script_runtime: 'javascript',
     target_path: '/downloads',
     is_built_in: 0,
     notify_on_match: 1,
@@ -172,5 +173,42 @@ describe('NotificationService', () => {
     expect(
       mockFetch.mock.calls.some(([url]) => url === 'https://slack.com/api/chat.postMessage'),
     ).toBe(false);
+  });
+
+  it('uses only enabled preferred channels for instance healthcheck failures', async () => {
+    db.prepare('UPDATE settings SET value = ? WHERE key = ?').run('0', 'webhook_enabled');
+    db.prepare('UPDATE settings SET value = ? WHERE key = ?')
+      .run('https://example.com/health-webhook', 'default_webhook_url');
+    db.prepare('UPDATE settings SET value = ? WHERE key = ?')
+      .run('xoxb-health-token', 'default_slack_token');
+    db.prepare('UPDATE settings SET value = ? WHERE key = ?')
+      .run('#health-alerts', 'default_slack_channel');
+
+    mockFetch.mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ ok: true }) });
+
+    await service.notifyInstanceHealthcheckFailure(
+      {
+        id: 7,
+        name: 'Primary Sonarr',
+        type: 'sonarr',
+        url: 'http://sonarr.local',
+      },
+      'Unauthorized: invalid API key',
+    );
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(mockFetch).toHaveBeenCalledWith(
+      'https://slack.com/api/chat.postMessage',
+      expect.objectContaining({
+        headers: expect.objectContaining({ Authorization: 'Bearer xoxb-health-token' }),
+      }),
+    );
+
+    expect(JSON.parse(mockFetch.mock.calls[0]?.[1].body as string)).toMatchObject({
+      channel: '#health-alerts',
+    });
+    expect(JSON.parse(mockFetch.mock.calls[0]?.[1].body as string).text).toContain(
+      'Filtarr instance healthcheck failed: Primary Sonarr',
+    );
   });
 });

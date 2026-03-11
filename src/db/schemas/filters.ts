@@ -14,6 +14,7 @@ export interface FilterRow {
   rule_payload: string;
   action_type: string;
   action_payload: string | null;
+  script_runtime: string;
   target_path: string | null;
   is_built_in: number;
   notify_on_match: number;
@@ -37,6 +38,7 @@ export interface CreateFilterInput {
   rulePayload: string;
   actionType: string;
   actionPayload?: string;
+  scriptRuntime?: string;
   targetPath?: string;
   notifyOnMatch?: boolean;
   notifyWebhookUrl?: string;
@@ -57,6 +59,7 @@ export interface UpdateFilterInput {
   rulePayload?: string;
   actionType?: string;
   actionPayload?: string;
+  scriptRuntime?: string;
   targetPath?: string;
   notifyOnMatch?: boolean;
   notifyWebhookUrl?: string;
@@ -90,14 +93,14 @@ export function createFilter(db: Database.Database, input: CreateFilterInput): F
     .prepare(
       `INSERT INTO filters (
          name, description, trigger_source, rule_type, rule_payload,
-         action_type, action_payload, target_path,
+         action_type, action_payload, script_runtime, target_path,
          notify_on_match, notify_webhook_url, notify_slack,
          notify_slack_token, notify_slack_channel,
          override_notifications,
          instance_id,
          enabled, sort_order, created_at, updated_at
        )
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
     )
     .run(
       input.name,
@@ -107,6 +110,7 @@ export function createFilter(db: Database.Database, input: CreateFilterInput): F
       input.rulePayload,
       input.actionType,
       input.actionPayload || null,
+      input.scriptRuntime || 'shell',
       input.targetPath || null,
       input.notifyOnMatch ? 1 : 0,
       input.notifyWebhookUrl || null,
@@ -140,6 +144,7 @@ export function updateFilter(
   const actionType = input.actionType ?? current.action_type;
   const actionPayload =
     input.actionPayload !== undefined ? input.actionPayload : current.action_payload;
+  const scriptRuntime = input.scriptRuntime ?? current.script_runtime;
   const targetPath = input.targetPath !== undefined ? input.targetPath : current.target_path;
   const notifyOnMatch =
     input.notifyOnMatch !== undefined ? (input.notifyOnMatch ? 1 : 0) : current.notify_on_match;
@@ -175,7 +180,7 @@ export function updateFilter(
   db.prepare(
     `UPDATE filters
      SET name = ?, description = ?, trigger_source = ?, rule_type = ?, rule_payload = ?,
-         action_type = ?, action_payload = ?, target_path = ?,
+         action_type = ?, action_payload = ?, script_runtime = ?, target_path = ?,
          notify_on_match = ?, notify_webhook_url = ?, notify_slack = ?,
          notify_slack_token = ?, notify_slack_channel = ?, override_notifications = ?,
          instance_id = ?, enabled = ?, sort_order = ?, updated_at = datetime('now')
@@ -188,6 +193,7 @@ export function updateFilter(
     rulePayload,
     actionType,
     actionPayload || null,
+    scriptRuntime,
     targetPath || null,
     notifyOnMatch,
     notifyWebhookUrl || null,

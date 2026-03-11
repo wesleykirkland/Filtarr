@@ -94,6 +94,7 @@ CREATE TABLE IF NOT EXISTS filters (
   rule_payload TEXT NOT NULL,
   action_type TEXT NOT NULL,
   action_payload TEXT,
+  script_runtime TEXT NOT NULL DEFAULT 'shell',
   target_path TEXT,
   is_built_in INTEGER NOT NULL DEFAULT 0,
   notify_on_match INTEGER NOT NULL DEFAULT 0,

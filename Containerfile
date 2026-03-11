@@ -14,7 +14,8 @@ RUN npm run build
 # Stage 2: Production
 FROM node:22-alpine AS runtime
 
-RUN addgroup -g 1001 -S filtarr && \
+RUN apk add --no-cache bash && \
+    addgroup -g 1001 -S filtarr && \
     adduser -u 1001 -S filtarr -G filtarr
 
 WORKDIR /app

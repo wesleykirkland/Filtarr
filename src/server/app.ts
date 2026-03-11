@@ -11,11 +11,18 @@ import { createSettingsRoutes } from './routes/settings.js';
 import { createAuthMiddleware } from './middleware/auth.js';
 import { getDatabase } from '../db/index.js';
 import { errorHandler } from './middleware/errorHandler.js';
-import type { AuthMode, AuthConfig } from '../config/auth.js';
+import {
+  DEFAULT_OIDC_CALLBACK_URL,
+  DEFAULT_OIDC_SCOPES,
+  loadAuthConfigFromEnv,
+  type AuthMode,
+  type AuthConfig,
+} from '../config/auth.js';
 import type { Database } from 'better-sqlite3';
 
 /** Get the current auth configuration from database settings */
 function getAuthConfig(db: Database): AuthConfig {
+  const envConfig = loadAuthConfigFromEnv();
   const mode = getStoredAuthMode(db);
   const config: AuthConfig = {
     mode,
@@ -28,8 +35,29 @@ function getAuthConfig(db: Database): AuthConfig {
   // For forms mode, we need session config
   if (mode === 'forms') {
     config.forms = {
+      sessionSecret: envConfig.forms?.sessionSecret,
       sessionMaxAge: 86400000,
       cookieName: 'filtarr.sid',
+    };
+  }
+
+  if (mode === 'oidc') {
+    const getSetting = (key: string) =>
+      db.prepare<[string], { value: string }>('SELECT value FROM settings WHERE key = ?').get(key)
+        ?.value;
+    const rawScopes = getSetting('oidc_scopes') ?? envConfig.oidc?.scopes?.join(',');
+
+    config.oidc = {
+      issuerUrl: getSetting('oidc_issuer_url') ?? envConfig.oidc?.issuerUrl ?? '',
+      clientId: getSetting('oidc_client_id') ?? envConfig.oidc?.clientId ?? '',
+      clientSecret: getSetting('oidc_client_secret') ?? envConfig.oidc?.clientSecret ?? '',
+      callbackUrl:
+        getSetting('oidc_callback_url') ??
+        envConfig.oidc?.callbackUrl ??
+        DEFAULT_OIDC_CALLBACK_URL,
+      scopes: rawScopes
+        ? rawScopes.split(',').map((scope) => scope.trim()).filter(Boolean)
+        : [...DEFAULT_OIDC_SCOPES],
     };
   }
 

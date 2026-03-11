@@ -1,5 +1,11 @@
 import vm from 'node:vm';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { logger } from '../lib/logger.js';
+
+const execFileAsync = promisify(execFile);
+
+export type ScriptRuntime = 'javascript' | 'shell';
 
 export interface ScriptResult {
   success: boolean;
@@ -17,6 +23,68 @@ export interface ScriptContext {
   };
   event?: 'import' | 'change' | 'delete';
   [key: string]: any;
+}
+
+export function normalizeScriptRuntime(runtime?: string | null): ScriptRuntime {
+  return runtime === 'javascript' ? 'javascript' : 'shell';
+}
+
+function buildShellEnvironment(contextData: ScriptContext): NodeJS.ProcessEnv {
+  const file = contextData.file;
+
+  return {
+    ...process.env,
+    FILTARR_CONTEXT_JSON: JSON.stringify(contextData),
+    FILTARR_FILE_PATH: file?.path,
+    FILTARR_FILE_NAME: file?.name,
+    FILTARR_FILE_SIZE: file?.size?.toString(),
+    FILTARR_FILE_EXTENSION: file?.extension,
+  };
+}
+
+async function runShellScript(
+  code: string,
+  contextData: ScriptContext,
+  timeoutMs = 5000,
+): Promise<ScriptResult> {
+  try {
+    const { stdout, stderr } = await execFileAsync('bash', ['-lc', code], {
+      env: buildShellEnvironment(contextData),
+      timeout: timeoutMs,
+      maxBuffer: 1024 * 1024,
+    });
+
+    return {
+      success: true,
+      output: stdout.trim(),
+      logs: stderr
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean),
+    };
+  } catch (err: any) {
+    const stderr = typeof err?.stderr === 'string' ? err.stderr.trim() : '';
+    const message = stderr || err?.message || 'Unknown shell execution error';
+    logger.warn({ err: message }, 'Shell script execution failed');
+    return {
+      success: false,
+      error: message,
+      logs: stderr ? stderr.split(/\r?\n/).filter(Boolean) : [],
+    };
+  }
+}
+
+export async function runConfiguredScript(
+  code: string,
+  contextData: ScriptContext,
+  runtime: ScriptRuntime = 'javascript',
+  timeoutMs = 5000,
+): Promise<ScriptResult> {
+  if (runtime === 'shell') {
+    return runShellScript(code, contextData, timeoutMs);
+  }
+
+  return runSandboxedScript(code, contextData, timeoutMs);
 }
 
 /**

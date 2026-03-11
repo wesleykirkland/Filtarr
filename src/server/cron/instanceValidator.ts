@@ -2,7 +2,7 @@ import type Database from 'better-sqlite3';
 import { logger } from '../lib/logger.js';
 import { getAllInstances, getInstanceConfigById } from '../../db/schemas/instances.js';
 import { createArrClient } from '../routes/instances.js';
-import type { ArrType } from '../../services/arr/types.js';
+import { NotificationService } from '../services/NotificationService.js';
 
 let timeoutId: NodeJS.Timeout | null = null;
 let isShuttingDown = false;
@@ -15,11 +15,16 @@ function getIntervalMs(db: Database.Database): number {
         { value: string }
       >(`SELECT value FROM settings WHERE key = 'validation_interval_minutes'`)
       .get();
-    const minutes = parseInt(result?.value || '60', 10);
-    return (isNaN(minutes) ? 60 : minutes) * 60 * 1000;
+    const minutes = parseInt(result?.value || '15', 10);
+    return (isNaN(minutes) ? 15 : minutes) * 60 * 1000;
   } catch {
-    return 60 * 60 * 1000; // default 1 hour
+    return 15 * 60 * 1000;
   }
+}
+
+function getErrorMessage(err: unknown): string {
+  if (err instanceof Error && err.message) return err.message;
+  return 'Unknown instance validation error';
 }
 
 async function validateInstances(db: Database.Database) {
@@ -27,6 +32,7 @@ async function validateInstances(db: Database.Database) {
   try {
     const instances = getAllInstances(db);
     const enabledInstances = instances.filter((i) => Boolean(i.enabled));
+    const notificationService = new NotificationService(db);
 
     for (const instance of enabledInstances) {
       if (isShuttingDown) break;
@@ -36,7 +42,7 @@ async function validateInstances(db: Database.Database) {
         if (!config) continue;
 
         const client = createArrClient(
-          config.type as ArrType,
+          config.type,
           config.url,
           config.apiKey,
           config.timeout,
@@ -54,11 +60,35 @@ async function validateInstances(db: Database.Database) {
             { instanceId: instance.id, name: instance.name, error: result.error },
             'Scheduled instance validation failed',
           );
+
+          await notificationService.notifyInstanceHealthcheckFailure(
+            {
+              id: instance.id,
+              name: instance.name,
+              type: config.type,
+              url: config.url,
+            },
+            result.error ?? 'Unknown healthcheck failure',
+          );
         }
       } catch (err: unknown) {
+        const errorMessage = getErrorMessage(err);
         logger.error(
           { instanceId: instance.id, name: instance.name, err },
           'Failed to test instance during scheduled validation',
+        );
+
+        const config = getInstanceConfigById(db, instance.id);
+        if (!config) continue;
+
+        await notificationService.notifyInstanceHealthcheckFailure(
+          {
+            id: instance.id,
+            name: instance.name,
+            type: config.type,
+            url: config.url,
+          },
+          errorMessage,
         );
       }
     }

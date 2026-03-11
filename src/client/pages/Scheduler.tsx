@@ -1,8 +1,14 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { toast } from '../components/Toast';
+import { ConfirmModal } from '../components/ConfirmModal';
 import { Modal } from '../components/Modal';
+import {
+  getWatcherAutomationDeletePatch,
+  shouldPromptForWatcherAutomation,
+  supportsWatcherAutomation,
+} from '../lib/schedulerUi';
 
 interface Filter {
   id: number;
@@ -55,30 +61,57 @@ function getFilterId(job: Job): number | null {
 }
 
 interface JobFormProps {
-  initial?: Job;
+  initialJob?: Job;
+  initialWatcherFilter?: Filter;
   filters: Filter[];
   jobs: Job[];
   onClose: () => void;
   onSaved: () => void;
 }
 
-function JobForm({ initial, filters, jobs, onClose, onSaved }: JobFormProps) {
-  const initialFilterId = initial ? getFilterId(initial) : null;
-  const initialFilter = initialFilterId ? filters.find((filter) => filter.id === initialFilterId) : filters[0];
+function JobForm({ initialJob, initialWatcherFilter, filters, jobs, onClose, onSaved }: JobFormProps) {
+  const initialFilterId = initialJob ? getFilterId(initialJob) : (initialWatcherFilter?.id ?? null);
+  const initialFilter =
+    initialWatcherFilter ??
+    (initialFilterId ? filters.find((filter) => filter.id === initialFilterId) : filters[0]);
+  const isEditing = Boolean(initialJob || initialWatcherFilter);
 
-  const [name, setName] = useState(initial?.name ?? '');
-  const [description, setDescription] = useState(initial?.description ?? '');
-  const [schedule, setSchedule] = useState(initial?.schedule ?? '0 * * * *');
+  const [name, setName] = useState(initialJob?.name ?? '');
+  const [description, setDescription] = useState(initialJob?.description ?? '');
+  const [schedule, setSchedule] = useState(initialJob?.schedule ?? '0 * * * *');
   const [filterId, setFilterId] = useState<number | ''>(initialFilterId ?? filters[0]?.id ?? '');
-  const [automationMode, setAutomationMode] = useState<AutomationMode>(
-    initial ? 'cron' : initialFilter?.trigger_source === 'watcher' ? 'watcher' : 'cron',
-  );
+  const [automationMode, setAutomationMode] = useState<AutomationMode>(initialWatcherFilter ? 'watcher' : 'cron');
   const [enabled, setEnabled] = useState(
-    initial ? Boolean(initial.enabled) : initialFilter ? initialFilter.enabled === 1 : true,
+    initialJob ? Boolean(initialJob.enabled) : initialFilter ? initialFilter.enabled === 1 : true,
   );
   const [err, setErr] = useState('');
+  const [watcherPromptFilterId, setWatcherPromptFilterId] = useState<number | null>(null);
+  const [promptedFilterIds, setPromptedFilterIds] = useState<number[]>([]);
 
   const selectedFilter = filters.find((f) => f.id === filterId);
+  const watcherPromptOpen =
+    watcherPromptFilterId === selectedFilter?.id &&
+    automationMode === 'cron' &&
+    !isEditing &&
+    selectedFilter !== undefined &&
+    selectedFilter.trigger_source !== 'watcher' &&
+    supportsWatcherAutomation(selectedFilter);
+
+  useEffect(() => {
+    if (!selectedFilter) return;
+
+    if (
+      shouldPromptForWatcherAutomation({
+        filter: selectedFilter,
+        automationMode,
+        isEditing,
+        hasPromptedForFilter: promptedFilterIds.includes(selectedFilter.id),
+      })
+    ) {
+      setWatcherPromptFilterId(selectedFilter.id);
+      setPromptedFilterIds((current) => [...current, selectedFilter.id]);
+    }
+  }, [selectedFilter, automationMode, isEditing, promptedFilterIds]);
 
   const queryClient = useQueryClient();
   const mutation = useMutation({
@@ -97,7 +130,7 @@ function JobForm({ initial, filters, jobs, onClose, onSaved }: JobFormProps) {
         });
 
         const jobsToDelete = new Map<number, Job>();
-        if (initial) jobsToDelete.set(initial.id, initial);
+        if (initialJob) jobsToDelete.set(initialJob.id, initialJob);
 
         for (const job of jobs) {
           if (getFilterId(job) === selectedFilter.id) {
@@ -121,8 +154,8 @@ function JobForm({ initial, filters, jobs, onClose, onSaved }: JobFormProps) {
         enabled,
       };
 
-      if (initial) {
-        await api.put(`/jobs/${initial.id}`, body);
+      if (initialJob) {
+        await api.put(`/jobs/${initialJob.id}`, body);
       } else {
         await api.post('/jobs', body);
       }
@@ -141,7 +174,7 @@ function JobForm({ initial, filters, jobs, onClose, onSaved }: JobFormProps) {
             : 'Watcher automation saved',
         );
       } else {
-        toast('success', initial ? 'Job updated' : 'Job created');
+        toast('success', isEditing ? 'Automation updated' : 'Job created');
       }
 
       onSaved();
@@ -162,6 +195,16 @@ function JobForm({ initial, filters, jobs, onClose, onSaved }: JobFormProps) {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
+      <ConfirmModal
+        isOpen={watcherPromptOpen}
+        title="Create watcher automation instead?"
+        message={`"${selectedFilter?.name ?? 'This filter'}" already has a target path, so Filtarr can run it automatically with the built-in file system watcher. Switch this automation to watcher mode instead of creating a cron schedule?`}
+        confirmLabel="Use Watcher"
+        cancelLabel="Keep Cron"
+        onConfirm={() => setAutomationMode('watcher')}
+        onClose={() => setWatcherPromptFilterId(null)}
+      />
+
       {err && (
         <div className="rounded-lg border border-red-500/50 bg-red-500/10 px-4 py-3 text-sm text-red-400">
           {err}
@@ -377,8 +420,8 @@ function JobForm({ initial, filters, jobs, onClose, onSaved }: JobFormProps) {
             ? 'Saving...'
             : automationMode === 'watcher'
               ? 'Save Watcher'
-              : initial
-                ? 'Update Job'
+              : isEditing
+                ? 'Update Automation'
                 : 'Schedule Job'}
         </button>
         <button
@@ -411,6 +454,8 @@ export default function Scheduler() {
   const queryClient = useQueryClient();
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Job | null>(null);
+  const [editingWatcher, setEditingWatcher] = useState<Filter | null>(null);
+  const [deletingWatcher, setDeletingWatcher] = useState<Filter | null>(null);
 
   const { data: rawJobs, isLoading } = useQuery<Job[]>({
     queryKey: ['jobs'],
@@ -432,6 +477,12 @@ export default function Scheduler() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['jobs'] }),
   });
 
+  const toggleWatcherMutation = useMutation({
+    mutationFn: ({ id, enabled }: { id: number; enabled: boolean }) => api.put(`/filters/${id}`, { enabled }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['filters'] }),
+    onError: (e: Error) => toast('error', e.message),
+  });
+
   const deleteMutation = useMutation({
     mutationFn: (id: number) => api.delete(`/jobs/${id}`),
     onSuccess: () => {
@@ -441,7 +492,22 @@ export default function Scheduler() {
     onError: (e: Error) => toast('error', e.message),
   });
 
-  const isModalOpen = showForm || editing !== null;
+  const deleteWatcherMutation = useMutation({
+    mutationFn: (id: number) => api.put(`/filters/${id}`, getWatcherAutomationDeletePatch()),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['filters'] });
+      toast('success', 'Watcher automation deleted');
+    },
+    onError: (e: Error) => toast('error', e.message),
+  });
+
+  const isModalOpen = showForm || editing !== null || editingWatcher !== null;
+
+  function closeAutomationModal() {
+    setShowForm(false);
+    setEditing(null);
+    setEditingWatcher(null);
+  }
 
   function filterForJob(job: Job): Filter | undefined {
     const fid = getFilterId(job);
@@ -466,25 +532,17 @@ export default function Scheduler() {
       </div>
 
       <Modal
-        title={editing ? 'Edit Job' : 'Schedule a Filter'}
+        title={editing || editingWatcher ? 'Edit Automation' : 'Schedule a Filter'}
         isOpen={isModalOpen}
-        onClose={() => {
-          setShowForm(false);
-          setEditing(null);
-        }}
+        onClose={closeAutomationModal}
       >
         <JobForm
-          initial={editing ?? undefined}
+          initialJob={editing ?? undefined}
+          initialWatcherFilter={editingWatcher ?? undefined}
           filters={filters}
           jobs={jobs}
-          onClose={() => {
-            setShowForm(false);
-            setEditing(null);
-          }}
-          onSaved={() => {
-            setShowForm(false);
-            setEditing(null);
-          }}
+          onClose={closeAutomationModal}
+          onSaved={closeAutomationModal}
         />
       </Modal>
 
@@ -508,25 +566,55 @@ export default function Scheduler() {
             {watcherFilters.map((filter) => (
               <div
                 key={filter.id}
-                className="rounded-lg border dark:border-gray-800 border-gray-200 px-4 py-3"
+                className="rounded-xl border dark:border-gray-800 border-gray-200 dark:bg-gray-900 bg-white shadow-sm px-6 py-4"
               >
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-medium dark:text-gray-100 text-gray-900">{filter.name}</span>
-                  <span
-                    className={`rounded px-2 py-0.5 text-[11px] font-medium uppercase ${filter.enabled === 1 ? 'bg-green-500/20 text-green-400' : 'bg-gray-500/20 text-gray-400'}`}
-                  >
-                    {filter.enabled === 1 ? 'enabled' : 'disabled'}
-                  </span>
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex items-center gap-3 flex-1 min-w-0">
+                    <button
+                      onClick={() =>
+                        toggleWatcherMutation.mutate({ id: filter.id, enabled: filter.enabled !== 1 })
+                      }
+                      className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${filter.enabled === 1 ? 'bg-blue-600' : 'dark:bg-gray-700 bg-gray-300'}`}
+                    >
+                      <span
+                        className={`inline-block h-4 w-4 rounded-full bg-white shadow transform transition-transform ${filter.enabled === 1 ? 'translate-x-4' : 'translate-x-0'}`}
+                      />
+                    </button>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h3 className="font-semibold dark:text-gray-100 text-gray-900">{filter.name}</h3>
+                        <span
+                          className={`rounded px-2 py-0.5 text-[11px] font-medium uppercase ${filter.enabled === 1 ? 'bg-green-500/20 text-green-400' : 'bg-gray-500/20 text-gray-400'}`}
+                        >
+                          {filter.enabled === 1 ? 'enabled' : 'disabled'}
+                        </span>
+                      </div>
+                      {filter.target_path ? (
+                        <p className="mt-1 font-mono text-xs dark:text-gray-500 text-gray-600">
+                          {filter.target_path}
+                        </p>
+                      ) : (
+                        <p className="mt-1 text-xs dark:text-yellow-400 text-yellow-600">
+                          No target path configured yet.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex gap-2 flex-shrink-0">
+                    <button
+                      onClick={() => setEditingWatcher(filter)}
+                      className="rounded-lg border dark:border-gray-700 border-gray-300 px-3 py-1.5 text-xs font-medium dark:text-gray-400 text-gray-700 dark:hover:bg-gray-800 hover:bg-gray-100"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      onClick={() => setDeletingWatcher(filter)}
+                      className="rounded-lg border dark:border-red-900 border-red-200 px-3 py-1.5 text-xs font-medium dark:text-red-400 text-red-600 dark:hover:bg-red-900/30 hover:bg-red-50"
+                    >
+                      Delete
+                    </button>
+                  </div>
                 </div>
-                {filter.target_path ? (
-                  <p className="mt-1 font-mono text-xs dark:text-gray-500 text-gray-600">
-                    {filter.target_path}
-                  </p>
-                ) : (
-                  <p className="mt-1 text-xs dark:text-yellow-400 text-yellow-600">
-                    No target path configured yet.
-                  </p>
-                )}
               </div>
             ))}
           </div>
@@ -636,6 +724,16 @@ export default function Scheduler() {
           )}
         </div>
       )}
+
+      <ConfirmModal
+        isOpen={deletingWatcher !== null}
+        title="Delete watcher automation"
+        message={`Stop automatically watching "${deletingWatcher?.name ?? 'this filter'}"? The filter will stay available for manual runs or a future cron schedule.`}
+        confirmLabel="Delete"
+        isDestructive={true}
+        onConfirm={() => deletingWatcher && deleteWatcherMutation.mutate(deletingWatcher.id)}
+        onClose={() => setDeletingWatcher(null)}
+      />
     </div>
   );
 }

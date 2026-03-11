@@ -67,7 +67,7 @@ function repairLegacyFilterInstanceLinks(db: Database.Database): void {
   db.exec(`
     INSERT INTO filters (
       name, description, trigger_source, rule_type, rule_payload,
-      action_type, action_payload, target_path,
+      action_type, action_payload, script_runtime, target_path,
       is_built_in, notify_on_match, notify_webhook_url,
       notify_slack, notify_slack_token, notify_slack_channel,
       override_notifications, instance_id,
@@ -81,6 +81,7 @@ function repairLegacyFilterInstanceLinks(db: Database.Database): void {
       f.rule_payload,
       f.action_type,
       f.action_payload,
+      f.script_runtime,
       f.target_path,
       f.is_built_in,
       f.notify_on_match,
@@ -124,6 +125,12 @@ function repairLegacySchema(db: Database.Database): void {
   ensureColumn(db, 'arr_instances', 'local_path', 'ALTER TABLE arr_instances ADD COLUMN local_path TEXT;');
 
   ensureColumn(db, 'filters', 'target_path', 'ALTER TABLE filters ADD COLUMN target_path TEXT;');
+  ensureColumn(
+    db,
+    'filters',
+    'script_runtime',
+    "ALTER TABLE filters ADD COLUMN script_runtime TEXT NOT NULL DEFAULT 'javascript';",
+  );
   ensureColumn(
     db,
     'filters',

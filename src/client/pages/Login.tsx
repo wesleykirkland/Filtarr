@@ -46,6 +46,32 @@ export default function Login() {
     );
   }
 
+  if (!isLoading && session?.mode === 'oidc') {
+    return (
+      <div className="flex min-h-screen items-center justify-center dark:bg-gray-950 bg-gray-50">
+        <div className="w-full max-w-sm rounded-xl border dark:border-gray-800 border-gray-200 dark:bg-gray-900 bg-white shadow-sm p-8">
+          <div className="mb-6 text-center">
+            <span className="text-4xl">🎬</span>
+            <h1 className="mt-2 text-2xl font-bold dark:text-gray-100 text-gray-900">Filtarr</h1>
+            <p className="mt-1 text-sm dark:text-gray-500 text-gray-600">OIDC Authentication</p>
+          </div>
+
+          <div className="space-y-4 text-center">
+            <p className="dark:text-gray-400 text-gray-700">
+              This instance uses OpenID Connect for sign-in.
+            </p>
+            <button
+              onClick={() => window.location.assign('/api/v1/auth/login')}
+              className="w-full rounded-lg bg-blue-600 px-4 py-2 font-medium text-white hover:bg-blue-700"
+            >
+              Continue with OIDC
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setSubmitting(true);

@@ -46,6 +46,7 @@ describe('database migrations', () => {
       );
       expect(getColumnNames(db, 'filters')).toEqual(
         expect.arrayContaining([
+          'script_runtime',
           'target_path',
           'is_built_in',
           'notify_on_match',

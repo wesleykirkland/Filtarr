@@ -12,6 +12,7 @@ function makeFilter(overrides: Partial<FilterRow> = {}): FilterRow {
     rule_payload: 'mkv',
     action_type: 'notify',
     action_payload: null,
+    script_runtime: 'javascript',
     target_path: '/downloads',
     is_built_in: 0,
     notify_on_match: 0,

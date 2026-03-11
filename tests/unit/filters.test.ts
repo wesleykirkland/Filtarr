@@ -48,4 +48,32 @@ describe('filter updates', () => {
       db.close();
     }
   });
+
+  it('persists a shell script runtime for custom filters', () => {
+    const db = new Database(':memory:');
+
+    try {
+      runMigrations(db);
+
+      const filter = createFilter(db, {
+        name: 'Shell Script Filter',
+        triggerSource: 'watcher',
+        ruleType: 'script',
+        rulePayload: 'echo true',
+        actionType: 'script',
+        actionPayload: 'echo "$FILTARR_FILE_PATH"',
+        scriptRuntime: 'shell',
+        enabled: true,
+      });
+
+      const updated = updateFilter(db, filter.id, {
+        scriptRuntime: 'javascript',
+      });
+
+      expect(filter.script_runtime).toBe('shell');
+      expect(updated.script_runtime).toBe('javascript');
+    } finally {
+      db.close();
+    }
+  });
 });

@@ -95,7 +95,7 @@ export default function App() {
                     <Route path="/filters" element={<Filters />} />
                     <Route path="/scheduler" element={<Scheduler />} />
                     <Route path="/activity" element={<Activity />} />
-                    <Route path="/settings" element={<Settings />} />
+                    <Route path="/settings/*" element={<Settings />} />
                   </Routes>
                 </Layout>
               </ProtectedRoute>

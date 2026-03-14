@@ -39,10 +39,36 @@ import { logger } from '../lib/logger.js';
 
 const VALID_ARR_TYPES: ArrType[] = ['sonarr', 'radarr', 'lidarr'];
 
+// Timeout limits to prevent resource exhaustion (CodeQL: CWE-400)
+const MIN_TIMEOUT_MS = 1000; // 1 second
+const MAX_TIMEOUT_MS = 300000; // 5 minutes
+
 function validateInstanceUrl(url: string, skipSslVerify?: boolean): string {
   return validateArrInstanceUrl(url, skipSslVerify, {
     fieldName: 'url',
   });
+}
+
+/**
+ * Validate and sanitize timeout value to prevent resource exhaustion.
+ * Returns a safe timeout value within acceptable bounds.
+ */
+function validateTimeout(timeout: unknown): number {
+  if (timeout === undefined || timeout === null) {
+    return 30000; // Default 30 seconds
+  }
+
+  const timeoutNum = typeof timeout === 'number' ? timeout : parseInt(String(timeout), 10);
+
+  if (isNaN(timeoutNum) || timeoutNum < MIN_TIMEOUT_MS) {
+    return MIN_TIMEOUT_MS;
+  }
+
+  if (timeoutNum > MAX_TIMEOUT_MS) {
+    return MAX_TIMEOUT_MS;
+  }
+
+  return timeoutNum;
 }
 
 /**
@@ -130,13 +156,14 @@ export function createInstancesRouter(db: Database): Router {
       }
 
       const normalizedUrl = validateInstanceUrl(url, req.body.skipSslVerify);
+      const validatedTimeout = validateTimeout(timeout);
 
       const instance = createInstance(db, {
         name,
         type,
         url: normalizedUrl,
         apiKey,
-        timeout,
+        timeout: validatedTimeout,
         enabled,
         skipSslVerify: req.body.skipSslVerify,
         remotePath: req.body.remotePath,
@@ -200,7 +227,7 @@ export function createInstancesRouter(db: Database): Router {
         input.url = body.url;
       }
       if (body.apiKey !== undefined) input.apiKey = body.apiKey;
-      if (body.timeout !== undefined) input.timeout = body.timeout;
+      if (body.timeout !== undefined) input.timeout = validateTimeout(body.timeout);
       if (body.enabled !== undefined) input.enabled = body.enabled;
       if (body.skipSslVerify !== undefined) input.skipSslVerify = body.skipSslVerify;
       if (body.remotePath !== undefined) input.remotePath = body.remotePath;
@@ -294,12 +321,13 @@ export function createInstancesRouter(db: Database): Router {
       }
 
       const normalizedUrl = validateInstanceUrl(url, skipSslVerify);
+      const validatedTimeout = validateTimeout(timeout);
 
       const client = createArrClient(
         type as ArrType,
         normalizedUrl,
         apiKey,
-        timeout,
+        validatedTimeout,
         skipSslVerify,
       );
       const result = await client.testConnection();

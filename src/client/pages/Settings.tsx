@@ -539,7 +539,7 @@ export default function Settings() {
             </div>
           </div>
 
-          <label className="flex items-start justify-between gap-4 rounded-xl border border-gray-200 px-4 py-3 dark:border-gray-800">
+          <label htmlFor="webhook-enabled-checkbox" className="flex items-start justify-between gap-4 rounded-xl border border-gray-200 px-4 py-3 dark:border-gray-800">
             <div>
               <p className="text-sm font-medium text-gray-900 dark:text-gray-100">Webhook notifications</p>
               <p className="mt-1 text-xs text-gray-600 dark:text-gray-500">
@@ -547,6 +547,7 @@ export default function Settings() {
               </p>
             </div>
             <input
+              id="webhook-enabled-checkbox"
               type="checkbox"
               checked={webhookEnabled}
               onChange={(e) => {
@@ -594,10 +595,11 @@ export default function Settings() {
           className="mt-4 flex flex-wrap items-end gap-3"
         >
           <div className="flex-1 min-w-48">
-            <label className="block text-xs font-medium dark:text-gray-400 text-gray-700">
+            <label htmlFor="new-dir-path-input" className="block text-xs font-medium dark:text-gray-400 text-gray-700">
               Path
             </label>
             <input
+              id="new-dir-path-input"
               value={newDirPath}
               onChange={(e) => setNewDirPath(e.target.value)}
               placeholder="/downloads/complete"
@@ -752,24 +754,7 @@ export default function Settings() {
           )}
         </div>
 
-        {!showAuthModeChange ? (
-          <div className="mt-4 space-y-3">
-            <div className="flex items-center justify-between rounded-lg dark:bg-gray-800/50 bg-gray-50 border dark:border-transparent border-gray-200 px-4 py-3">
-              <span className="text-sm dark:text-gray-400 text-gray-600">Auth Mode</span>
-              <span className="rounded dark:bg-gray-700 bg-gray-200 px-2 py-0.5 text-sm font-medium dark:text-gray-300 text-gray-700 uppercase">
-                {authModeData?.authMode ?? session?.mode ?? 'unknown'}
-              </span>
-            </div>
-            {session?.user && (
-              <div className="flex items-center justify-between rounded-lg dark:bg-gray-800/50 bg-gray-50 border dark:border-transparent border-gray-200 px-4 py-3">
-                <span className="text-sm dark:text-gray-400 text-gray-600">Logged in as</span>
-                <span className="text-sm font-medium">
-                  {session.user.displayName || session.user.username}
-                </span>
-              </div>
-            )}
-          </div>
-        ) : (
+        {showAuthModeChange ? (
           <div className="mt-4 space-y-4">
             <p className="text-sm text-gray-400">Select a new authentication mode:</p>
 
@@ -793,11 +778,11 @@ export default function Settings() {
                   />
                   <div>
                     <div className="font-medium dark:text-gray-100 text-gray-900 capitalize">
-                      {mode === 'none'
-                        ? 'No Authentication'
-                        : mode === 'forms'
-                          ? 'Forms (Login Page)'
-                          : 'Basic (Browser Prompt)'}
+                      {(() => {
+                        if (mode === 'none') return 'No Authentication';
+                        if (mode === 'forms') return 'Forms (Login Page)';
+                        return 'Basic (Browser Prompt)';
+                      })()}
                     </div>
                     <div className="text-xs dark:text-gray-500 text-gray-600">
                       {mode === 'none' && '⚠️ Anyone can access Filtarr'}
@@ -816,10 +801,11 @@ export default function Settings() {
                   Create admin account:
                 </p>
                 <div>
-                  <label className="block text-xs font-medium dark:text-gray-400 text-gray-700">
+                  <label htmlFor="auth-username-input" className="block text-xs font-medium dark:text-gray-400 text-gray-700">
                     Username
                   </label>
                   <input
+                    id="auth-username-input"
                     type="text"
                     value={authUsername}
                     onChange={(e) => setAuthUsername(e.target.value)}
@@ -827,10 +813,11 @@ export default function Settings() {
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium dark:text-gray-400 text-gray-700">
+                  <label htmlFor="auth-password-input" className="block text-xs font-medium dark:text-gray-400 text-gray-700">
                     Password
                   </label>
                   <input
+                    id="auth-password-input"
                     type="password"
                     value={authPassword}
                     onChange={(e) => setAuthPassword(e.target.value)}
@@ -879,6 +866,23 @@ export default function Settings() {
                 >
                   Cancel
                 </button>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="mt-4 space-y-3">
+            <div className="flex items-center justify-between rounded-lg dark:bg-gray-800/50 bg-gray-50 border dark:border-transparent border-gray-200 px-4 py-3">
+              <span className="text-sm dark:text-gray-400 text-gray-600">Auth Mode</span>
+              <span className="rounded dark:bg-gray-700 bg-gray-200 px-2 py-0.5 text-sm font-medium dark:text-gray-300 text-gray-700 uppercase">
+                {authModeData?.authMode ?? session?.mode ?? 'unknown'}
+              </span>
+            </div>
+            {session?.user && (
+              <div className="flex items-center justify-between rounded-lg dark:bg-gray-800/50 bg-gray-50 border dark:border-transparent border-gray-200 px-4 py-3">
+                <span className="text-sm dark:text-gray-400 text-gray-600">Logged in as</span>
+                <span className="text-sm font-medium">
+                  {session.user.displayName || session.user.username}
+                </span>
               </div>
             )}
           </div>

@@ -10,6 +10,18 @@
 import { Agent } from 'undici';
 import { validateArrInstanceUrl } from '../security.js';
 
+/**
+ * Remove all trailing slashes from a URL safely (no ReDoS vulnerability).
+ * Uses a simple loop instead of regex to avoid backtracking issues.
+ */
+function removeTrailingSlashes(url: string): string {
+  let result = url;
+  while (result.endsWith('/')) {
+    result = result.slice(0, -1);
+  }
+  return result;
+}
+
 import {
   type ArrClientOptions,
   ArrApiError,
@@ -42,8 +54,7 @@ export class ArrClient {
       fieldName: 'Arr instance url',
     });
 
-    // Normalize URL: remove trailing slash
-    this.baseUrl = normalizedBaseUrl.replace(/\/+$/, '');
+    this.baseUrl = removeTrailingSlashes(normalizedBaseUrl);
     this.apiKey = options.apiKey;
     this.timeout = options.timeout ?? DEFAULT_TIMEOUT;
     this.maxRetries = options.maxRetries ?? DEFAULT_MAX_RETRIES;

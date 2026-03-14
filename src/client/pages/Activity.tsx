@@ -72,11 +72,11 @@ export default function Activity() {
   });
 
   const sourceOptions = useMemo(
-    () => Array.from(new Set(events.map((event) => event.source))).sort(),
+    () => Array.from(new Set(events.map((event) => event.source))).sort((a, b) => a.localeCompare(b)),
     [events],
   );
   const typeOptions = useMemo(
-    () => Array.from(new Set(events.map((event) => event.type))).sort(),
+    () => Array.from(new Set(events.map((event) => event.type))).sort((a, b) => a.localeCompare(b)),
     [events],
   );
 

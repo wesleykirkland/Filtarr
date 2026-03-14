@@ -3,11 +3,11 @@ import { createPortal } from 'react-dom';
 import { cn } from './ui';
 
 interface ModalProps {
-  title: string;
-  isOpen: boolean;
-  onClose: () => void;
-  children: React.ReactNode;
-  size?: 'sm' | 'md' | 'lg';
+  readonly title: string;
+  readonly isOpen: boolean;
+  readonly onClose: () => void;
+  readonly children: React.ReactNode;
+  readonly size?: 'sm' | 'md' | 'lg';
 }
 
 const focusableSelector =
@@ -54,8 +54,8 @@ export function Modal({ title, isOpen, onClose, children, size = 'md' }: ModalPr
         return;
       }
 
-      const first = focusableElements[0];
-      const last = focusableElements[focusableElements.length - 1];
+      const first = focusableElements.at(0);
+      const last = focusableElements.at(-1);
       const activeElement = document.activeElement;
 
       if (event.shiftKey && activeElement === first) {

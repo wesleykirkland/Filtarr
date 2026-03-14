@@ -34,7 +34,6 @@ config/
 *.db-wal
 *.db-shm
 
-
 coverage/
 
 compose-local.yml

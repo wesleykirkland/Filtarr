@@ -143,11 +143,11 @@ export function Field({
   children,
   className,
 }: {
-  label: string;
-  htmlFor?: string;
-  description?: string;
-  children: ReactNode;
-  className?: string;
+  readonly label: string;
+  readonly htmlFor?: string;
+  readonly description?: string;
+  readonly children: ReactNode;
+  readonly className?: string;
 }) {
   return (
     <div className={cn('space-y-1.5', className)}>
@@ -168,12 +168,12 @@ export function CheckboxField({
   onChange,
   className,
 }: {
-  id: string;
-  label: string;
-  description?: string;
-  checked: boolean;
-  onChange: (checked: boolean) => void;
-  className?: string;
+  readonly id: string;
+  readonly label: string;
+  readonly description?: string;
+  readonly checked: boolean;
+  readonly onChange: (checked: boolean) => void;
+  readonly className?: string;
 }) {
   return (
     <label className={cn('flex items-start gap-3 rounded-lg', className)} htmlFor={id}>
@@ -197,9 +197,9 @@ export function Toggle({
   onChange,
   label,
 }: {
-  checked: boolean;
-  onChange: (checked: boolean) => void;
-  label: string;
+  readonly checked: boolean;
+  readonly onChange: (checked: boolean) => void;
+  readonly label: string;
 }) {
   return (
     <button
@@ -228,8 +228,8 @@ export function Card({
   children,
   className,
 }: {
-  children: ReactNode;
-  className?: string;
+  readonly children: ReactNode;
+  readonly className?: string;
 }) {
   return <section className={cn('rounded-2xl p-6', baseSurface, className)}>{children}</section>;
 }
@@ -239,9 +239,9 @@ export function CardHeader({
   description,
   action,
 }: {
-  title: string;
-  description?: string;
-  action?: ReactNode;
+  readonly title: string;
+  readonly description?: string;
+  readonly action?: ReactNode;
 }) {
   return (
     <div className="flex items-start justify-between gap-4">
@@ -259,9 +259,9 @@ export function Badge({
   variant = 'default',
   className,
 }: {
-  children: ReactNode;
-  variant?: 'default' | 'info' | 'success' | 'warning' | 'danger';
-  className?: string;
+  readonly children: ReactNode;
+  readonly variant?: 'default' | 'info' | 'success' | 'warning' | 'danger';
+  readonly className?: string;
 }) {
   return <span className={badgeStyles(variant, className)}>{children}</span>;
 }
@@ -271,9 +271,9 @@ export function PageHeader({
   description,
   actions,
 }: {
-  title: string;
-  description?: string;
-  actions?: ReactNode;
+  readonly title: string;
+  readonly description?: string;
+  readonly actions?: ReactNode;
 }) {
   return (
     <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -292,10 +292,10 @@ export function EmptyState({
   description,
   action,
 }: {
-  icon?: ReactNode;
-  title: string;
-  description: string;
-  action?: ReactNode;
+  readonly icon?: ReactNode;
+  readonly title: string;
+  readonly description: string;
+  readonly action?: ReactNode;
 }) {
   return (
     <div className="flex flex-col items-center justify-center rounded-3xl border border-dashed border-gray-300 bg-gray-50/80 p-12 text-center dark:border-gray-800 dark:bg-gray-900/30">

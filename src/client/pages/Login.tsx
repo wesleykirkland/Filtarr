@@ -33,7 +33,7 @@ export default function Login() {
               Your browser should prompt you for credentials automatically. If you're not being
               prompted, try refreshing the page.
             </p>
-            <Button fullWidth onClick={() => window.location.reload()}>
+            <Button fullWidth onClick={() => globalThis.location.reload()}>
               Refresh Page
             </Button>
           </div>
@@ -57,7 +57,7 @@ export default function Login() {
               This instance uses OpenID Connect for sign-in.
             </p>
             <button
-              onClick={() => window.location.assign('/api/v1/auth/login')}
+              onClick={() => globalThis.location.assign('/api/v1/auth/login')}
               className="w-full rounded-lg bg-blue-600 px-4 py-2 font-medium text-white hover:bg-blue-700"
             >
               Continue with OIDC

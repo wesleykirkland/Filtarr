@@ -18,7 +18,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 
   if (!res.ok) {
     if (res.status === 401) {
-      window.dispatchEvent(new Event('auth:401'));
+      globalThis.dispatchEvent(new Event('auth:401'));
     }
     const body = await res.json().catch(() => ({ error: res.statusText }));
     throw new ApiError(res.status, body.error?.message || body.error || res.statusText);

@@ -2,14 +2,14 @@ import { Modal } from './Modal';
 import { useTheme } from '../contexts/ThemeContext';
 
 interface ConfirmModalProps {
-    isOpen: boolean;
-    title: string;
-    message: string;
-    confirmLabel?: string;
-    cancelLabel?: string;
-    isDestructive?: boolean;
-    onConfirm: () => void;
-    onClose: () => void;
+    readonly isOpen: boolean;
+    readonly title: string;
+    readonly message: string;
+    readonly confirmLabel?: string;
+    readonly cancelLabel?: string;
+    readonly isDestructive?: boolean;
+    readonly onConfirm: () => void;
+    readonly onClose: () => void;
 }
 
 export function ConfirmModal({

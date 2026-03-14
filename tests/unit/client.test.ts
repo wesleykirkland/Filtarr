@@ -3,7 +3,7 @@ import { ArrClient } from '../../src/services/arr/client.js';
 
 // Mock fetch globally
 const mockFetch = vi.fn();
-global.fetch = mockFetch as typeof fetch;
+globalThis.fetch = mockFetch as typeof fetch;
 
 class TestArrClient extends ArrClient {
   public async testGet(endpoint: string) {

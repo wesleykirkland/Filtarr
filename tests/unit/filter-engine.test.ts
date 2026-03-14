@@ -70,7 +70,7 @@ describe('FilterEngine', () => {
       state.runSandboxedScript,
     ].forEach((mock) => mock.mockReset());
     Object.values(state.logger).forEach((mock) => mock.mockReset());
-    global.fetch = vi.fn() as typeof fetch;
+    globalThis.fetch = vi.fn() as typeof fetch;
     state.fs.statSync.mockReturnValue({ size: file.size });
   });
 
@@ -129,7 +129,7 @@ describe('FilterEngine', () => {
     ]);
     state.fs.existsSync.mockImplementation((target: string) => target === file.path);
     state.runSandboxedScript.mockRejectedValueOnce(badRuleError);
-    vi.mocked(global.fetch).mockResolvedValue({ ok: true, status: 204 } as Response);
+    vi.mocked(globalThis.fetch).mockResolvedValue({ ok: true, status: 204 } as Response);
 
     await engine.processFile(file.path, 'manual');
 
@@ -354,7 +354,7 @@ describe('FilterEngine', () => {
     await engine.sendNotification(makeFilter({ id: 10, notify_webhook_url: null }), file);
     await engine.sendNotification(makeFilter({ id: 11, notify_webhook_url: 'http://127.0.0.1/hook' }), file);
 
-    vi.mocked(global.fetch)
+    vi.mocked(globalThis.fetch)
       .mockResolvedValueOnce({ ok: false, status: 500 } as Response)
       .mockResolvedValueOnce({ ok: true, status: 202 } as Response)
       .mockRejectedValueOnce(new Error('offline'));
@@ -398,6 +398,6 @@ describe('FilterEngine', () => {
       engine.sendNotification(makeFilter({ id: 16, notify_webhook_url: 'https://example.com/hook' }), file),
     ).rejects.toThrow('validator exploded');
 
-    expect(global.fetch).not.toHaveBeenCalled();
+    expect(globalThis.fetch).not.toHaveBeenCalled();
   });
 });

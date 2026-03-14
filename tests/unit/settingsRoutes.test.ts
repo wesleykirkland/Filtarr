@@ -5,7 +5,7 @@ import request from 'supertest';
 import { createSettingsRoutes } from '../../src/server/routes/settings.js';
 
 const mockFetch = vi.fn();
-global.fetch = mockFetch;
+globalThis.fetch = mockFetch;
 
 describe('settings routes', () => {
   let app: express.Express;

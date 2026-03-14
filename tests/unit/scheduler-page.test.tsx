@@ -20,7 +20,7 @@ function wrap(node: React.ReactNode) {
 
 async function setInputValue(input: HTMLInputElement, value: string) {
   await act(async () => {
-    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set?.call(input, value);
+    Object.getOwnPropertyDescriptor(globalThis.HTMLInputElement.prototype, 'value')?.set?.call(input, value);
     input.dispatchEvent(new Event('input', { bubbles: true }));
     input.dispatchEvent(new Event('change', { bubbles: true }));
   });
@@ -28,7 +28,7 @@ async function setInputValue(input: HTMLInputElement, value: string) {
 
 async function setSelectValue(select: HTMLSelectElement, value: string) {
   await act(async () => {
-    Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value')?.set?.call(select, value);
+    Object.getOwnPropertyDescriptor(globalThis.HTMLSelectElement.prototype, 'value')?.set?.call(select, value);
     select.dispatchEvent(new Event('change', { bubbles: true }));
   });
 }

@@ -25,7 +25,7 @@ function wrap(node: React.ReactNode) {
 
 async function setInputValue(input: HTMLInputElement | HTMLTextAreaElement, value: string) {
   await act(async () => {
-    const proto = input instanceof HTMLTextAreaElement ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
+    const proto = input instanceof HTMLTextAreaElement ? globalThis.HTMLTextAreaElement.prototype : globalThis.HTMLInputElement.prototype;
     Object.getOwnPropertyDescriptor(proto, 'value')?.set?.call(input, value);
     input.dispatchEvent(new Event('input', { bubbles: true }));
     input.dispatchEvent(new Event('change', { bubbles: true }));
@@ -34,7 +34,7 @@ async function setInputValue(input: HTMLInputElement | HTMLTextAreaElement, valu
 
 async function setSelectValue(select: HTMLSelectElement, value: string) {
   await act(async () => {
-    Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value')?.set?.call(select, value);
+    Object.getOwnPropertyDescriptor(globalThis.HTMLSelectElement.prototype, 'value')?.set?.call(select, value);
     select.dispatchEvent(new Event('change', { bubbles: true }));
   });
 }

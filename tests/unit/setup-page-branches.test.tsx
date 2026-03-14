@@ -25,7 +25,7 @@ function wrap() {
 
 async function setInputValue(input: HTMLInputElement, value: string) {
   await act(async () => {
-    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set?.call(input, value);
+    Object.getOwnPropertyDescriptor(globalThis.HTMLInputElement.prototype, 'value')?.set?.call(input, value);
     input.dispatchEvent(new Event('input', { bubbles: true }));
     input.dispatchEvent(new Event('change', { bubbles: true }));
   });
@@ -109,4 +109,3 @@ describe('Setup page branches', () => {
     await view.unmount();
   });
 });
-

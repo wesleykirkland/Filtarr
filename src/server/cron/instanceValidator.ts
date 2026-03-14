@@ -4,6 +4,7 @@ import { getAllInstances, getInstanceConfigById } from '../../db/schemas/instanc
 import { recordActivityEvent } from '../lib/activity.js';
 import { createArrClient } from '../routes/instances.js';
 import type { ArrType } from '../../services/arr/types.js';
+import { NotificationService } from '../services/NotificationService.js';
 
 let timeoutId: NodeJS.Timeout | null = null;
 let isShuttingDown = false;
@@ -72,6 +73,18 @@ async function validateInstances(db: Database.Database) {
               error: result.error,
             },
           });
+
+          // Send notification for healthcheck failure
+          const notificationService = new NotificationService(db);
+          await notificationService.notifyInstanceHealthcheckFailure(
+            {
+              id: instance.id,
+              name: instance.name,
+              type: instance.type,
+              url: instance.url,
+            },
+            result.error || 'Unknown error',
+          );
         }
       } catch (err: unknown) {
         logger.error(

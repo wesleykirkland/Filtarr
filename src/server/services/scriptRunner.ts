@@ -151,11 +151,7 @@ export async function runSandboxedScript(
     // and to safely capture returned results.
     const wrappedCode = `
       (async function() {
-        try {
-          ${code}
-        } catch (err) {
-          throw err;
-        }
+        ${code}
       })()
     `;
 

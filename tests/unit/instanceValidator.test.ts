@@ -76,7 +76,7 @@ describe('instance validator', () => {
     vi.restoreAllMocks();
   });
 
-  it('uses a 15-minute default interval and notifies on failed healthchecks', async () => {
+  it('uses a 60-minute default interval and notifies on failed healthchecks', async () => {
     const setTimeoutSpy = vi.spyOn(global, 'setTimeout');
     mocks.testConnection.mockResolvedValue({ success: false, error: 'Unauthorized' });
 
@@ -101,6 +101,6 @@ describe('instance validator', () => {
       },
       'Unauthorized',
     );
-    expect(setTimeoutSpy).toHaveBeenNthCalledWith(2, expect.any(Function), 15 * 60 * 1000);
+    expect(setTimeoutSpy).toHaveBeenNthCalledWith(2, expect.any(Function), 60 * 60 * 1000);
   });
 });

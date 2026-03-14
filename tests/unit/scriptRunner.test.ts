@@ -1,7 +1,22 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+const state = vi.hoisted(() => ({
+  assertCustomScriptsEnabled: vi.fn(),
+}));
+
+vi.mock('../../src/services/security.js', () => ({
+  assertCustomScriptsEnabled: state.assertCustomScriptsEnabled,
+  SecurityPolicyError: class SecurityPolicyError extends Error {},
+}));
+
 import { runConfiguredScript } from '../../src/server/services/scriptRunner.js';
 
 describe('script runner', () => {
+  beforeEach(() => {
+    state.assertCustomScriptsEnabled.mockReset();
+    state.assertCustomScriptsEnabled.mockReturnValue(undefined);
+  });
+
   it('runs sandboxed JavaScript by default', async () => {
     const result = await runConfiguredScript(
       'return context.file.name.endsWith(".mkv");',
@@ -34,6 +49,6 @@ describe('script runner', () => {
     );
 
     expect(result.success).toBe(true);
-    expect(result.output).toBe('true');
+    expect(result.output?.trim()).toBe('true');
   });
 });

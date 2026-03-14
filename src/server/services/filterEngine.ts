@@ -17,7 +17,7 @@ export interface FileEvent {
 }
 
 export class FilterEngine {
-  private db: Database.Database;
+  private readonly db: Database.Database;
 
   constructor(db: Database.Database) {
     this.db = db;
@@ -121,11 +121,12 @@ export class FilterEngine {
 
   private evaluateSizeRule(payload: string, fileSize: number): boolean {
     // e.g. >100MB, <1KB, =500B
-    const match = payload.match(/^([><=])?\s*(\d+(?:\.\d+)?)\s*([KMGT]B|B)?$/i);
+    const regex = /^([><=])?\s*(\d+(?:\.\d+)?)\s*([KMGT]B|B)?$/i;
+    const match = regex.exec(payload);
     if (!match) return false;
 
     const operator = match[1] || '=';
-    const value = parseFloat(match[2] || '0');
+    const value = Number.parseFloat(match[2] || '0');
     const unit = (match[3] || 'B').toUpperCase();
 
     const units: Record<string, number> = {
@@ -374,7 +375,9 @@ export class FilterEngine {
         body: JSON.stringify(payload),
       });
 
-      if (!response.ok) {
+      if (response.ok) {
+        logger.info({ filterId: filter.id }, 'Webhook notification sent successfully');
+      } else {
         logger.warn(
           { filterId: filter.id, status: response.status },
           'Webhook notification failed',

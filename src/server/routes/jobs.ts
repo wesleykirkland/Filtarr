@@ -150,10 +150,11 @@ export function createJobsRoutes(db: Database.Database): Router {
         return;
       }
       logger.info({ jobId: id }, 'Job deleted');
+      const displayName = current?.name ?? `#${id}`;
       recordActivityEvent(db, {
         type: 'deleted',
         source: 'jobs',
-        message: `Deleted job "${current?.name || `#${id}`}"`,
+        message: `Deleted job "${displayName}"`,
         details: current
           ? { jobId: current.id, schedule: current.schedule, jobType: current.type }
           : { jobId: id },

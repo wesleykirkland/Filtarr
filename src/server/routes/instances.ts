@@ -286,10 +286,11 @@ export function createInstancesRouter(db: Database): Router {
       }
 
       logger.info({ instanceId: id }, 'Deleted Arr instance');
+      const displayName = current?.name ?? `#${id}`;
       recordActivityEvent(db, {
         type: 'deleted',
         source: 'instances',
-        message: `Deleted instance "${current?.name || `#${id}`}"`,
+        message: `Deleted instance "${displayName}"`,
         details: current
           ? { instanceId: current.id, instanceType: current.type, enabled: current.enabled }
           : { instanceId: id },

@@ -8,8 +8,8 @@ import { FilterEngine } from './filterEngine.js';
 
 export class ChokidarManager {
   private watcher: FSWatcher | null = null;
-  private db: Database.Database;
-  private filterEngine: FilterEngine;
+  private readonly db: Database.Database;
+  private readonly filterEngine: FilterEngine;
 
   constructor(db: Database.Database) {
     this.db = db;

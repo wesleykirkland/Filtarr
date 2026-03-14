@@ -147,10 +147,11 @@ export function createDirectoriesRoutes(db: Database.Database): Router {
         return;
       }
       logger.info({ dirId: id }, 'Directory deleted');
+      const displayPath = current?.path ?? `#${id}`;
       recordActivityEvent(db, {
         type: 'deleted',
         source: 'directories',
-        message: `Removed watched directory ${current?.path || `#${id}`}`,
+        message: `Removed watched directory ${displayPath}`,
         details: current
           ? { directoryId: current.id, path: current.path, recursive: current.recursive }
           : { directoryId: id },

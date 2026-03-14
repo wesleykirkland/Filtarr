@@ -205,10 +205,11 @@ export function createFiltersRoutes(db: Database.Database): Router {
         return;
       }
       logger.info({ filterId: id }, 'Filter deleted');
+      const displayName = current?.name ?? `#${id}`;
       recordActivityEvent(db, {
         type: 'deleted',
         source: 'filters',
-        message: `Deleted filter "${current?.name || `#${id}`}"`,
+        message: `Deleted filter "${displayName}"`,
         details: current
           ? {
               filterId: current.id,

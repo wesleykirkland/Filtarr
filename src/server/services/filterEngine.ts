@@ -77,8 +77,9 @@ export class FilterEngine {
             await this.sendNotification(filter, fileEvent);
           }
         }
-      } catch (err: any) {
-        logger.error({ filterId: filter.id, err: err.message }, 'Error processing filter');
+      } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : String(err);
+        logger.error({ filterId: filter.id, err: errorMessage }, 'Error processing filter');
       }
     }
   }
@@ -240,7 +241,7 @@ export class FilterEngine {
     }
 
     const client = createArrClient(
-      config.type as any,
+      config.type,
       config.url,
       config.apiKey,
       config.timeout,
@@ -314,9 +315,10 @@ export class FilterEngine {
           },
         });
       }
-    } catch (err: any) {
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
       logger.error(
-        { instance: config.name, err: err.message },
+        { instance: config.name, err: errorMessage },
         'Failed to perform blocklist action',
       );
       recordActivityEvent(this.db, {
@@ -329,7 +331,7 @@ export class FilterEngine {
           status: 'failure',
           instanceId: config.id,
           filePath: file.path,
-          error: err.message,
+          error: errorMessage,
         },
       });
     }
@@ -404,8 +406,9 @@ export class FilterEngine {
           },
         });
       }
-    } catch (err: any) {
-      logger.error({ filterId: filter.id, err: err.message }, 'Error sending webhook notification');
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      logger.error({ filterId: filter.id, err: errorMessage }, 'Error sending webhook notification');
       recordActivityEvent(this.db, {
         type: 'notification',
         source: 'filters',
@@ -415,7 +418,7 @@ export class FilterEngine {
           filePath: file.path,
           fileName: file.name,
           success: false,
-          error: err.message,
+          error: errorMessage,
         },
       });
     }

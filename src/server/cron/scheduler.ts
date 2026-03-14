@@ -105,13 +105,14 @@ export class CronManager {
 
         // Update last run time
         updateJob(this.db, job.id, { lastRun: startTime });
-      } catch (err: any) {
-        logger.error({ jobId: job.id, err: err.message }, 'Scheduled job failed unexpectedly');
+      } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : String(err);
+        logger.error({ jobId: job.id, err: errorMessage }, 'Scheduled job failed unexpectedly');
         recordActivityEvent(this.db, {
           type: 'run',
           source: 'jobs',
           message: `Scheduled job "${job.name}" failed`,
-          details: { jobId: job.id, jobType: job.type, status: 'failure', error: err.message },
+          details: { jobId: job.id, jobType: job.type, status: 'failure', error: errorMessage },
         });
       }
     });
@@ -178,13 +179,14 @@ export class CronManager {
         message: `Scheduled filter job "${job.name}" completed`,
         details: { jobId: job.id, filterId, status: 'success', queuedFiles },
       });
-    } catch (err: any) {
-      logger.error({ jobId: job.id, err: err.message }, 'Failed to execute filter job');
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      logger.error({ jobId: job.id, err: errorMessage }, 'Failed to execute filter job');
       recordActivityEvent(this.db, {
         type: 'run',
         source: 'jobs',
         message: `Scheduled filter job "${job.name}" failed`,
-        details: { jobId: job.id, status: 'failure', error: err.message },
+        details: { jobId: job.id, status: 'failure', error: errorMessage },
       });
     }
   }

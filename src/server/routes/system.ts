@@ -72,12 +72,12 @@ protectedSystemRoutes.get('/browse', (req, res) => {
 
     // Validate the path before using it
     const validation = validateBrowsePath(requestedPath);
-    if (!validation.valid) {
-      res.status(400).json({ error: validation.error });
+    if (!validation.valid || !validation.normalized) {
+      res.status(400).json({ error: validation.error || 'Invalid path' });
       return;
     }
 
-    const resolved = validation.normalized!;
+    const resolved = validation.normalized;
 
     // Use try/catch to avoid TOCTOU race condition
     let stat;

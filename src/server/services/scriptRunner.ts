@@ -10,7 +10,7 @@ export type ScriptRuntime = 'javascript' | 'shell';
 
 export interface ScriptResult {
   success: boolean;
-  output?: any;
+  output?: unknown;
   error?: string;
   logs: string[];
 }
@@ -23,7 +23,7 @@ export interface ScriptContext {
     extension: string;
   };
   event?: 'import' | 'change' | 'delete';
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 export function normalizeScriptRuntime(runtime?: string | null): ScriptRuntime {
@@ -63,9 +63,9 @@ async function runShellScript(
         .map((line) => line.trim())
         .filter(Boolean),
     };
-  } catch (err: any) {
-    const stderr = typeof err?.stderr === 'string' ? err.stderr.trim() : '';
-    const message = stderr || err?.message || 'Unknown shell execution error';
+  } catch (err) {
+    const stderr = typeof (err as { stderr?: unknown })?.stderr === 'string' ? (err as { stderr: string }).stderr.trim() : '';
+    const message = stderr || (err instanceof Error ? err.message : 'Unknown shell execution error');
     logger.warn({ err: message }, 'Shell script execution failed');
     return {
       success: false,
@@ -125,10 +125,10 @@ export async function runSandboxedScript(
 
   // Provide a safe, crippled console
   const sandboxConsole = {
-    log: (...args: any[]) => logs.push(args.map(String).join(' ')),
-    info: (...args: any[]) => logs.push(`INFO: ${args.map(String).join(' ')}`),
-    warn: (...args: any[]) => logs.push(`WARN: ${args.map(String).join(' ')}`),
-    error: (...args: any[]) => logs.push(`ERROR: ${args.map(String).join(' ')}`),
+    log: (...args: unknown[]) => logs.push(args.map(String).join(' ')),
+    info: (...args: unknown[]) => logs.push(`INFO: ${args.map(String).join(' ')}`),
+    warn: (...args: unknown[]) => logs.push(`WARN: ${args.map(String).join(' ')}`),
+    error: (...args: unknown[]) => logs.push(`ERROR: ${args.map(String).join(' ')}`),
   };
 
   // Build the context object with frozen prototypes to prevent escape attempts
@@ -181,11 +181,15 @@ export async function runSandboxedScript(
       output: result,
       logs,
     };
-  } catch (err: any) {
-    logger.warn({ err: err.message }, 'Sandboxed script execution failed or threw');
+  } catch (err) {
+    // VM errors might not be instanceof Error from this context, so check for message property
+    const errorMessage = (err && typeof err === 'object' && 'message' in err && typeof err.message === 'string')
+      ? err.message
+      : 'Unknown execution error';
+    logger.warn({ err: errorMessage }, 'Sandboxed script execution failed or threw');
     return {
       success: false,
-      error: err.message || 'Unknown execution error',
+      error: errorMessage,
       logs,
     };
   }

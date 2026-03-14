@@ -74,7 +74,7 @@ export function createJobsRoutes(db: Database.Database): Router {
       });
       reloadScheduler(db);
       res.status(201).json(job);
-    } catch (err: any) {
+    } catch (err) {
       if (err instanceof z.ZodError) {
         res.status(400).json({ error: err.issues[0]?.message || 'Invalid input' });
       } else if (err instanceof SecurityPolicyError) {
@@ -120,7 +120,7 @@ export function createJobsRoutes(db: Database.Database): Router {
       });
       reloadScheduler(db);
       res.json(job);
-    } catch (err: any) {
+    } catch (err) {
       if (err instanceof z.ZodError) {
         res.status(400).json({ error: err.issues[0]?.message || 'Invalid input' });
       } else if (err instanceof SecurityPolicyError) {

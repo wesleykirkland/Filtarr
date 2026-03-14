@@ -33,6 +33,8 @@ function getCurrentAuthMode(db: Database.Database): AuthMode {
   }
 }
 
+// Extend Express types for Passport and Basic Auth
+/* eslint-disable @typescript-eslint/no-namespace */
 declare global {
   namespace Express {
     interface User {
@@ -40,8 +42,12 @@ declare global {
       username: string;
       displayName: string | null;
     }
+    interface Request {
+      _basicAuthValid?: boolean;
+    }
   }
 }
+/* eslint-enable @typescript-eslint/no-namespace */
 
 /**
  * Check if the request is authenticated via any method:
@@ -77,7 +83,7 @@ function requireAuth(db: Database.Database) {
 
     // Basic auth
     if (authMode === 'basic') {
-      if ((req as any)._basicAuthValid) {
+      if (req._basicAuthValid) {
         next();
         return;
       }
@@ -123,7 +129,7 @@ function basicAuthMiddleware(db: Database.Database) {
         .get(providedUser);
 
       if (user && (await bcrypt.compare(providedPass, user.password_hash))) {
-        (req as any)._basicAuthValid = true;
+        req._basicAuthValid = true;
       }
     } catch {
       // Invalid base64 or other error — just continue

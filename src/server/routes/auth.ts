@@ -30,7 +30,7 @@ function requireAuthenticatedRequest(db: Database.Database) {
       return;
     }
 
-    if (req.apiKey || req.isAuthenticated?.() || (authMode === 'basic' && (req as any)._basicAuthValid)) {
+    if (req.apiKey || req.isAuthenticated?.() || (authMode === 'basic' && req._basicAuthValid)) {
       next();
       return;
     }
@@ -133,7 +133,7 @@ export function createAuthRoutes(db: Database.Database, config: AuthConfig): Rou
     }
 
     // Check basic auth
-    if (authMode === 'basic' && (req as any)._basicAuthValid) {
+    if (authMode === 'basic' && req._basicAuthValid) {
       res.json({
         authenticated: true,
         mode: 'basic',

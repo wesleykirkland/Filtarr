@@ -6,10 +6,10 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
 
-COPY tsconfig.json ./
+COPY tsconfig.json vite.config.ts ./
 COPY src/ ./src/
 
-RUN npm run build
+RUN npm run build:all
 
 # Stage 2: Production
 FROM node:22-alpine AS runtime

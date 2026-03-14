@@ -91,6 +91,13 @@ export async function runConfiguredScript(
 /**
  * Runs a user-defined script inside a sandboxed VM context.
  *
+ * SECURITY NOTICE:
+ * - This feature is DISABLED BY DEFAULT and requires FILTARR_ENABLE_CUSTOM_SCRIPTS=true
+ * - The Node.js vm module is NOT a security boundary per Node.js documentation
+ * - Only enable this feature if you trust the users who can create filters
+ * - User scripts run with limited access but VM escapes are theoretically possible
+ * - Additional protections: timeout, no eval/Function, limited globals, no require/import
+ *
  * @param code The JS code to execute. Expects code to define or return a result,
  *             or we can wrap it in an async IIFE that resolves.
  * @param contextData Data exposed to the script cleanly.
@@ -124,7 +131,7 @@ export async function runSandboxedScript(
     error: (...args: any[]) => logs.push(`ERROR: ${args.map(String).join(' ')}`),
   };
 
-  // Build the context object
+  // Build the context object with frozen prototypes to prevent escape attempts
   const sandboxEnv = {
     console: sandboxConsole,
     context: contextData,
@@ -144,7 +151,13 @@ export async function runSandboxedScript(
     },
   };
 
-  const context = vm.createContext(sandboxEnv);
+  // Create context with contextCodeGeneration disabled to prevent eval/Function
+  const context = vm.createContext(sandboxEnv, {
+    codeGeneration: {
+      strings: false, // Disables eval()
+      wasm: false, // Disables WebAssembly
+    },
+  });
 
   try {
     // Wrap the user code in an async function to allow await if needed,

@@ -150,6 +150,12 @@ describe('auth middleware helpers', () => {
     });
     state.randomBytes.mockReturnValue(Buffer.alloc(48, 7));
     state.getConfig.mockReturnValue({ dataDir: '/tmp/filtarr-data' });
+    // Mock readFileSync to throw ENOENT (file not found) so a new secret is created
+    state.readFileSync.mockImplementation(() => {
+      const err = new Error('ENOENT: no such file or directory') as NodeJS.ErrnoException;
+      err.code = 'ENOENT';
+      throw err;
+    });
     state.localVerify = undefined;
     state.serializeUser = undefined;
     state.deserializeUser = undefined;

@@ -39,11 +39,26 @@ jobs:
       - name: Derive release context
         id: context
         shell: bash
+        env:
+          WORKFLOW_RUN_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          WORKFLOW_RUN_HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
         run: |
+          # Security: Use environment variables to prevent script injection
+          # The job condition already validates head_branch == 'main'
           if [ "${GITHUB_EVENT_NAME}" = "workflow_run" ]; then
-            release_sha="${{ github.event.workflow_run.head_sha }}"
-            release_ref="refs/heads/${{ github.event.workflow_run.head_branch }}"
-            release_ref_name="${{ github.event.workflow_run.head_branch }}"
+            # Validate SHA format (40 hex characters)
+            if ! printf '%s' "${WORKFLOW_RUN_HEAD_SHA}" | grep -qE '^[0-9a-f]{40}$'; then
+              echo "Error: Invalid SHA format" >&2
+              exit 1
+            fi
+            # Validate branch name (alphanumeric, dash, underscore, slash only)
+            if ! printf '%s' "${WORKFLOW_RUN_HEAD_BRANCH}" | grep -qE '^[a-zA-Z0-9/_-]+$'; then
+              echo "Error: Invalid branch name format" >&2
+              exit 1
+            fi
+            release_sha="${WORKFLOW_RUN_HEAD_SHA}"
+            release_ref="refs/heads/${WORKFLOW_RUN_HEAD_BRANCH}"
+            release_ref_name="${WORKFLOW_RUN_HEAD_BRANCH}"
           else
             release_sha="${GITHUB_SHA}"
             release_ref="${GITHUB_REF}"

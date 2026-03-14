@@ -40,8 +40,8 @@ export function createDirectoriesRoutes(db: Database.Database): Router {
   // GET /api/v1/directories/:id
   router.get('/:id', (req: Request, res: Response, next: NextFunction): void => {
     try {
-      const id = parseInt((req.params['id'] as string) || '', 10);
-      if (isNaN(id)) {
+      const id = Number.parseInt((req.params['id'] as string) || '', 10);
+      if (Number.isNaN(id)) {
         res.status(400).json({ error: 'Invalid ID' });
         return;
       }
@@ -91,8 +91,8 @@ export function createDirectoriesRoutes(db: Database.Database): Router {
   // PUT /api/v1/directories/:id
   router.put('/:id', (req: Request, res: Response, next: NextFunction): void => {
     try {
-      const id = parseInt((req.params['id'] as string) || '', 10);
-      if (isNaN(id)) {
+      const id = Number.parseInt((req.params['id'] as string) || '', 10);
+      if (Number.isNaN(id)) {
         res.status(400).json({ error: 'Invalid ID' });
         return;
       }
@@ -135,8 +135,8 @@ export function createDirectoriesRoutes(db: Database.Database): Router {
   // DELETE /api/v1/directories/:id
   router.delete('/:id', (req: Request, res: Response, next: NextFunction): void => {
     try {
-      const id = parseInt((req.params['id'] as string) || '', 10);
-      if (isNaN(id)) {
+      const id = Number.parseInt((req.params['id'] as string) || '', 10);
+      if (Number.isNaN(id)) {
         res.status(400).json({ error: 'Invalid ID' });
         return;
       }

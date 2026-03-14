@@ -3,7 +3,6 @@ import { logger } from '../lib/logger.js';
 import { getAllInstances, getInstanceConfigById } from '../../db/schemas/instances.js';
 import { recordActivityEvent } from '../lib/activity.js';
 import { createArrClient } from '../routes/instances.js';
-import type { ArrType } from '../../services/arr/types.js';
 import { NotificationService } from '../services/NotificationService.js';
 
 let timeoutId: NodeJS.Timeout | null = null;
@@ -17,8 +16,8 @@ function getIntervalMs(db: Database.Database): number {
         { value: string }
       >(`SELECT value FROM settings WHERE key = 'validation_interval_minutes'`)
       .get();
-    const minutes = parseInt(result?.value || '60', 10);
-    return (isNaN(minutes) ? 60 : minutes) * 60 * 1000;
+    const minutes = Number.parseInt(result?.value || '60', 10);
+    return (Number.isNaN(minutes) ? 60 : minutes) * 60 * 1000;
   } catch {
     return 60 * 60 * 1000; // default 1 hour
   }
@@ -38,7 +37,7 @@ async function validateInstances(db: Database.Database) {
         if (!config) continue;
 
         const client = createArrClient(
-          config.type as ArrType,
+          config.type,
           config.url,
           config.apiKey,
           config.timeout,

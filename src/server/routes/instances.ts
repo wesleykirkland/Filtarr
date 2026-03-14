@@ -58,9 +58,9 @@ function validateTimeout(timeout: unknown): number {
     return 30000; // Default 30 seconds
   }
 
-  const timeoutNum = typeof timeout === 'number' ? timeout : parseInt(String(timeout), 10);
+  const timeoutNum = typeof timeout === 'number' ? timeout : Number.parseInt(String(timeout), 10);
 
-  if (isNaN(timeoutNum) || timeoutNum < MIN_TIMEOUT_MS) {
+  if (Number.isNaN(timeoutNum) || timeoutNum < MIN_TIMEOUT_MS) {
     return MIN_TIMEOUT_MS;
   }
 
@@ -113,8 +113,8 @@ export function createInstancesRouter(db: Database): Router {
   // GET /api/v1/instances/:id — Get instance by ID
   router.get('/:id', (req: Request, res: Response) => {
     try {
-      const id = parseInt(req.params['id'] as string, 10);
-      if (isNaN(id)) {
+      const id = Number.parseInt(req.params['id'] as string, 10);
+      if (Number.isNaN(id)) {
         res.status(400).json({ error: 'Invalid instance ID' });
         return;
       }
@@ -200,8 +200,8 @@ export function createInstancesRouter(db: Database): Router {
   // PUT /api/v1/instances/:id — Update instance
   router.put('/:id', (req: Request, res: Response) => {
     try {
-      const id = parseInt(req.params['id'] as string, 10);
-      if (isNaN(id)) {
+      const id = Number.parseInt(req.params['id'] as string, 10);
+      if (Number.isNaN(id)) {
         res.status(400).json({ error: 'Invalid instance ID' });
         return;
       }
@@ -272,8 +272,8 @@ export function createInstancesRouter(db: Database): Router {
   // DELETE /api/v1/instances/:id — Delete instance
   router.delete('/:id', (req: Request, res: Response) => {
     try {
-      const id = parseInt(req.params['id'] as string, 10);
-      if (isNaN(id)) {
+      const id = Number.parseInt(req.params['id'] as string, 10);
+      if (Number.isNaN(id)) {
         res.status(400).json({ error: 'Invalid instance ID' });
         return;
       }
@@ -363,8 +363,8 @@ export function createInstancesRouter(db: Database): Router {
   // GET /api/v1/instances/:id/test — Test instance connection
   router.get('/:id/test', async (req: Request, res: Response) => {
     try {
-      const id = parseInt(req.params['id'] as string, 10);
-      if (isNaN(id)) {
+      const id = Number.parseInt(req.params['id'] as string, 10);
+      if (Number.isNaN(id)) {
         res.status(400).json({ error: 'Invalid instance ID' });
         return;
       }

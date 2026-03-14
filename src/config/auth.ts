@@ -64,7 +64,7 @@ export function loadAuthConfigFromEnv(): Partial<AuthConfig> {
   if (env['FILTARR_SESSION_SECRET']) {
     config.forms = {
       sessionSecret: env['FILTARR_SESSION_SECRET'],
-      sessionMaxAge: parseInt(env['FILTARR_SESSION_MAX_AGE'] || '86400000', 10),
+      sessionMaxAge: Number.parseInt(env['FILTARR_SESSION_MAX_AGE'] || '86400000', 10),
       cookieName: env['FILTARR_SESSION_COOKIE_NAME'] || 'filtarr.sid',
     };
   }

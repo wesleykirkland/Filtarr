@@ -151,9 +151,9 @@ export function createSettingsRoutes(
           { value: string }
         >(`SELECT value FROM settings WHERE key = 'validation_interval_minutes'`)
         .get();
-      const interval = parseInt(result?.value || '60', 10);
+      const interval = Number.parseInt(result?.value || '60', 10);
       res.json({
-        validationIntervalMinutes: isNaN(interval) ? 60 : interval,
+        validationIntervalMinutes: Number.isNaN(interval) ? 60 : interval,
       });
     } catch {
       res.status(500).json({ error: 'Failed to fetch app settings' });

@@ -10,9 +10,9 @@ import path from 'node:path';
 import { getFilterById } from '../../db/schemas/filters.js';
 
 export class CronManager {
-  private db: Database.Database;
-  private filterEngine: FilterEngine;
-  private activeJobs: Map<number, cron.ScheduledTask> = new Map();
+  private readonly db: Database.Database;
+  private readonly filterEngine: FilterEngine;
+  private readonly activeJobs: Map<number, cron.ScheduledTask> = new Map();
 
   constructor(db: Database.Database) {
     this.db = db;

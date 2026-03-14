@@ -73,7 +73,7 @@ const ACTION_TYPE_LABELS: Record<Filter['action_type'], string> = {
 };
 
 const RULE_PLACEHOLDERS: Record<Filter['rule_type'], string> = {
-  regex: 'e.g. .*\\.exe$',
+  regex: String.raw`e.g. .*\.exe$`,
   extension: 'e.g. exe,bat,sh',
   size: 'e.g. >100MB or <1KB',
   script: '// JS — return true to match\nreturn file.name.endsWith(".exe");',
@@ -94,10 +94,10 @@ const TYPE_COLORS: Record<string, string> = {
 };
 
 interface FilterFormProps {
-  initial?: Filter;
-  instances: Instance[];
-  onClose: () => void;
-  onSaved: () => void;
+  readonly initial?: Filter;
+  readonly instances: Instance[];
+  readonly onClose: () => void;
+  readonly onSaved: () => void;
 }
 
 function FilterForm({ initial, instances, onClose, onSaved }: FilterFormProps) {
@@ -148,7 +148,7 @@ function FilterForm({ initial, instances, onClose, onSaved }: FilterFormProps) {
     setShowPresets(false);
   };
 
-  const handleSubmit = (evt: React.FormEvent) => {
+  const handleSubmit = (evt: FormEvent) => {
     evt.preventDefault();
     if (!instanceId) {
       setErr('Please select an Arr instance');
@@ -409,7 +409,10 @@ function FilterForm({ initial, instances, onClose, onSaved }: FilterFormProps) {
 
           <div className="flex gap-2 border-t border-gray-200 pt-4 dark:border-gray-800">
             <Button type="submit" disabled={mutation.isPending}>
-              {mutation.isPending ? 'Saving...' : initial ? 'Update Filter' : 'Create Filter'}
+              {(() => {
+                if (mutation.isPending) return 'Saving...';
+                return initial ? 'Update Filter' : 'Create Filter';
+              })()}
             </Button>
             <Button type="button" variant="secondary" onClick={onClose}>
               Cancel
@@ -422,11 +425,11 @@ function FilterForm({ initial, instances, onClose, onSaved }: FilterFormProps) {
 }
 
 interface FilterCardProps {
-  filter: Filter;
-  instances: Instance[];
-  onEdit: () => void;
-  onToggle: () => void;
-  onDelete: (() => void) | null;
+  readonly filter: Filter;
+  readonly instances: Instance[];
+  readonly onEdit: () => void;
+  readonly onToggle: () => void;
+  readonly onDelete: (() => void) | null;
 }
 
 function FilterCard({ filter: f, instances, onEdit, onToggle, onDelete }: FilterCardProps) {
@@ -624,7 +627,7 @@ export default function Filters() {
                   instances={instances}
                   onEdit={() => setEditing(f)}
                   onToggle={() => toggleMutation.mutate({ id: f.id, enabled: !f.enabled })}
-                  onDelete={!f.is_built_in ? () => setPendingDelete(f) : null}
+                  onDelete={f.is_built_in ? null : () => setPendingDelete(f)}
                 />
               ))}
             </div>

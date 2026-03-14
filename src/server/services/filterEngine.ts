@@ -121,7 +121,7 @@ export class FilterEngine {
 
   private evaluateSizeRule(payload: string, fileSize: number): boolean {
     // e.g. >100MB, <1KB, =500B
-    const regex = /^([><=])?\s*(\d+(?:\.\d+)?)\s*([KMGT]B|B)?$/i;
+    const regex = new RegExp(String.raw`^([><=])?\s*(\d+(?:\.\d+)?)\s*([KMGT]B|B)?$`, 'i');
     const match = regex.exec(payload);
     if (!match) return false;
 

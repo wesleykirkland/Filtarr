@@ -31,7 +31,7 @@ export function FilesystemPicker({ value, onSelect, onClose }: FilesystemPickerP
 
   const { data, isLoading, error } = useQuery<BrowseResponse>({
     queryKey: ['browse', browsePath],
-    queryFn: () => api.get(`/system/browse?path=${encodeURIComponent(browsePath)}`),
+    queryFn: () => api.get(`/browse?path=${encodeURIComponent(browsePath)}`),
     retry: false,
   });
 

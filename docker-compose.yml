@@ -1,0 +1,85 @@
+services:
+  filtarr:
+    build:
+      context: .
+      dockerfile: Containerfile
+      args:
+        OCI_VERSION: ${FILTARR_VERSION:-0.1.0-dev}
+        OCI_REVISION: ${GIT_COMMIT:-unknown}
+        OCI_CREATED: ${BUILD_DATE:-unknown}
+        OCI_SOURCE: https://github.com/wesleykirkland/Filtarr
+        OCI_REF_NAME: ${GIT_BRANCH:-dev}
+    container_name: filtarr
+    restart: unless-stopped
+    ports:
+      - "${FILTARR_PORT:-9898}:9898"
+    volumes:
+      # Persistent data directory (SQLite database, logs, backups)
+      - ./config:/config
+      # Mount your media/download directories here
+      # Example: Map your actual download path to /downloads in the container
+      - ${DOWNLOADS_PATH:-./downloads}:/downloads
+      # Add additional media paths as needed
+      # - /path/to/movies:/movies:ro
+      # - /path/to/tv:/tv:ro
+    environment:
+      # Server Configuration
+      NODE_ENV: ${NODE_ENV:-production}
+      FILTARR_PORT: 9898
+      FILTARR_HOST: 0.0.0.0
+      FILTARR_LOG_LEVEL: ${FILTARR_LOG_LEVEL:-info}
+      FILTARR_DATA_DIR: /config
+      FILTARR_VERSION: ${FILTARR_VERSION:-0.1.0-dev}
+
+      # Encryption Secret (IMPORTANT: Set this to a secure random value)
+      # Used for encrypting API keys in the database
+      # Generate with: openssl rand -base64 32
+      FILTARR_SECRET: ${FILTARR_SECRET:-}
+
+      # Authentication Mode (configured via UI setup, but can be pre-set)
+      # Options: none, basic, forms, oidc
+      # FILTARR_AUTH_MODE: ${FILTARR_AUTH_MODE:-}
+
+      # Basic Auth (if using basic mode)
+      # FILTARR_AUTH_USERNAME: ${FILTARR_AUTH_USERNAME:-}
+      # FILTARR_AUTH_PASSWORD: ${FILTARR_AUTH_PASSWORD:-}
+
+      # Forms Auth (if using forms mode)
+      # Session secret must be at least 32 characters
+      # Generate with: openssl rand -base64 32
+      # FILTARR_SESSION_SECRET: ${FILTARR_SESSION_SECRET:-}
+      # FILTARR_SESSION_MAX_AGE: ${FILTARR_SESSION_MAX_AGE:-86400000}
+      # FILTARR_SESSION_COOKIE_NAME: ${FILTARR_SESSION_COOKIE_NAME:-filtarr.sid}
+
+      # OIDC Auth (if using OIDC mode)
+      # FILTARR_OIDC_ISSUER: ${FILTARR_OIDC_ISSUER:-}
+      # FILTARR_OIDC_CLIENT_ID: ${FILTARR_OIDC_CLIENT_ID:-}
+      # FILTARR_OIDC_CLIENT_SECRET: ${FILTARR_OIDC_CLIENT_SECRET:-}
+      # FILTARR_OIDC_CALLBACK_URL: ${FILTARR_OIDC_CALLBACK_URL:-http://localhost:9898/api/v1/auth/oidc/callback}
+      # FILTARR_OIDC_SCOPES: ${FILTARR_OIDC_SCOPES:-openid,profile,email}
+
+      # CORS Configuration (optional)
+      # FILTARR_CORS_ORIGIN: ${FILTARR_CORS_ORIGIN:-same-origin}
+
+      # Security: Custom Scripts (DANGEROUS - opt-in only)
+      # Enables JavaScript and shell script execution in filters
+      # See docs/security-custom-scripts.md for security implications
+      # FILTARR_ENABLE_CUSTOM_SCRIPTS: ${FILTARR_ENABLE_CUSTOM_SCRIPTS:-false}
+
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:9898/api/v1/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+
+    # User/Group ID mapping (optional - uncomment to match host user)
+    # user: "1001:1001"
+
+    # Network mode (optional - use host network for easier Arr instance discovery)
+    # network_mode: host
+
+networks:
+  default:
+    name: filtarr-network
+

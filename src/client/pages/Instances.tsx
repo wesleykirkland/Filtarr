@@ -219,7 +219,9 @@ function InstanceForm({
           type="button"
           onClick={handleTestConnection}
           disabled={testUnsavedMutation.isPending || !url || (!apiKey && !initial)}
-          variant={testStatus === 'error' ? 'danger' : testStatus === 'success' ? 'success' : 'secondary'}
+          variant={
+            testStatus === 'error' ? 'danger' : testStatus === 'success' ? 'success' : 'secondary'
+          }
         >
           {testUnsavedMutation.isPending
             ? 'Testing...'

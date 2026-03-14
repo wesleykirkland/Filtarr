@@ -57,7 +57,7 @@ export function createJob(db: Database.Database, input: CreateJobInput): JobRow 
       input.schedule,
       input.type,
       input.payload || null,
-      input.enabled !== false ? 1 : 0,
+      input.enabled === false ? 0 : 1,
     );
 
   const newRow = getJobById(db, result.lastInsertRowid as number);
@@ -70,13 +70,16 @@ export function updateJob(db: Database.Database, id: number, input: UpdateJobInp
   if (!current) throw new Error(`Job with id ${id} not found`);
 
   const name = input.name ?? current.name;
-  const description = input.description !== undefined ? input.description : current.description;
+  const description = input.description ?? current.description;
   const schedule = input.schedule ?? current.schedule;
   const type = input.type ?? current.type;
-  const payload = input.payload !== undefined ? input.payload : current.payload;
-  const enabled = input.enabled !== undefined ? (input.enabled ? 1 : 0) : current.enabled;
-  const lastRun = input.lastRun !== undefined ? input.lastRun : current.last_run;
-  const nextRun = input.nextRun !== undefined ? input.nextRun : current.next_run;
+  const payload = input.payload ?? current.payload;
+  let enabled = current.enabled;
+  if (input.enabled !== undefined) {
+    enabled = input.enabled ? 1 : 0;
+  }
+  const lastRun = input.lastRun ?? current.last_run;
+  const nextRun = input.nextRun ?? current.next_run;
 
   db.prepare<
     [

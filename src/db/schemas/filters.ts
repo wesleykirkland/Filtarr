@@ -78,7 +78,7 @@ export interface UpdateFilterInput {
 function normalizeNullableText(value: string | null | undefined): string | null {
   if (value === undefined || value === null) return null;
   const trimmed = value.trim();
-  return trimmed ? trimmed : null;
+  return trimmed || null;
 }
 
 function rowToFilter(row: FilterRow): FilterRow {
@@ -144,7 +144,7 @@ export function createFilter(db: Database.Database, input: CreateFilterInput): F
       notifySlackChannel,
       input.overrideNotifications ? 1 : 0,
       input.instanceId || null,
-      input.enabled !== false ? 1 : 0,
+      input.enabled === false ? 0 : 1,
       input.sortOrder || 0,
     );
 
@@ -162,37 +162,37 @@ export function updateFilter(
   if (!current) throw new Error(`Filter with id ${id} not found`);
 
   const name = input.name ?? current.name;
-  const description = input.description !== undefined ? input.description : current.description;
+  const description = input.description ?? current.description;
   const triggerSource = input.triggerSource ?? current.trigger_source;
   const ruleType = input.ruleType ?? current.rule_type;
   const rulePayload = input.rulePayload ?? current.rule_payload;
   const actionType = input.actionType ?? current.action_type;
-  const actionPayload =
-    input.actionPayload !== undefined ? input.actionPayload : current.action_payload;
+  const actionPayload = input.actionPayload ?? current.action_payload;
   const scriptRuntime = input.scriptRuntime ?? current.script_runtime;
-  const targetPath = input.targetPath !== undefined ? input.targetPath : current.target_path;
-  const notifyOnMatch =
-    input.notifyOnMatch !== undefined ? (input.notifyOnMatch ? 1 : 0) : current.notify_on_match;
+  const targetPath = input.targetPath ?? current.target_path;
+  let notifyOnMatch = current.notify_on_match;
+  if (input.notifyOnMatch !== undefined) {
+    notifyOnMatch = input.notifyOnMatch ? 1 : 0;
+  }
   const notifyWebhookUrl =
-    input.notifyWebhookUrl !== undefined
-      ? normalizeNullableText(input.notifyWebhookUrl)
-      : current.notify_webhook_url;
-  const notifySlack =
-    input.notifySlack !== undefined ? (input.notifySlack ? 1 : 0) : current.notify_slack;
+    input.notifyWebhookUrl ?? normalizeNullableText(current.notify_webhook_url);
+  let notifySlack = current.notify_slack;
+  if (input.notifySlack !== undefined) {
+    notifySlack = input.notifySlack ? 1 : 0;
+  }
   const notifySlackToken =
-    input.notifySlackToken !== undefined
-      ? normalizeNullableText(input.notifySlackToken)
-      : current.notify_slack_token;
+    input.notifySlackToken ?? normalizeNullableText(current.notify_slack_token);
   const notifySlackChannel =
-    input.notifySlackChannel !== undefined
-      ? normalizeNullableText(input.notifySlackChannel)
-      : current.notify_slack_channel;
-  const overrideNotifications =
-    input.overrideNotifications !== undefined
-      ? (input.overrideNotifications ? 1 : 0)
-      : current.override_notifications;
-  const instanceId = input.instanceId !== undefined ? input.instanceId : current.instance_id;
-  const enabled = input.enabled !== undefined ? (input.enabled ? 1 : 0) : current.enabled;
+    input.notifySlackChannel ?? normalizeNullableText(current.notify_slack_channel);
+  let overrideNotifications = current.override_notifications;
+  if (input.overrideNotifications !== undefined) {
+    overrideNotifications = input.overrideNotifications ? 1 : 0;
+  }
+  const instanceId = input.instanceId ?? current.instance_id;
+  let enabled = current.enabled;
+  if (input.enabled !== undefined) {
+    enabled = input.enabled ? 1 : 0;
+  }
   const sortOrder = input.sortOrder ?? current.sort_order;
 
   db.prepare(

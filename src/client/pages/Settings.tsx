@@ -412,13 +412,14 @@ export default function Settings() {
 
         <div className="mt-4 space-y-4">
           <div>
-            <label className="block text-sm font-medium dark:text-gray-400 text-gray-700">
+            <label htmlFor="validation-interval-input" className="block text-sm font-medium dark:text-gray-400 text-gray-700">
               Instance Validation Interval (Minutes)
             </label>
             <p className="mb-2 text-xs dark:text-gray-500 text-gray-600">
               How often Filtarr automatically tests enabled instances in the background.
             </p>
             <input
+              id="validation-interval-input"
               type="number"
               min="1"
               value={validationInterval}
@@ -457,14 +458,15 @@ export default function Settings() {
         </p>
 
         <div className="mt-4 space-y-5">
-          <label className="flex items-start justify-between gap-4 rounded-xl border border-gray-200 px-4 py-3 dark:border-gray-800">
+          <label htmlFor="slack-enabled-checkbox" className="flex items-start justify-between gap-4 rounded-xl border border-gray-200 px-4 py-3 dark:border-gray-800">
             <div>
-              <p className="text-sm font-medium text-gray-900 dark:text-gray-100">Slack notifications</p>
+              <span className="text-sm font-medium text-gray-900 dark:text-gray-100">Slack notifications</span>
               <p className="mt-1 text-xs text-gray-600 dark:text-gray-500">
                 Enable Slack delivery for notification-capable workflows.
               </p>
             </div>
             <input
+              id="slack-enabled-checkbox"
               type="checkbox"
               checked={slackEnabled}
               onChange={(e) => {
@@ -478,7 +480,7 @@ export default function Settings() {
 
           <div>
             <div className="flex items-center justify-between gap-3">
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-400">
+              <label htmlFor="slack-webhook-url-input" className="block text-sm font-medium text-gray-700 dark:text-gray-400">
                 Slack Webhook URL
               </label>
               {notificationSettings?.slackWebhookUrlConfigured && !slackWebhookEdited && (
@@ -486,6 +488,7 @@ export default function Settings() {
               )}
             </div>
             <input
+              id="slack-webhook-url-input"
               type="url"
               value={slackWebhookUrl}
               onChange={(e) => {
@@ -506,13 +509,16 @@ export default function Settings() {
             />
             <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-gray-500">
               <span>
-                {slackWebhookEdited
-                  ? slackWebhookUrl.trim()
-                    ? 'A new webhook will replace the saved value.'
-                    : 'The saved webhook will be cleared when you save.'
-                  : notificationSettings?.slackWebhookUrlConfigured
+                {(() => {
+                  if (slackWebhookEdited) {
+                    return slackWebhookUrl.trim()
+                      ? 'A new webhook will replace the saved value.'
+                      : 'The saved webhook will be cleared when you save.';
+                  }
+                  return notificationSettings?.slackWebhookUrlConfigured
                     ? 'A webhook is already stored securely. Leave this blank to keep it.'
-                    : 'Paste a Slack incoming webhook URL to enable Slack alerts.'}
+                    : 'Paste a Slack incoming webhook URL to enable Slack alerts.';
+                })()}
               </span>
               {notificationSettings?.slackWebhookUrlConfigured && (
                 <button

@@ -250,8 +250,8 @@ export default function Settings() {
   });
 
   const handleSaveGeneralSettings = () => {
-    const val = parseInt(validationInterval, 10);
-    if (isNaN(val) || val < 1) {
+    const val = Number.parseInt(validationInterval, 10);
+    if (Number.isNaN(val) || val < 1) {
       toast('error', 'Validation interval must be at least 1 minute');
       return;
     }

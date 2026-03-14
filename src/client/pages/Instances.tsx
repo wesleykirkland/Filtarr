@@ -73,7 +73,7 @@ function InstanceForm({
         // Actually, if editing and apiKey is blank, the backend expects us to send it blank to keep it.
         // But testing needs the real API key. The backend /test route will need to be able to pull it if id is provided.
         // For now, if editing and blank, we should warn the user they must re-enter the API key to test.
-        timeout: parseInt(timeout, 10) || undefined,
+        timeout: Number.parseInt(timeout, 10) || undefined,
         skipSslVerify,
         remotePath: remotePath || null,
         localPath: localPath || null,
@@ -100,7 +100,7 @@ function InstanceForm({
       type,
       url,
       apiKey: apiKey || (initial ? '' : apiKey), // empty = don't update
-      timeout: parseInt(timeout, 10) || undefined,
+      timeout: Number.parseInt(timeout, 10) || undefined,
       skipSslVerify,
       remotePath: remotePath || null,
       localPath: localPath || null,

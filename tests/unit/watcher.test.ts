@@ -8,7 +8,8 @@ const state = vi.hoisted(() => {
 
   return {
     watch: vi.fn(),
-    getAllDirectories: vi.fn(),
+    getAllFilters: vi.fn(),
+    getWatcherPaths: vi.fn(),
     processFile,
     FilterEngine,
     logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -16,7 +17,8 @@ const state = vi.hoisted(() => {
 });
 
 vi.mock('chokidar', () => ({ default: { watch: state.watch } }));
-vi.mock('../../src/db/schemas/directories.js', () => ({ getAllDirectories: state.getAllDirectories }));
+vi.mock('../../src/db/schemas/filters.js', () => ({ getAllFilters: state.getAllFilters }));
+vi.mock('../../src/server/services/filterPaths.js', () => ({ getWatcherPaths: state.getWatcherPaths }));
 vi.mock('../../src/server/services/filterEngine.js', () => ({ FilterEngine: state.FilterEngine }));
 vi.mock('../../src/server/lib/logger.js', () => ({ logger: state.logger }));
 
@@ -43,7 +45,7 @@ const createWatcher = () => {
 
 describe('watcher service', () => {
   beforeEach(() => {
-    [state.watch, state.getAllDirectories, state.processFile, state.FilterEngine].forEach((mock) => mock.mockReset());
+    [state.watch, state.getAllFilters, state.getWatcherPaths, state.processFile, state.FilterEngine].forEach((mock) => mock.mockReset());
     Object.values(state.logger).forEach((mock) => mock.mockReset());
     stopWatcher();
   });
@@ -53,9 +55,10 @@ describe('watcher service', () => {
     vi.restoreAllMocks();
   });
 
-  it('starts an empty watcher when there are no enabled directories', async () => {
+  it('starts an empty watcher when there are no enabled filter paths', async () => {
     const { watcher } = createWatcher();
-    state.getAllDirectories.mockReturnValue([{ path: '/disabled', enabled: 0, recursive: 1 }]);
+    state.getAllFilters.mockReturnValue([]);
+    state.getWatcherPaths.mockReturnValue([]);
     state.watch.mockReturnValue(watcher);
 
     const manager = new ChokidarManager(db);
@@ -63,17 +66,18 @@ describe('watcher service', () => {
 
     expect(state.FilterEngine).toHaveBeenCalledWith(db);
     expect(state.watch).toHaveBeenCalledWith([], { persistent: true });
-    expect(state.logger.info).toHaveBeenCalledWith('No active directories configured for watching.');
+    expect(state.logger.info).toHaveBeenCalledWith('No valid enabled filter paths configured for watching.');
   });
 
-  it('watches enabled directories, handles file events, and logs watcher errors', async () => {
+  it('watches enabled filter paths, handles file events, and logs watcher errors', async () => {
     const { watcher, handlers } = createWatcher();
     const processError = new Error('process failed');
-    state.getAllDirectories.mockReturnValue([
-      { path: '/downloads', enabled: 1, recursive: 1 },
-      { path: '/imports', enabled: 1, recursive: 0 },
-      { path: '/ignored', enabled: 0, recursive: 1 },
+    state.getAllFilters.mockReturnValue([
+      { id: 1, target_path: '/downloads', enabled: 1, trigger_source: 'watcher' },
+      { id: 2, target_path: '/imports', enabled: 1, trigger_source: 'watcher' },
+      { id: 3, target_path: null, enabled: 1, trigger_source: 'watcher' },
     ]);
+    state.getWatcherPaths.mockReturnValue(['/downloads', '/imports']);
     state.watch.mockReturnValue(watcher);
     state.processFile.mockResolvedValueOnce(undefined).mockRejectedValueOnce(processError);
 
@@ -82,7 +86,7 @@ describe('watcher service', () => {
 
     expect(state.watch).toHaveBeenCalledWith(
       ['/downloads', '/imports'],
-      expect.objectContaining({ ignoreInitial: true, depth: 0 }),
+      expect.objectContaining({ ignoreInitial: true }),
     );
 
     handlers['add']?.('/downloads/new.mkv');
@@ -107,7 +111,8 @@ describe('watcher service', () => {
   it('reloads and stops the active watcher cleanly', async () => {
     const first = createWatcher();
     const second = createWatcher();
-    state.getAllDirectories.mockReturnValue([{ path: '/downloads', enabled: 1, recursive: 1 }]);
+    state.getAllFilters.mockReturnValue([{ id: 1, target_path: '/downloads', enabled: 1, trigger_source: 'watcher' }]);
+    state.getWatcherPaths.mockReturnValue(['/downloads']);
     state.watch.mockReturnValueOnce(first.watcher).mockReturnValueOnce(second.watcher);
 
     const manager = new ChokidarManager(db);
@@ -132,7 +137,8 @@ describe('watcher service', () => {
   it('swallows wrapper-level reload and stop rejections from the active singleton manager', async () => {
     const { watcher } = createWatcher();
     watcher.close.mockRejectedValue(new Error('close failed'));
-    state.getAllDirectories.mockReturnValue([{ path: '/downloads', enabled: 1, recursive: 1 }]);
+    state.getAllFilters.mockReturnValue([{ id: 1, target_path: '/downloads', enabled: 1, trigger_source: 'watcher' }]);
+    state.getWatcherPaths.mockReturnValue(['/downloads']);
     state.watch.mockReturnValue(watcher);
 
     initWatcher(db);
@@ -148,7 +154,7 @@ describe('watcher service', () => {
   });
 
   it('manages the singleton wrapper lifecycle and startup failures', async () => {
-    state.getAllDirectories.mockImplementation(() => {
+    state.getAllFilters.mockImplementation(() => {
       throw new Error('db unavailable');
     });
 
@@ -158,8 +164,9 @@ describe('watcher service', () => {
     stopWatcher();
 
     const { watcher } = createWatcher();
-    state.getAllDirectories.mockReset();
-    state.getAllDirectories.mockReturnValue([{ path: '/downloads', enabled: 1, recursive: 1 }]);
+    state.getAllFilters.mockReset();
+    state.getAllFilters.mockReturnValue([{ id: 1, target_path: '/downloads', enabled: 1, trigger_source: 'watcher' }]);
+    state.getWatcherPaths.mockReturnValue(['/downloads']);
     state.watch.mockReturnValue(watcher);
 
     initWatcher(db);

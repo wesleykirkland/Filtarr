@@ -76,7 +76,7 @@ export function FilesystemPicker({ value, onSelect, onClose }: FilesystemPickerP
             <>
               {data?.parent ? (
                 <button
-                  onClick={() => navigate(data.parent!)}
+                  onClick={() => data.parent && navigate(data.parent)}
                   className={buttonStyles({
                     variant: 'ghost',
                     className: 'w-full justify-start rounded-xl px-3 py-2 text-left',

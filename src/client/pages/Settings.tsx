@@ -5,7 +5,7 @@ import { useAuth } from '../hooks/useAuth';
 import { api } from '../lib/api';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { toast } from '../components/Toast';
-import { Button, Card, PageHeader, checkboxStyles, cn } from '../components/ui';
+import { PageHeader, cn } from '../components/ui';
 
 type AuthMode = 'none' | 'basic' | 'forms';
 

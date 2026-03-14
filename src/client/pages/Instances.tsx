@@ -6,7 +6,6 @@ import {
   useDeleteInstance,
   useTestInstance,
   useTestUnsavedInstance,
-  type TestResult,
   type Instance,
   type CreateInstanceInput,
 } from '../hooks/useInstances';

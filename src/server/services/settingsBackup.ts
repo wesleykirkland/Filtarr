@@ -196,7 +196,7 @@ export class SettingsBackupService {
       };
     } catch (error) {
       logger.warn({ err: error }, 'Failed to import settings backup');
-      throw new Error('Backup SQL could not be imported');
+      throw new Error('Backup SQL could not be imported', { cause: error });
     } finally {
       tempDb.close();
     }

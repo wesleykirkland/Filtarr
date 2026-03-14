@@ -377,6 +377,18 @@ export class FilterEngine {
 
       if (response.ok) {
         logger.info({ filterId: filter.id }, 'Webhook notification sent successfully');
+        recordActivityEvent(this.db, {
+          type: 'notification',
+          source: 'filters',
+          message: `Notification sent for filter "${filter.name}"`,
+          details: {
+            filterId: filter.id,
+            filePath: file.path,
+            fileName: file.name,
+            status: response.status,
+            success: true,
+          },
+        });
       } else {
         logger.warn(
           { filterId: filter.id, status: response.status },
@@ -392,20 +404,6 @@ export class FilterEngine {
             fileName: file.name,
             status: response.status,
             success: false,
-          },
-        });
-      } else {
-        logger.debug({ filterId: filter.id }, 'Webhook notification sent');
-        recordActivityEvent(this.db, {
-          type: 'notification',
-          source: 'filters',
-          message: `Notification sent for filter "${filter.name}"`,
-          details: {
-            filterId: filter.id,
-            filePath: file.path,
-            fileName: file.name,
-            status: response.status,
-            success: true,
           },
         });
       }

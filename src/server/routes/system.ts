@@ -6,6 +6,13 @@ import path from 'node:path';
 export const publicSystemRoutes = Router();
 export const protectedSystemRoutes = Router();
 
+// Base directory that filesystem browsing is allowed to access.
+// Default to the filesystem root, but allow overriding via environment variable.
+// All browsed paths must stay within this directory.
+const BROWSE_ROOT = process.env['FILTARR_BROWSE_ROOT']
+  ? path.resolve(process.env['FILTARR_BROWSE_ROOT'])
+  : path.parse(process.cwd()).root;
+
 // Read version from package.json
 function getVersion(): string {
   const envVersion = process.env['FILTARR_VERSION']?.trim();
@@ -36,7 +43,7 @@ publicSystemRoutes.get('/health', (_req, res) => {
 
 /**
  * Validate that a path is safe to access (prevents directory traversal attacks).
- * Only allows absolute paths and ensures they don't contain suspicious patterns.
+ * The resulting path must stay within BROWSE_ROOT and not contain suspicious patterns.
  */
 function validateBrowsePath(requestedPath: string): { valid: boolean; error?: string; normalized?: string } {
   // Reject empty or non-string paths
@@ -44,17 +51,36 @@ function validateBrowsePath(requestedPath: string): { valid: boolean; error?: st
     return { valid: false, error: 'Path must be a non-empty string' };
   }
 
-  // Normalize the path to resolve any .. or . segments
-  const normalized = path.resolve(requestedPath);
+  // Interpret the requested path as relative to BROWSE_ROOT to prevent escaping
+  // using ".." segments or absolute paths supplied by the user.
+  const candidate = path.resolve(BROWSE_ROOT, requestedPath);
 
   // Reject paths that contain null bytes (path traversal attempt)
-  if (normalized.includes('\0')) {
+  if (candidate.includes('\0')) {
     return { valid: false, error: 'Invalid path: contains null bytes' };
   }
 
-  // On Windows, ensure we're not accessing sensitive system paths
+  // Resolve any symbolic links and get the canonical path, if possible.
+  let normalized: string;
+  try {
+    normalized = fs.realpathSync.native
+      ? fs.realpathSync.native(candidate)
+      : fs.realpathSync(candidate);
+  } catch {
+    // If the path cannot be resolved, treat it as invalid for browsing.
+    return { valid: false, error: 'Path does not exist or cannot be resolved' };
+  }
+
+  // Ensure the normalized path stays within the allowed root directory.
+  const rootForCompare = process.platform === 'win32' ? BROWSE_ROOT.toLowerCase() : BROWSE_ROOT;
+  const normalizedForCompare = process.platform === 'win32' ? normalized.toLowerCase() : normalized;
+  if (!normalizedForCompare.startsWith(rootForCompare)) {
+    return { valid: false, error: 'Access outside the allowed root directory is not permitted' };
+  }
+
+  // On Windows, ensure we're not accessing sensitive system paths even within the root.
   if (process.platform === 'win32') {
-    const lowerNormalized = normalized.toLowerCase();
+    const lowerNormalized = normalizedForCompare;
     const forbidden = [
       String.raw`c:\windows\system32`,
       String.raw`c:\windows\syswow64`,

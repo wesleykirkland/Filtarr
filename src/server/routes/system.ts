@@ -61,14 +61,22 @@ function validateBrowsePath(requestedPath: string): { valid: boolean; error?: st
   }
 
   // Resolve any symbolic links and get the canonical path, if possible.
+  // If the path doesn't exist, we'll use the candidate path and let the
+  // route handler return a proper 404 error.
   let normalized: string;
   try {
     normalized = fs.realpathSync.native
       ? fs.realpathSync.native(candidate)
       : fs.realpathSync(candidate);
-  } catch {
-    // If the path cannot be resolved, treat it as invalid for browsing.
-    return { valid: false, error: 'Path does not exist or cannot be resolved' };
+  } catch (err) {
+    // If ENOENT (path doesn't exist), allow validation to continue
+    // so the route handler can return a proper 404 error
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+      normalized = candidate;
+    } else {
+      // For other errors (permission denied, etc.), treat as invalid
+      return { valid: false, error: 'Path cannot be accessed' };
+    }
   }
 
   // Ensure the normalized path stays within the allowed root directory.

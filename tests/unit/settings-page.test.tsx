@@ -101,6 +101,15 @@ describe('Settings page', () => {
       expect(api.post).toHaveBeenCalledWith('/directories', { path: '/media/downloads', recursive: true });
     });
 
+    await click(Array.from(document.body.querySelectorAll('button')).find((node) => node.textContent === 'Edit') ?? null);
+    const editInputs = Array.from(document.body.querySelectorAll('input')).filter((node) => (node as HTMLInputElement).type === 'text') as HTMLInputElement[];
+    await setInputValue(editInputs[editInputs.length - 1]!, '/media/updated');
+    await setChecked(Array.from(document.body.querySelectorAll('input')).find((node) => (node as HTMLInputElement).id === 'editRec-3') as HTMLInputElement, false);
+    await click(Array.from(document.body.querySelectorAll('button')).find((node) => node.textContent === 'Save') ?? null);
+    await waitFor(() => {
+      expect(api.put).toHaveBeenCalledWith('/directories/3', { path: '/media/updated', recursive: false });
+    });
+
     await click(Array.from(document.body.querySelectorAll('button')).find((node) => node.textContent === 'Remove') ?? null);
     await waitFor(() => {
       expect(Array.from(document.body.querySelectorAll('button')).find((node) => node.textContent === 'Remove directory')).toBeTruthy();
@@ -109,6 +118,8 @@ describe('Settings page', () => {
     expect(api.delete).toHaveBeenCalledWith('/directories/3');
 
     await click(Array.from(document.body.querySelectorAll('button')).find((node) => node.textContent?.includes('Authentication')) ?? null);
+    await click(Array.from(document.body.querySelectorAll('button')).find((node) => node.textContent === 'Change') ?? null);
+    await click(Array.from(document.body.querySelectorAll('button')).find((node) => node.textContent === 'Cancel') ?? null);
     await click(Array.from(document.body.querySelectorAll('button')).find((node) => node.textContent === 'Change') ?? null);
     const radios = Array.from(document.body.querySelectorAll('input')).filter((node) => (node as HTMLInputElement).type === 'radio') as HTMLInputElement[];
     await setChecked(radios.find((node) => node.value === 'forms')!, true);
@@ -137,6 +148,9 @@ describe('Settings page', () => {
 
     await click(Array.from(document.body.querySelectorAll('button')).find((node) => node.textContent?.includes('API Keys')) ?? null);
     await click(Array.from(document.body.querySelectorAll('button')).find((node) => node.textContent === 'Rotate') ?? null);
+    await click(Array.from(document.body.querySelectorAll('button')).find((node) => node.textContent === 'Cancel') ?? null);
+    expect(api.post).not.toHaveBeenCalledWith('/auth/api-keys/rotate', { keyId: 1 });
+    await click(Array.from(document.body.querySelectorAll('button')).find((node) => node.textContent === 'Rotate') ?? null);
     await waitFor(() => {
       expect(Array.from(document.body.querySelectorAll('button')).find((node) => node.textContent === 'Confirm')).toBeTruthy();
     });
@@ -147,6 +161,8 @@ describe('Settings page', () => {
     });
     await click(Array.from(document.body.querySelectorAll('button')).find((node) => node.textContent === '📋') ?? null);
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith('flt_new_secret');
+    await click(Array.from(document.body.querySelectorAll('button')).find((node) => node.textContent === "I've saved this key") ?? null);
+    expect(document.body.textContent).not.toContain('Save this API key');
     await view.unmount();
   });
 });

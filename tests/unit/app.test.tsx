@@ -42,6 +42,7 @@ function wrap(path = '/') {
 
 describe('App shell', () => {
   beforeEach(() => {
+    document.body.innerHTML = '';
     api.get.mockReset();
     authState.retrySession.mockClear();
     authState.session = { authenticated: true, mode: 'forms', user: { username: 'admin', displayName: 'Admin' } };
@@ -78,6 +79,30 @@ describe('App shell', () => {
     });
     await click(Array.from(document.body.querySelectorAll('button')).find((node) => node.textContent === 'Retry session check') ?? null);
     expect(authState.retrySession).toHaveBeenCalledTimes(1);
+    await view.unmount();
+  });
+
+  it('shows loading shells while setup or auth state is pending', async () => {
+    api.get.mockResolvedValue({ needsSetup: false });
+    authState.isLoading = true;
+    const protectedLoading = await render(wrap('/'));
+    expect(document.body.textContent).toContain('Loading...');
+    await protectedLoading.unmount();
+
+    authState.isLoading = false;
+    api.get.mockImplementation(() => new Promise(() => undefined));
+    const setupLoading = await render(wrap('/'));
+    expect(document.body.textContent).toContain('Loading...');
+    await setupLoading.unmount();
+  });
+
+  it('redirects completed setups away from the setup page', async () => {
+    api.get.mockResolvedValue({ needsSetup: false });
+    const view = await render(wrap('/setup'));
+    await waitFor(() => {
+      expect(document.body.textContent).toContain('Layout shell');
+      expect(document.body.textContent).toContain('Dashboard page');
+    });
     await view.unmount();
   });
 

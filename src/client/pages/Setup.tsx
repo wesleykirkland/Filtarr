@@ -129,14 +129,15 @@ export default function Setup() {
         {/* Step: Auth Mode */}
         {step === 'auth-mode' && (
           <div className="space-y-4">
-            <p className="text-sm text-gray-700 dark:text-gray-300">Choose how you want to secure your Filtarr instance:</p>
-            <div className="space-y-3">
-              <label
-                htmlFor="setup-auth-mode-forms"
-                className={cn(`flex cursor-pointer items-start gap-3 rounded-xl border p-4 transition-colors ${
-                  authMode === 'forms'
-                    ? 'border-blue-500 dark:bg-blue-500/10 bg-blue-50'
-                    : 'border-gray-300 dark:border-gray-700'
+	            <p className="text-sm text-gray-700 dark:text-gray-300">Choose how you want to secure your Filtarr instance:</p>
+	            <div className="space-y-3">
+	              <label
+	                aria-label="Forms Authentication"
+	                htmlFor="setup-auth-mode-forms"
+	                className={cn(`flex cursor-pointer items-start gap-3 rounded-xl border p-4 transition-colors ${
+	                  authMode === 'forms'
+	                    ? 'border-blue-500 dark:bg-blue-500/10 bg-blue-50'
+	                    : 'border-gray-300 dark:border-gray-700'
                 }`, 'focus-within:ring-2 focus-within:ring-blue-500 focus-within:ring-offset-2 focus-within:ring-offset-white dark:focus-within:ring-offset-gray-900')}
 	              >
 		                <input
@@ -156,12 +157,13 @@ export default function Setup() {
 		                </span>
 		              </label>
 
-              <label
-                htmlFor="setup-auth-mode-basic"
-                className={cn(`flex cursor-pointer items-start gap-3 rounded-xl border p-4 transition-colors ${
-                  authMode === 'basic'
-                    ? 'border-blue-500 dark:bg-blue-500/10 bg-blue-50'
-                    : 'border-gray-300 dark:border-gray-700'
+	              <label
+	                aria-label="Basic Authentication"
+	                htmlFor="setup-auth-mode-basic"
+	                className={cn(`flex cursor-pointer items-start gap-3 rounded-xl border p-4 transition-colors ${
+	                  authMode === 'basic'
+	                    ? 'border-blue-500 dark:bg-blue-500/10 bg-blue-50'
+	                    : 'border-gray-300 dark:border-gray-700'
                 }`, 'focus-within:ring-2 focus-within:ring-blue-500 focus-within:ring-offset-2 focus-within:ring-offset-white dark:focus-within:ring-offset-gray-900')}
 	              >
 		                <input
@@ -179,12 +181,13 @@ export default function Setup() {
 		                </span>
 		              </label>
 
-              <label
-                htmlFor="setup-auth-mode-none"
-                className={cn(`flex cursor-pointer items-start gap-3 rounded-xl border p-4 transition-colors ${
-                  authMode === 'none'
-                    ? 'border-yellow-500 dark:bg-yellow-500/10 bg-yellow-50'
-                    : 'border-gray-300 dark:border-gray-700'
+	              <label
+	                aria-label="No Authentication"
+	                htmlFor="setup-auth-mode-none"
+	                className={cn(`flex cursor-pointer items-start gap-3 rounded-xl border p-4 transition-colors ${
+	                  authMode === 'none'
+	                    ? 'border-yellow-500 dark:bg-yellow-500/10 bg-yellow-50'
+	                    : 'border-gray-300 dark:border-gray-700'
                 }`, 'focus-within:ring-2 focus-within:ring-blue-500 focus-within:ring-offset-2 focus-within:ring-offset-white dark:focus-within:ring-offset-gray-900')}
 	              >
 		                <input

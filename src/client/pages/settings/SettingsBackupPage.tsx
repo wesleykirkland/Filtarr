@@ -146,7 +146,7 @@ export default function SettingsBackupPage() {
         <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 dark:border-gray-800 dark:bg-gray-800/40">
           <h4 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Automation</h4>
           <div className="mt-4 space-y-4">
-            <label htmlFor="backup-enabled" className="flex items-start gap-3">
+            <label aria-label="Enable automated daily backups" htmlFor="backup-enabled" className="flex items-start gap-3">
               <input
                 id="backup-enabled"
                 type="checkbox"

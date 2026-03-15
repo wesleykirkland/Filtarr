@@ -145,6 +145,7 @@ export default function SettingsAuthenticationPage() {
               return (
                 <label
                   key={mode}
+                  aria-label={authModeLabels[mode]}
                   htmlFor={inputId}
                   className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 ${
                     selected

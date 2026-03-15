@@ -96,12 +96,12 @@ function RemoveDirectoryDialog({
   isPending,
   onClose,
   onConfirm,
-}: {
+}: Readonly<{
   directory: Directory | null;
   isPending: boolean;
   onClose: () => void;
   onConfirm: (directoryId: number) => void;
-}) {
+}>) {
   const description = directory
     ? `Filtarr will stop monitoring ${directory.path}. Existing files stay untouched.`
     : '';
@@ -131,7 +131,7 @@ function ApiKeysList({
   onCancelRotate,
   onConfirmRotate,
   isRotating,
-}: {
+}: Readonly<{
   loadingKeys: boolean;
   apiKeys: ApiKeyResponse[] | undefined;
   confirmRotateId: number | null;
@@ -139,7 +139,7 @@ function ApiKeysList({
   onCancelRotate: () => void;
   onConfirmRotate: (keyId: number) => void;
   isRotating: boolean;
-}) {
+}>) {
   return (
     <div className="mt-4 space-y-3">
       {loadingKeys ? (

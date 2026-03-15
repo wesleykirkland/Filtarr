@@ -35,6 +35,78 @@ function isWithinRoot(root: string, candidate: string): boolean {
   return !path.isAbsolute(relative);
 }
 
+function realpathSyncNative(value: string): string {
+  return fs.realpathSync.native ? fs.realpathSync.native(value) : fs.realpathSync(value);
+}
+
+function getPlatformComparablePath(value: string): string {
+  return process.platform === 'win32' ? value.toLowerCase() : value;
+}
+
+function resolveBrowseRoots(roots: string[]): { resolvedRoots: string[]; canonicalRoots: string[] } {
+  const resolvedRoots = roots.map((root) => path.resolve(root));
+  const canonicalRoots = resolvedRoots.map((root) => {
+    try {
+      return realpathSyncNative(root);
+    } catch {
+      return root;
+    }
+  });
+  return { resolvedRoots, canonicalRoots };
+}
+
+function resolveBrowseCandidate(requestedPath: string, defaultRoot: string): string {
+  if (path.isAbsolute(requestedPath)) return path.resolve(requestedPath);
+  return path.resolve(defaultRoot, requestedPath);
+}
+
+function canonicalizeMissingPath(candidate: string): string {
+  // Canonicalize a non-existent path based on the nearest existing ancestor so allowlist
+  // checks still work on platforms where /var is a symlink to /private/var.
+  let cursor = candidate;
+  while (true) {
+    const parent = path.dirname(cursor);
+    if (parent === cursor) break;
+    try {
+      const parentReal = realpathSyncNative(parent);
+      const suffix = path.relative(parent, candidate);
+      return path.join(parentReal, suffix);
+    } catch {
+      cursor = parent;
+    }
+  }
+
+  return candidate;
+}
+
+function resolveNormalizedPath(candidate: string): { normalized: string } | { error: string } {
+  try {
+    return { normalized: realpathSyncNative(candidate) };
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+      return { normalized: canonicalizeMissingPath(candidate) };
+    }
+    return { error: 'Path cannot be accessed' };
+  }
+}
+
+function findAllowedRoot(normalized: string, canonicalRoots: string[]): string | null {
+  const normalizedForCompare = getPlatformComparablePath(normalized);
+  for (const root of canonicalRoots) {
+    const rootForCompare = getPlatformComparablePath(root);
+    if (isWithinRoot(rootForCompare, normalizedForCompare)) return root;
+  }
+  return null;
+}
+
+function getWindowsForbiddenError(normalized: string): string | null {
+  if (process.platform !== 'win32') return null;
+
+  const lowerNormalized = getPlatformComparablePath(normalized);
+  const forbidden = [String.raw`c:\windows\system32`, String.raw`c:\windows\syswow64`, String.raw`c:\program files`];
+  return forbidden.some((f) => lowerNormalized.startsWith(f)) ? 'Access to system directories is not allowed' : null;
+}
+
 // Read version from package.json
 function getVersion(): string {
   const envVersion = process.env['FILTARR_VERSION']?.trim();
@@ -81,79 +153,28 @@ function validateBrowsePath(
     return { valid: false, error: 'Invalid path: contains null bytes' };
   }
 
-  const resolvedRoots = roots.map((root) => path.resolve(root));
-  const canonicalRoots = resolvedRoots.map((root) => {
-    try {
-      return fs.realpathSync.native ? fs.realpathSync.native(root) : fs.realpathSync(root);
-    } catch {
-      return root;
-    }
-  });
+  const { resolvedRoots, canonicalRoots } = resolveBrowseRoots(roots);
+  const defaultRoot = resolvedRoots[0] ?? path.parse(process.cwd()).root;
 
-  // If an absolute path is provided, treat it as-is; otherwise resolve relative to the first root.
-  const candidate = path.isAbsolute(requestedPath)
-    ? path.resolve(requestedPath)
-    : path.resolve(resolvedRoots[0] ?? path.parse(process.cwd()).root, requestedPath);
+  const candidate = resolveBrowseCandidate(requestedPath, defaultRoot);
 
   // Resolve any symbolic links and get the canonical path, if possible.
   // If the path doesn't exist, we'll use the candidate path and let the
   // route handler return a proper 404 error.
-  let normalized: string;
-  try {
-    normalized = fs.realpathSync.native
-      ? fs.realpathSync.native(candidate)
-      : fs.realpathSync(candidate);
-  } catch (err) {
-    // If ENOENT (path doesn't exist), allow validation to continue
-    // so the route handler can return a proper 404 error
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-      // Canonicalize the missing path based on the nearest existing ancestor so
-      // allowlist checks still work on platforms where /var is a symlink to /private/var.
-      let cursor = candidate;
-      while (true) {
-        const parent = path.dirname(cursor);
-        if (parent === cursor) break;
-        try {
-          const parentReal = fs.realpathSync.native ? fs.realpathSync.native(parent) : fs.realpathSync(parent);
-          const suffix = path.relative(parent, candidate);
-          normalized = path.join(parentReal, suffix);
-          break;
-        } catch (parentErr) {
-          if ((parentErr as NodeJS.ErrnoException).code !== 'ENOENT') break;
-          cursor = parent;
-        }
-      }
-
-      if (!normalized) normalized = candidate;
-    } else {
-      // For other errors (permission denied, etc.), treat as invalid
-      return { valid: false, error: 'Path cannot be accessed' };
-    }
+  const normalizedResult = resolveNormalizedPath(candidate);
+  if ('error' in normalizedResult) {
+    return { valid: false, error: normalizedResult.error };
   }
+  const normalized = normalizedResult.normalized;
 
   // Ensure the normalized path stays within one of the allowed root directories.
-  const normalizedForCompare = process.platform === 'win32' ? normalized.toLowerCase() : normalized;
-  const allowedIndex = canonicalRoots.findIndex((root) => {
-    const rootForCompare = process.platform === 'win32' ? root.toLowerCase() : root;
-    return isWithinRoot(rootForCompare, normalizedForCompare);
-  });
-  const allowedRoot = allowedIndex === -1 ? null : canonicalRoots[allowedIndex];
+  const allowedRoot = findAllowedRoot(normalized, canonicalRoots);
   if (!allowedRoot) {
     return { valid: false, error: 'Access outside the allowed root directories is not permitted' };
   }
 
-  // On Windows, ensure we're not accessing sensitive system paths even within the root.
-  if (process.platform === 'win32') {
-    const lowerNormalized = normalizedForCompare;
-    const forbidden = [
-      String.raw`c:\windows\system32`,
-      String.raw`c:\windows\syswow64`,
-      String.raw`c:\program files`,
-    ];
-    if (forbidden.some((f) => lowerNormalized.startsWith(f))) {
-      return { valid: false, error: 'Access to system directories is not allowed' };
-    }
-  }
+  const forbiddenError = getWindowsForbiddenError(normalized);
+  if (forbiddenError) return { valid: false, error: forbiddenError };
 
   return { valid: true, normalized, root: allowedRoot };
 }
@@ -223,9 +244,15 @@ protectedSystemRoutes.get('/browse', (req, res) => {
       }))
       .sort((a, b) => a.name.localeCompare(b.name));
 
+    const parentCandidate = path.dirname(resolved);
+    let parent = '/';
+    if (resolved !== root && isWithinRoot(root, parentCandidate)) {
+      parent = parentCandidate;
+    }
+
     res.json({
       current: resolved,
-      parent: resolved === root ? '/' : isWithinRoot(root, path.dirname(resolved)) ? path.dirname(resolved) : '/',
+      parent,
       entries: dirs,
     });
   } catch (err) {

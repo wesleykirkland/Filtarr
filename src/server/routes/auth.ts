@@ -7,6 +7,26 @@ import { getOrCreateSessionSecret } from '../middleware/auth.js';
 import { generateApiKey, hashApiKey, getKeyIdentifiers } from '../middleware/apiKey.js';
 import { type ApiKey, toApiKeyResponse } from '../../db/schemas/users.js';
 
+function parseCookieHeader(headerValue: string | undefined): Record<string, string> {
+  const cookies: Record<string, string> = {};
+  if (!headerValue) return cookies;
+
+  for (const part of headerValue.split(';')) {
+    const index = part.indexOf('=');
+    if (index === -1) continue;
+    const key = decodeURIComponent(part.slice(0, index).trim());
+    const value = decodeURIComponent(part.slice(index + 1).trim());
+    cookies[key] = value;
+  }
+
+  return cookies;
+}
+
+function ensureCookies(req: Request): void {
+  const anyReq = req as unknown as { cookies?: Record<string, string> };
+  anyReq.cookies ??= parseCookieHeader(req.headers.cookie);
+}
+
 /**
  * Get the current auth mode from the database settings.
  * This is called dynamically to support auth mode changes after setup.
@@ -65,20 +85,7 @@ export function createAuthRoutes(db: Database.Database, config: AuthConfig): Rou
       return;
     }
 
-    const anyReq = req as unknown as { cookies?: Record<string, string> };
-    if (!anyReq.cookies) {
-      anyReq.cookies = Object.fromEntries(
-        (req.headers.cookie ?? '')
-          .split(';')
-          .map((part) => part.trim())
-          .filter(Boolean)
-          .map((part) => {
-            const idx = part.indexOf('=');
-            if (idx === -1) return [part, ''] as const;
-            return [decodeURIComponent(part.slice(0, idx)), decodeURIComponent(part.slice(idx + 1))] as const;
-          }),
-      );
-    }
+    ensureCookies(req);
 
     res.json({ csrfToken: generateCsrfToken(req, res) });
   });

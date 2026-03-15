@@ -37,7 +37,13 @@ async function getCsrfToken(): Promise<string | null> {
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const method = (options?.method ?? 'GET').toUpperCase();
   const needsCsrf = method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS';
-  const headers = new Headers({ 'Content-Type': 'application/json', ...(options?.headers ?? {}) });
+  const headers = new Headers({ 'Content-Type': 'application/json' });
+  if (options?.headers) {
+    // Normalize HeadersInit (object/array/Headers) into our mutable Headers instance.
+    new Headers(options.headers).forEach((value, key) => {
+      headers.set(key, value);
+    });
+  }
 
   if (needsCsrf && !headers.has('X-CSRF-Token') && !headers.has('x-csrf-token')) {
     const token = await getCsrfToken();
@@ -46,8 +52,9 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 
   const doFetch = () =>
     fetch(`${BASE}${path}`, {
-      headers,
       ...options,
+      // Ensure our merged headers are not overwritten by options.headers.
+      headers,
     });
 
   let res = await doFetch();

@@ -40,6 +40,15 @@ function ensureCookies(req: Request): void {
   anyReq.cookies = parseCookieHeader(req.headers.cookie);
 }
 
+function runMiddleware(req: Request, res: Response, middleware: RequestHandler): Promise<void> {
+  return new Promise((resolve, reject) => {
+    middleware(req, res, (err?: unknown) => {
+      if (err) reject(err);
+      else resolve();
+    });
+  });
+}
+
 /**
  * Get the current auth mode from the database settings.
  * This is called on each request to support dynamic auth mode changes (e.g., after setup).
@@ -306,45 +315,42 @@ export function createAuthMiddleware(
 
   // Only enable session + CSRF when the current auth mode uses cookie-based auth.
   // This preserves dynamic auth mode switching after setup completion without restart.
-  router.use((req, res, next) => {
-    // API key requests are header-authenticated and don't use cookie sessions.
-    if (req.apiKey) {
+  router.use(async (req, res, next) => {
+    try {
+      // API key requests are header-authenticated and don't use cookie sessions.
+      if (req.apiKey) {
+        next();
+        return;
+      }
+
+      const authMode = getCurrentAuthMode(db);
+      if (authMode !== 'forms' && authMode !== 'oidc') {
+        next();
+        return;
+      }
+
+      await runMiddleware(req, res, sessionHandler);
+      await runMiddleware(req, res, passportInit);
+      await runMiddleware(req, res, passportSession);
+
+      const method = req.method.toUpperCase();
+      const stateChanging = method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS';
+      if (!stateChanging) {
+        next();
+        return;
+      }
+
+      // Only enforce CSRF once the request is using a session-authenticated user.
+      // This preserves the expected 401 flow for unauthenticated requests.
+      if (req.isAuthenticated?.()) {
+        ensureCookies(req);
+        await runMiddleware(req, res, csrfProtection);
+      }
+
       next();
-      return;
+    } catch (err) {
+      next(err);
     }
-
-    const authMode = getCurrentAuthMode(db);
-    if (authMode !== 'forms' && authMode !== 'oidc') {
-      next();
-      return;
-    }
-
-    sessionHandler(req, res, (sessionErr: unknown) => {
-      if (sessionErr) return next(sessionErr);
-      passportInit(req, res, (initErr: unknown) => {
-        if (initErr) return next(initErr);
-        passportSession(req, res, (passportErr: unknown) => {
-          if (passportErr) return next(passportErr);
-
-          const method = req.method.toUpperCase();
-          const stateChanging = method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS';
-          if (!stateChanging) {
-            next();
-            return;
-          }
-
-          // Only enforce CSRF once the request is using a session-authenticated user.
-          // This preserves the expected 401 flow for unauthenticated requests.
-          if (req.isAuthenticated?.()) {
-            ensureCookies(req);
-            csrfProtection(req, res, next);
-            return;
-          }
-
-          next();
-        });
-      });
-    });
   });
 
   // The requireAuth middleware checks if the request is authenticated

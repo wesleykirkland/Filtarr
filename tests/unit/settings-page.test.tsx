@@ -94,16 +94,18 @@ describe('Settings page', () => {
     });
 
     await click(Array.from(document.body.querySelectorAll('button')).find((node) => node.textContent?.includes('Paths & Storage')) ?? null);
-    const textInputs = Array.from(document.body.querySelectorAll('input')).filter((node) => node.type === 'text');
-    await setInputValue(textInputs[0]!, '/media/downloads');
+    const firstTextInput = Array.from(document.body.querySelectorAll('input')).find((node) => node.type === 'text');
+    await setInputValue(firstTextInput!, '/media/downloads');
     await click(Array.from(document.body.querySelectorAll('button')).find((node) => node.textContent === 'Add Directory') ?? null);
     await waitFor(() => {
       expect(api.post).toHaveBeenCalledWith('/directories', { path: '/media/downloads', recursive: true });
     });
 
     await click(Array.from(document.body.querySelectorAll('button')).find((node) => node.textContent === 'Edit') ?? null);
-    const editInputs = Array.from(document.body.querySelectorAll('input')).filter((node) => node.type === 'text');
-    await setInputValue(editInputs.at(-1)!, '/media/updated');
+    const lastTextInput = Array.from(document.body.querySelectorAll('input'))
+      .reverse()
+      .find((node) => node.type === 'text');
+    await setInputValue(lastTextInput!, '/media/updated');
     await setChecked(Array.from(document.body.querySelectorAll('input')).find((node) => node.id === 'editRec-3')!, false);
     await click(Array.from(document.body.querySelectorAll('button')).find((node) => node.textContent === 'Save') ?? null);
     await waitFor(() => {

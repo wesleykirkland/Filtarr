@@ -138,21 +138,23 @@ export default function Setup() {
                     ? 'border-blue-500 dark:bg-blue-500/10 bg-blue-50'
                     : 'border-gray-300 dark:border-gray-700'
                 }`, 'focus-within:ring-2 focus-within:ring-blue-500 focus-within:ring-offset-2 focus-within:ring-offset-white dark:focus-within:ring-offset-gray-900')}
-              >
-                <input
-                  id="setup-auth-mode-forms"
-                  type="radio"
-                  name="authMode"
-                  value="forms"
-                  checked={authMode === 'forms'}
-                  onChange={() => setAuthMode('forms')}
-                  className={checkboxStyles('mt-1 rounded-full')}
-                />
-                <div>
-                  <div className="font-medium text-gray-900 dark:text-gray-100">Forms Authentication</div>
-                  <div className="text-sm text-gray-500">Username/password login form (recommended)</div>
-                </div>
-              </label>
+	              >
+		                <input
+		                  id="setup-auth-mode-forms"
+		                  type="radio"
+		                  name="authMode"
+		                  value="forms"
+		                  checked={authMode === 'forms'}
+		                  onChange={() => setAuthMode('forms')}
+		                  className={checkboxStyles('mt-1 rounded-full')}
+		                />
+		                <span className="block">
+		                  <span className="block font-medium text-gray-900 dark:text-gray-100">Forms Authentication</span>
+		                  <span className="block text-sm text-gray-500">
+		                    Username/password login form (recommended)
+		                  </span>
+		                </span>
+		              </label>
 
               <label
                 htmlFor="setup-auth-mode-basic"
@@ -161,21 +163,21 @@ export default function Setup() {
                     ? 'border-blue-500 dark:bg-blue-500/10 bg-blue-50'
                     : 'border-gray-300 dark:border-gray-700'
                 }`, 'focus-within:ring-2 focus-within:ring-blue-500 focus-within:ring-offset-2 focus-within:ring-offset-white dark:focus-within:ring-offset-gray-900')}
-              >
-                <input
-                  id="setup-auth-mode-basic"
-                  type="radio"
-                  name="authMode"
-                  value="basic"
-                  checked={authMode === 'basic'}
-                  onChange={() => setAuthMode('basic')}
-                  className={checkboxStyles('mt-1 rounded-full')}
-                />
-                <div>
-                  <div className="font-medium text-gray-900 dark:text-gray-100">Basic Authentication</div>
-                  <div className="text-sm text-gray-500">HTTP Basic auth (browser login prompt)</div>
-                </div>
-              </label>
+	              >
+		                <input
+		                  id="setup-auth-mode-basic"
+		                  type="radio"
+		                  name="authMode"
+		                  value="basic"
+		                  checked={authMode === 'basic'}
+		                  onChange={() => setAuthMode('basic')}
+		                  className={checkboxStyles('mt-1 rounded-full')}
+		                />
+		                <span className="block">
+		                  <span className="block font-medium text-gray-900 dark:text-gray-100">Basic Authentication</span>
+		                  <span className="block text-sm text-gray-500">HTTP Basic auth (browser login prompt)</span>
+		                </span>
+		              </label>
 
               <label
                 htmlFor="setup-auth-mode-none"
@@ -184,21 +186,23 @@ export default function Setup() {
                     ? 'border-yellow-500 dark:bg-yellow-500/10 bg-yellow-50'
                     : 'border-gray-300 dark:border-gray-700'
                 }`, 'focus-within:ring-2 focus-within:ring-blue-500 focus-within:ring-offset-2 focus-within:ring-offset-white dark:focus-within:ring-offset-gray-900')}
-              >
-                <input
-                  id="setup-auth-mode-none"
-                  type="radio"
-                  name="authMode"
-                  value="none"
-                  checked={authMode === 'none'}
-                  onChange={() => setAuthMode('none')}
-                  className={checkboxStyles('mt-1 rounded-full')}
-                />
-                <div>
-                  <div className="font-medium text-gray-900 dark:text-gray-100">No Authentication</div>
-                  <div className="text-sm text-yellow-600 dark:text-yellow-400">⚠️ Only use on trusted networks</div>
-                </div>
-              </label>
+	              >
+		                <input
+		                  id="setup-auth-mode-none"
+		                  type="radio"
+		                  name="authMode"
+		                  value="none"
+		                  checked={authMode === 'none'}
+		                  onChange={() => setAuthMode('none')}
+		                  className={checkboxStyles('mt-1 rounded-full')}
+		                />
+		                <span className="block">
+		                  <span className="block font-medium text-gray-900 dark:text-gray-100">No Authentication</span>
+		                  <span className="block text-sm text-yellow-600 dark:text-yellow-400">
+		                    ⚠️ Only use on trusted networks
+		                  </span>
+		                </span>
+		              </label>
             </div>
 
             <Button fullWidth size="lg" onClick={nextStep} disabled={submitting}>

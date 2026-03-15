@@ -161,14 +161,14 @@ export default function SettingsAuthenticationPage() {
                     onChange={() => setSelectedAuthMode(mode)}
                     className="mt-0.5"
                   />
-                  <div>
-                    <div className="font-medium capitalize text-gray-900 dark:text-gray-100">
+                  <span className="block">
+                    <span className="block font-medium capitalize text-gray-900 dark:text-gray-100">
                       {authModeLabels[mode]}
-                    </div>
-                    <div className="text-xs text-gray-600 dark:text-gray-500">
+                    </span>
+                    <span className="block text-xs text-gray-600 dark:text-gray-500">
                       {authModeDescriptions[mode]}
-                    </div>
-                  </div>
+                    </span>
+                  </span>
                 </label>
               );
             })}

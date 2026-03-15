@@ -52,7 +52,7 @@ describe('ThemeProvider', () => {
       </ThemeProvider>,
     );
 
-    const button = view.container.querySelector('button') as HTMLButtonElement | null;
+    const button = view.container.querySelector<HTMLButtonElement>('button');
     expect(button?.dataset.mode).toBe('dark');
     expect(document.documentElement.classList.contains('dark')).toBe(true);
     expect(localStorage.getItem('darkMode')).toBe('true');
@@ -75,7 +75,7 @@ describe('ThemeProvider', () => {
       </ThemeProvider>,
     );
 
-    const button = view.container.querySelector('button') as HTMLButtonElement | null;
+    const button = view.container.querySelector<HTMLButtonElement>('button');
     expect(button?.dataset.mode).toBe('light');
     expect(document.documentElement.classList.contains('light')).toBe(true);
 

@@ -21,6 +21,8 @@ export function Modal({ title, isOpen, onClose, children, size = 'md' }: ModalPr
     lastFocusedRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
 
     const dialog = dialogRef.current;
+    if (!dialog) return;
+
     document.body.style.overflow = 'hidden';
     if (dialog && !dialog.open) {
       if (typeof dialog.showModal === 'function') {
@@ -31,7 +33,30 @@ export function Modal({ title, isOpen, onClose, children, size = 'md' }: ModalPr
         dialog.focus();
       }
     }
+
+    const handleNativeClose = () => {
+      // Handles ESC or any other native close action.
+      onClose();
+    };
+
+    const handleDocumentClick = (event: MouseEvent) => {
+      // Clicks on the <dialog> backdrop report as regular click events; use coordinates
+      // instead of target checks so we can close on backdrop clicks without attaching
+      // mouse handlers to the <dialog> element itself.
+      const rect = dialog.getBoundingClientRect();
+      const isInsideDialog =
+        event.clientX >= rect.left &&
+        event.clientX <= rect.right &&
+        event.clientY >= rect.top &&
+        event.clientY <= rect.bottom;
+      if (!isInsideDialog) onClose();
+    };
+
+    dialog.addEventListener('close', handleNativeClose);
+    document.addEventListener('click', handleDocumentClick);
     return () => {
+      dialog.removeEventListener('close', handleNativeClose);
+      document.removeEventListener('click', handleDocumentClick);
       document.body.style.overflow = 'auto';
       if (dialog?.open) {
         if (typeof dialog.close === 'function') {
@@ -56,13 +81,6 @@ export function Modal({ title, isOpen, onClose, children, size = 'md' }: ModalPr
     <dialog
       ref={dialogRef}
       aria-labelledby={titleId}
-      onCancel={(event) => {
-        event.preventDefault();
-        onClose();
-      }}
-      onClick={(event) => {
-        if (event.target === event.currentTarget) onClose();
-      }}
       className={cn(
         'w-[calc(100%-2rem)] overflow-hidden rounded-3xl border border-gray-200 bg-white p-0 text-gray-900 shadow-2xl outline-none dark:border-gray-800 dark:bg-gray-900 dark:text-gray-100 sm:w-full',
         'backdrop:bg-black/60 backdrop:backdrop-blur-sm',

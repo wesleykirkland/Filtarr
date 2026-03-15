@@ -91,6 +91,111 @@ interface Directory {
   createdAt: string;
 }
 
+function RemoveDirectoryDialog({
+  directory,
+  isPending,
+  onClose,
+  onConfirm,
+}: {
+  directory: Directory | null;
+  isPending: boolean;
+  onClose: () => void;
+  onConfirm: (directoryId: number) => void;
+}) {
+  const description = directory
+    ? `Filtarr will stop monitoring ${directory.path}. Existing files stay untouched.`
+    : '';
+
+  return (
+    <ConfirmDialog
+      isOpen={Boolean(directory)}
+      title="Remove watched directory?"
+      description={description}
+      confirmLabel="Remove directory"
+      isPending={isPending}
+      onClose={onClose}
+      onConfirm={() => {
+        if (directory) {
+          onConfirm(directory.id);
+        }
+      }}
+    />
+  );
+}
+
+function ApiKeysList({
+  loadingKeys,
+  apiKeys,
+  confirmRotateId,
+  onRequestRotate,
+  onCancelRotate,
+  onConfirmRotate,
+  isRotating,
+}: {
+  loadingKeys: boolean;
+  apiKeys: ApiKeyResponse[] | undefined;
+  confirmRotateId: number | null;
+  onRequestRotate: (keyId: number) => void;
+  onCancelRotate: () => void;
+  onConfirmRotate: (keyId: number) => void;
+  isRotating: boolean;
+}) {
+  return (
+    <div className="mt-4 space-y-3">
+      {loadingKeys ? (
+        <p className="text-sm text-gray-500">Loading API keys...</p>
+      ) : apiKeys && apiKeys.length > 0 ? (
+        apiKeys.map((key) => (
+          <div
+            key={key.id}
+            className="flex items-center justify-between rounded-lg dark:bg-gray-800/50 bg-gray-50 border dark:border-transparent border-gray-200 px-4 py-3"
+          >
+            <div className="flex-1">
+              <div className="flex items-center gap-2">
+                <span className="font-medium text-gray-900 dark:text-gray-100">{key.name}</span>
+                <span className="font-mono text-sm dark:text-gray-500 text-gray-600">{key.maskedKey}</span>
+              </div>
+              <div className="mt-1 text-xs dark:text-gray-500 text-gray-600">
+                Created: {new Date(key.createdAt).toLocaleDateString()}
+                {key.lastUsedAt && ` • Last used: ${new Date(key.lastUsedAt).toLocaleDateString()}`}
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              {confirmRotateId === key.id ? (
+                <>
+                  <span className="text-xs text-yellow-400">Invalidate old key?</span>
+                  <button
+                    onClick={() => onConfirmRotate(key.id)}
+                    disabled={isRotating}
+                    className="rounded-lg bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-50"
+                  >
+                    {isRotating ? 'Rotating...' : 'Confirm'}
+                  </button>
+                  <button
+                    onClick={onCancelRotate}
+                    className="rounded-lg border dark:border-gray-700 border-gray-300 px-3 py-1.5 text-xs font-medium dark:text-gray-400 text-gray-700 dark:hover:bg-gray-800 hover:bg-gray-100"
+                  >
+                    Cancel
+                  </button>
+                </>
+              ) : (
+                <button
+                  onClick={() => onRequestRotate(key.id)}
+                  className="rounded-lg border dark:border-gray-700 border-gray-300 px-3 py-1.5 text-xs font-medium dark:text-gray-400 text-gray-700 dark:hover:bg-gray-800 hover:bg-gray-100"
+                >
+                  Rotate
+                </button>
+              )}
+            </div>
+          </div>
+        ))
+      ) : (
+        <p className="text-sm text-gray-500">No API keys configured.</p>
+      )}
+    </div>
+  );
+}
+
 function getNotificationsDirty(
   settings: NotificationSettingsResponse | undefined,
   values: {
@@ -952,83 +1057,26 @@ export default function Settings() {
               I've saved this key
             </button>
           </div>
-        )}
+	        )}
 
-        {/* API Keys List */}
-        <div className="mt-4 space-y-3">
-          {loadingKeys ? (
-            <p className="text-sm text-gray-500">Loading API keys...</p>
-          ) : apiKeys && apiKeys.length > 0 ? (
-            apiKeys.map((key) => (
-              <div
-                key={key.id}
-                className="flex items-center justify-between rounded-lg dark:bg-gray-800/50 bg-gray-50 border dark:border-transparent border-gray-200 px-4 py-3"
-              >
-                <div className="flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="font-medium text-gray-900 dark:text-gray-100">{key.name}</span>
-                    <span className="font-mono text-sm dark:text-gray-500 text-gray-600">
-                      {key.maskedKey}
-                    </span>
-                  </div>
-                  <div className="mt-1 text-xs dark:text-gray-500 text-gray-600">
-                    Created: {new Date(key.createdAt).toLocaleDateString()}
-                    {key.lastUsedAt &&
-                      ` • Last used: ${new Date(key.lastUsedAt).toLocaleDateString()}`}
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  {confirmRotate === key.id ? (
-                    <>
-                      <span className="text-xs text-yellow-400">Invalidate old key?</span>
-                      <button
-                        onClick={() => rotateMutation.mutate(key.id)}
-                        disabled={rotateMutation.isPending}
-                        className="rounded-lg bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-50"
-                      >
-                        {rotateMutation.isPending ? 'Rotating...' : 'Confirm'}
-                      </button>
-                      <button
-                        onClick={() => setConfirmRotate(null)}
-                        className="rounded-lg border dark:border-gray-700 border-gray-300 px-3 py-1.5 text-xs font-medium dark:text-gray-400 text-gray-700 dark:hover:bg-gray-800 hover:bg-gray-100"
-                      >
-                        Cancel
-                      </button>
-                    </>
-                  ) : (
-                    <button
-                      onClick={() => setConfirmRotate(key.id)}
-                      className="rounded-lg border dark:border-gray-700 border-gray-300 px-3 py-1.5 text-xs font-medium dark:text-gray-400 text-gray-700 dark:hover:bg-gray-800 hover:bg-gray-100"
-                    >
-                      Rotate
-                    </button>
-                  )}
-                </div>
-              </div>
-            ))
-          ) : (
-            <p className="text-sm text-gray-500">No API keys configured.</p>
-          )}
-        </div>
-      </div>
-      )}
+	        {/* API Keys List */}
+	        <ApiKeysList
+	          loadingKeys={loadingKeys}
+	          apiKeys={apiKeys}
+	          confirmRotateId={confirmRotate}
+	          onRequestRotate={(keyId) => setConfirmRotate(keyId)}
+	          onCancelRotate={() => setConfirmRotate(null)}
+	          onConfirmRotate={(keyId) => rotateMutation.mutate(keyId)}
+	          isRotating={rotateMutation.isPending}
+	        />
+	      </div>
+	      )}
 
-      <ConfirmDialog
-        isOpen={!!directoryToDelete}
-        title="Remove watched directory?"
-        description={
-          directoryToDelete
-            ? `Filtarr will stop monitoring ${directoryToDelete.path}. Existing files stay untouched.`
-            : ''
-        }
-        confirmLabel="Remove directory"
+      <RemoveDirectoryDialog
+        directory={directoryToDelete}
         isPending={deleteDirMutation.isPending}
         onClose={() => setDirectoryToDelete(null)}
-        onConfirm={() => {
-          if (directoryToDelete) {
-            deleteDirMutation.mutate(directoryToDelete.id);
-          }
-        }}
+        onConfirm={(directoryId) => deleteDirMutation.mutate(directoryId)}
       />
     </div>
   );

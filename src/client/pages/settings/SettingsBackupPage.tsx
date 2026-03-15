@@ -154,14 +154,14 @@ export default function SettingsBackupPage() {
                 onChange={(event) => setEnabled(event.target.checked)}
                 className="mt-1 h-4 w-4 rounded border-gray-300 bg-white text-blue-600 dark:border-gray-700 dark:bg-gray-950"
               />
-              <div>
-                <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
+              <span className="block">
+                <span className="block text-sm font-medium text-gray-900 dark:text-gray-100">
                   Enable automated daily backups
-                </div>
-                <p className="text-xs text-gray-600 dark:text-gray-400">
+                </span>
+                <span className="block text-xs text-gray-600 dark:text-gray-400">
                   When enabled, Filtarr writes one redacted SQL backup per day by default.
-                </p>
-              </div>
+                </span>
+              </span>
             </label>
 
             <div>

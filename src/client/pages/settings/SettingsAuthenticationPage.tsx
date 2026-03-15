@@ -101,6 +101,19 @@ export default function SettingsAuthenticationPage() {
     });
   };
 
+  const authModeLabels: Record<AuthMode, string> = {
+    none: 'No Authentication',
+    basic: 'Basic (Browser Prompt)',
+    forms: 'Forms (Login Page)',
+    oidc: 'OIDC / OpenID Connect',
+  };
+  const authModeDescriptions: Record<AuthMode, string> = {
+    none: '⚠️ Anyone can access Filtarr',
+    basic: 'HTTP Basic auth (browser login prompt)',
+    forms: 'Username/password login form',
+    oidc: 'External identity provider sign-in via OpenID Connect',
+  };
+
   return (
     <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-900">
       <div className="flex items-center justify-between gap-4">
@@ -111,7 +124,7 @@ export default function SettingsAuthenticationPage() {
           </p>
         </div>
 
-        {!showAuthModeChange && (
+        {showAuthModeChange ? null : (
           <button
             onClick={openAuthModeChange}
             className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-100 dark:border-gray-700 dark:text-gray-400 dark:hover:bg-gray-800"
@@ -121,103 +134,54 @@ export default function SettingsAuthenticationPage() {
         )}
       </div>
 
-      {!showAuthModeChange ? (
-        <div className="mt-4 space-y-3">
-          <div className="flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 dark:border-transparent dark:bg-gray-800/50">
-            <span className="text-sm text-gray-600 dark:text-gray-400">Auth Mode</span>
-            <span className="rounded bg-gray-200 px-2 py-0.5 text-sm font-medium uppercase text-gray-700 dark:bg-gray-700 dark:text-gray-300">
-              {authModeData?.authMode ?? session?.mode ?? 'unknown'}
-            </span>
-          </div>
-
-          {session?.user && (
-            <div className="flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 dark:border-transparent dark:bg-gray-800/50">
-              <span className="text-sm text-gray-600 dark:text-gray-400">Logged in as</span>
-              <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
-                {session.user.displayName || session.user.username}
-              </span>
-            </div>
-          )}
-
-          {authModeData?.authMode === 'oidc' && (
-            <>
-              <div className="flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 dark:border-transparent dark:bg-gray-800/50">
-                <span className="text-sm text-gray-600 dark:text-gray-400">Issuer URL</span>
-                <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
-                  {authModeData.oidc.issuerUrl || 'Not configured'}
-                </span>
-              </div>
-              <div className="flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 dark:border-transparent dark:bg-gray-800/50">
-                <span className="text-sm text-gray-600 dark:text-gray-400">Client ID</span>
-                <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
-                  {authModeData.oidc.clientId || 'Not configured'}
-                </span>
-              </div>
-              <div className="flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 dark:border-transparent dark:bg-gray-800/50">
-                <span className="text-sm text-gray-600 dark:text-gray-400">Callback URL</span>
-                <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
-                  {authModeData.oidc.callbackUrl || 'Not configured'}
-                </span>
-              </div>
-              <div className="flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 dark:border-transparent dark:bg-gray-800/50">
-                <span className="text-sm text-gray-600 dark:text-gray-400">Scopes</span>
-                <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
-                  {authModeData.oidc.scopes.join(', ') || 'Not configured'}
-                </span>
-              </div>
-            </>
-          )}
-        </div>
-      ) : (
+      {showAuthModeChange ? (
         <div className="mt-4 space-y-4">
           <p className="text-sm text-gray-600 dark:text-gray-400">Select a new authentication mode:</p>
 
           <div className="space-y-2">
-            {(['none', 'basic', 'forms', 'oidc'] as const).map((mode) => (
-              <label
-                key={mode}
-                className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 ${
-                  selectedAuthMode === mode
-                    ? 'border-blue-500 bg-blue-50 dark:bg-blue-500/10'
-                    : 'border-gray-300 bg-white hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900/60 dark:hover:bg-gray-800/50'
-                }`}
-              >
-                <input
-                  type="radio"
-                  name="authMode"
-                  value={mode}
-                  checked={selectedAuthMode === mode}
-                  onChange={() => setSelectedAuthMode(mode)}
-                  className="mt-0.5"
-                />
-                <div>
-                  <div className="font-medium capitalize text-gray-900 dark:text-gray-100">
-                    {mode === 'none'
-                      ? 'No Authentication'
-                      : mode === 'forms'
-                        ? 'Forms (Login Page)'
-                        : mode === 'oidc'
-                          ? 'OIDC / OpenID Connect'
-                          : 'Basic (Browser Prompt)'}
+            {(['none', 'basic', 'forms', 'oidc'] as const).map((mode) => {
+              const inputId = `auth-mode-${mode}`;
+              const selected = selectedAuthMode === mode;
+              return (
+                <label
+                  key={mode}
+                  htmlFor={inputId}
+                  className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 ${
+                    selected
+                      ? 'border-blue-500 bg-blue-50 dark:bg-blue-500/10'
+                      : 'border-gray-300 bg-white hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900/60 dark:hover:bg-gray-800/50'
+                  }`}
+                >
+                  <input
+                    id={inputId}
+                    type="radio"
+                    name="authMode"
+                    value={mode}
+                    checked={selected}
+                    onChange={() => setSelectedAuthMode(mode)}
+                    className="mt-0.5"
+                  />
+                  <div>
+                    <div className="font-medium capitalize text-gray-900 dark:text-gray-100">
+                      {authModeLabels[mode]}
+                    </div>
+                    <div className="text-xs text-gray-600 dark:text-gray-500">
+                      {authModeDescriptions[mode]}
+                    </div>
                   </div>
-                  <div className="text-xs text-gray-600 dark:text-gray-500">
-                    {mode === 'none' && '⚠️ Anyone can access Filtarr'}
-                    {mode === 'basic' && 'HTTP Basic auth (browser login prompt)'}
-                    {mode === 'forms' && 'Username/password login form'}
-                    {mode === 'oidc' && 'External identity provider sign-in via OpenID Connect'}
-                  </div>
-                </div>
-              </label>
-            ))}
+                </label>
+              );
+            })}
           </div>
 
           {selectedAuthMode === 'oidc' && (
             <div className="space-y-4 rounded-lg border border-gray-300 bg-gray-50 p-4 dark:border-gray-700 dark:bg-gray-800/50">
               <div>
-                <label className="block text-xs font-medium text-gray-700 dark:text-gray-400">
+                <label htmlFor="oidc-issuer-url" className="block text-xs font-medium text-gray-700 dark:text-gray-400">
                   Issuer URL
                 </label>
                 <input
+                  id="oidc-issuer-url"
                   type="url"
                   value={oidcIssuerUrl}
                   onChange={(e) => setOidcIssuerUrl(e.target.value)}
@@ -228,10 +192,11 @@ export default function SettingsAuthenticationPage() {
 
               <div className="grid gap-4 md:grid-cols-2">
                 <div>
-                  <label className="block text-xs font-medium text-gray-700 dark:text-gray-400">
+                  <label htmlFor="oidc-client-id" className="block text-xs font-medium text-gray-700 dark:text-gray-400">
                     Client ID
                   </label>
                   <input
+                    id="oidc-client-id"
                     type="text"
                     value={oidcClientId}
                     onChange={(e) => setOidcClientId(e.target.value)}
@@ -239,10 +204,14 @@ export default function SettingsAuthenticationPage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-700 dark:text-gray-400">
+                  <label
+                    htmlFor="oidc-client-secret"
+                    className="block text-xs font-medium text-gray-700 dark:text-gray-400"
+                  >
                     Client Secret
                   </label>
                   <input
+                    id="oidc-client-secret"
                     type="password"
                     value={oidcClientSecret}
                     onChange={(e) => setOidcClientSecret(e.target.value)}
@@ -252,10 +221,14 @@ export default function SettingsAuthenticationPage() {
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-gray-700 dark:text-gray-400">
+                <label
+                  htmlFor="oidc-callback-url"
+                  className="block text-xs font-medium text-gray-700 dark:text-gray-400"
+                >
                   Callback URL
                 </label>
                 <input
+                  id="oidc-callback-url"
                   type="url"
                   value={oidcCallbackUrl}
                   onChange={(e) => setOidcCallbackUrl(e.target.value)}
@@ -265,10 +238,11 @@ export default function SettingsAuthenticationPage() {
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-gray-700 dark:text-gray-400">
+                <label htmlFor="oidc-scopes" className="block text-xs font-medium text-gray-700 dark:text-gray-400">
                   Scopes
                 </label>
                 <input
+                  id="oidc-scopes"
                   type="text"
                   value={oidcScopes}
                   onChange={(e) => setOidcScopes(e.target.value)}
@@ -286,10 +260,14 @@ export default function SettingsAuthenticationPage() {
             <div className="space-y-3 rounded-lg border border-gray-300 bg-gray-50 p-4 dark:border-gray-700 dark:bg-gray-800/50">
               <p className="text-sm text-yellow-600 dark:text-yellow-400">Create admin account:</p>
               <div>
-                <label className="block text-xs font-medium text-gray-700 dark:text-gray-400">
+                <label
+                  htmlFor="auth-admin-username"
+                  className="block text-xs font-medium text-gray-700 dark:text-gray-400"
+                >
                   Username
                 </label>
                 <input
+                  id="auth-admin-username"
                   type="text"
                   value={authUsername}
                   onChange={(e) => setAuthUsername(e.target.value)}
@@ -297,10 +275,14 @@ export default function SettingsAuthenticationPage() {
                 />
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-700 dark:text-gray-400">
+                <label
+                  htmlFor="auth-admin-password"
+                  className="block text-xs font-medium text-gray-700 dark:text-gray-400"
+                >
                   Password
                 </label>
                 <input
+                  id="auth-admin-password"
                   type="password"
                   value={authPassword}
                   onChange={(e) => setAuthPassword(e.target.value)}
@@ -349,6 +331,53 @@ export default function SettingsAuthenticationPage() {
                 Cancel
               </button>
             </div>
+          )}
+        </div>
+      ) : (
+        <div className="mt-4 space-y-3">
+          <div className="flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 dark:border-transparent dark:bg-gray-800/50">
+            <span className="text-sm text-gray-600 dark:text-gray-400">Auth Mode</span>
+            <span className="rounded bg-gray-200 px-2 py-0.5 text-sm font-medium uppercase text-gray-700 dark:bg-gray-700 dark:text-gray-300">
+              {authModeData?.authMode ?? session?.mode ?? 'unknown'}
+            </span>
+          </div>
+
+          {session?.user && (
+            <div className="flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 dark:border-transparent dark:bg-gray-800/50">
+              <span className="text-sm text-gray-600 dark:text-gray-400">Logged in as</span>
+              <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                {session.user.displayName || session.user.username}
+              </span>
+            </div>
+          )}
+
+          {authModeData?.authMode === 'oidc' && (
+            <>
+              <div className="flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 dark:border-transparent dark:bg-gray-800/50">
+                <span className="text-sm text-gray-600 dark:text-gray-400">Issuer URL</span>
+                <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                  {authModeData.oidc.issuerUrl || 'Not configured'}
+                </span>
+              </div>
+              <div className="flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 dark:border-transparent dark:bg-gray-800/50">
+                <span className="text-sm text-gray-600 dark:text-gray-400">Client ID</span>
+                <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                  {authModeData.oidc.clientId || 'Not configured'}
+                </span>
+              </div>
+              <div className="flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 dark:border-transparent dark:bg-gray-800/50">
+                <span className="text-sm text-gray-600 dark:text-gray-400">Callback URL</span>
+                <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                  {authModeData.oidc.callbackUrl || 'Not configured'}
+                </span>
+              </div>
+              <div className="flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 dark:border-transparent dark:bg-gray-800/50">
+                <span className="text-sm text-gray-600 dark:text-gray-400">Scopes</span>
+                <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                  {authModeData.oidc.scopes.join(', ') || 'Not configured'}
+                </span>
+              </div>
+            </>
           )}
         </div>
       )}

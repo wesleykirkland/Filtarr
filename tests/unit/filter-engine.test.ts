@@ -95,7 +95,7 @@ describe('FilterEngine', () => {
 
     expect(await engine.matches(makeFilter({ target_path: '/other' }), file)).toBe(false);
     expect(await engine.matches(makeFilter({ rule_type: 'extension', rule_payload: 'avi, mkv' }), file)).toBe(true);
-    expect(await engine.matches(makeFilter({ rule_type: 'regex', rule_payload: 'movie\\.mkv' }), file)).toBe(true);
+    expect(await engine.matches(makeFilter({ rule_type: 'regex', rule_payload: String.raw`movie\.mkv` }), file)).toBe(true);
     expect(await engine.matches(makeFilter({ rule_type: 'regex', rule_payload: null as never }), file)).toBe(true);
     expect(await engine.matches(makeFilter({ rule_type: 'size', rule_payload: '>1MB' }), file)).toBe(true);
     expect(await engine.matches(makeFilter({ rule_type: 'script', rule_payload: 'return true;' }), file)).toBe(true);

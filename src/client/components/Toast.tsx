@@ -50,34 +50,46 @@ export function ToastContainer() {
       aria-relevant="additions text"
       className="fixed bottom-4 right-4 z-50 space-y-2"
     >
-      {toasts.map((t) => (
-        <div
-          key={t.id}
-          role={t.type === 'error' ? 'alert' : 'status'}
-          className={`flex min-w-72 items-start justify-between gap-3 rounded-xl px-4 py-3 text-sm font-medium shadow-lg ${
-            t.type === 'success'
-              ? 'bg-green-600 text-white'
-              : t.type === 'error'
-                ? 'bg-red-600 text-white'
-                : 'bg-blue-600 text-white'
-          }`}
-        >
-          <span>{t.message}</span>
-          <button
-            type="button"
-            aria-label="Dismiss notification"
-            onClick={() => removeToast(t.id)}
-            className={buttonStyles({
-              variant: 'ghost',
-              size: 'sm',
-              className:
-                '!rounded-md !px-2 !py-1 !text-white/80 hover:!bg-white/10 hover:!text-white focus-visible:ring-white/70',
-            })}
-          >
-            ×
-          </button>
-        </div>
-      ))}
+      {toasts.map((t) => {
+        let toneClass = 'bg-blue-600 text-white';
+        if (t.type === 'success') {
+          toneClass = 'bg-green-600 text-white';
+        } else if (t.type === 'error') {
+          toneClass = 'bg-red-600 text-white';
+        }
+        const commonProps = {
+          className: `flex min-w-72 items-start justify-between gap-3 rounded-xl px-4 py-3 text-sm font-medium shadow-lg ${toneClass}`,
+        } as const;
+
+        const content = (
+          <>
+            <span>{t.message}</span>
+            <button
+              type="button"
+              aria-label="Dismiss notification"
+              onClick={() => removeToast(t.id)}
+              className={buttonStyles({
+                variant: 'ghost',
+                size: 'sm',
+                className:
+                  '!rounded-md !px-2 !py-1 !text-white/80 hover:!bg-white/10 hover:!text-white focus-visible:ring-white/70',
+              })}
+            >
+              ×
+            </button>
+          </>
+        );
+
+        return t.type === 'error' ? (
+          <div key={t.id} role="alert" {...commonProps}>
+            {content}
+          </div>
+        ) : (
+          <output key={t.id} {...commonProps}>
+            {content}
+          </output>
+        );
+      })}
     </div>
   );
 }

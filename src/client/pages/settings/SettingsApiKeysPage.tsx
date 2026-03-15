@@ -29,6 +29,58 @@ export default function SettingsApiKeysPage() {
     },
   });
 
+  let keysContent: React.ReactNode;
+  if (loadingKeys) {
+    keysContent = <p className="text-sm text-gray-500">Loading API keys...</p>;
+  } else if (apiKeys && apiKeys.length > 0) {
+    keysContent = apiKeys.map((key) => (
+      <div
+        key={key.id}
+        className="flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 dark:border-transparent dark:bg-gray-800/50"
+      >
+        <div className="flex-1">
+          <div className="flex items-center gap-2">
+            <span className="font-medium text-gray-900 dark:text-gray-100">{key.name}</span>
+            <span className="font-mono text-sm text-gray-600 dark:text-gray-500">{key.maskedKey}</span>
+          </div>
+          <div className="mt-1 text-xs text-gray-600 dark:text-gray-500">
+            Created: {new Date(key.createdAt).toLocaleDateString()}
+            {key.lastUsedAt && ` • Last used: ${new Date(key.lastUsedAt).toLocaleDateString()}`}
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          {confirmRotate === key.id ? (
+            <>
+              <span className="text-xs text-yellow-400">Invalidate old key?</span>
+              <button
+                onClick={() => rotateMutation.mutate(key.id)}
+                disabled={rotateMutation.isPending}
+                className="rounded-lg bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-50"
+              >
+                {rotateMutation.isPending ? 'Rotating...' : 'Confirm'}
+              </button>
+              <button
+                onClick={() => setConfirmRotate(null)}
+                className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-100 dark:border-gray-700 dark:text-gray-400 dark:hover:bg-gray-800"
+              >
+                Cancel
+              </button>
+            </>
+          ) : (
+            <button
+              onClick={() => setConfirmRotate(key.id)}
+              className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-100 dark:border-gray-700 dark:text-gray-400 dark:hover:bg-gray-800"
+            >
+              Rotate
+            </button>
+          )}
+        </div>
+      </div>
+    ));
+  } else {
+    keysContent = <p className="text-sm text-gray-500">No API keys configured.</p>;
+  }
+
   const copyKey = async (key: string) => {
     await navigator.clipboard.writeText(key);
     setCopied(true);
@@ -68,58 +120,7 @@ export default function SettingsApiKeysPage() {
       )}
 
       <div className="mt-4 space-y-3">
-        {loadingKeys ? (
-          <p className="text-sm text-gray-500">Loading API keys...</p>
-        ) : apiKeys && apiKeys.length > 0 ? (
-          apiKeys.map((key) => (
-            <div
-              key={key.id}
-              className="flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 dark:border-transparent dark:bg-gray-800/50"
-            >
-              <div className="flex-1">
-                <div className="flex items-center gap-2">
-                  <span className="font-medium text-gray-900 dark:text-gray-100">{key.name}</span>
-                  <span className="font-mono text-sm text-gray-600 dark:text-gray-500">
-                    {key.maskedKey}
-                  </span>
-                </div>
-                <div className="mt-1 text-xs text-gray-600 dark:text-gray-500">
-                  Created: {new Date(key.createdAt).toLocaleDateString()}
-                  {key.lastUsedAt && ` • Last used: ${new Date(key.lastUsedAt).toLocaleDateString()}`}
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                {confirmRotate === key.id ? (
-                  <>
-                    <span className="text-xs text-yellow-400">Invalidate old key?</span>
-                    <button
-                      onClick={() => rotateMutation.mutate(key.id)}
-                      disabled={rotateMutation.isPending}
-                      className="rounded-lg bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-50"
-                    >
-                      {rotateMutation.isPending ? 'Rotating...' : 'Confirm'}
-                    </button>
-                    <button
-                      onClick={() => setConfirmRotate(null)}
-                      className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-100 dark:border-gray-700 dark:text-gray-400 dark:hover:bg-gray-800"
-                    >
-                      Cancel
-                    </button>
-                  </>
-                ) : (
-                  <button
-                    onClick={() => setConfirmRotate(key.id)}
-                    className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-100 dark:border-gray-700 dark:text-gray-400 dark:hover:bg-gray-800"
-                  >
-                    Rotate
-                  </button>
-                )}
-              </div>
-            </div>
-          ))
-        ) : (
-          <p className="text-sm text-gray-500">No API keys configured.</p>
-        )}
+        {keysContent}
       </div>
     </div>
   );

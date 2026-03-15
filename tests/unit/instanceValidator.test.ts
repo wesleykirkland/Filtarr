@@ -77,7 +77,7 @@ describe('instance validator', () => {
   });
 
   it('uses a 60-minute default interval and notifies on failed healthchecks', async () => {
-    const setTimeoutSpy = vi.spyOn(global, 'setTimeout');
+    const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout');
     mocks.testConnection.mockResolvedValue({ success: false, error: 'Unauthorized' });
 
     const db = {

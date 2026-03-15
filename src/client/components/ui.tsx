@@ -311,15 +311,13 @@ export function EmptyState({
   );
 }
 
-export function Tabs<T extends string>({
-  items,
-  value,
-  onChange,
-}: {
-  items: Array<{ value: T; label: string; description?: string }>;
+type TabsProps<T extends string> = Readonly<{
+  items: ReadonlyArray<Readonly<{ value: T; label: string; description?: string }>>;
   value: T;
   onChange: (value: T) => void;
-}) {
+}>;
+
+export function Tabs<T extends string>({ items, value, onChange }: TabsProps<T>) {
   return (
     <div className="rounded-2xl border border-gray-200 bg-white p-2 shadow-sm dark:border-gray-800 dark:bg-gray-900">
       <div role="tablist" aria-label="Sections" className="grid gap-2 md:grid-cols-4">

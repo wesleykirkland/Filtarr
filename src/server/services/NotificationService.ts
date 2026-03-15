@@ -5,6 +5,7 @@ import { logger } from '../lib/logger.js';
 import type { FileEvent } from './filterEngine.js';
 
 export type NotificationChannel = 'slack' | 'webhook';
+type InstanceHealthcheckFields = 'id' | 'name' | 'type' | 'url';
 
 interface NotificationSettings {
   slackEnabled: boolean;
@@ -117,7 +118,7 @@ export class NotificationService {
   }
 
   public async notifyInstanceHealthcheckFailure(
-    instance: Pick<ArrInstanceConfig, 'id' | 'name' | 'type' | 'url'>,
+    instance: Pick<ArrInstanceConfig, InstanceHealthcheckFields>,
     error: string,
   ) {
     const settings = this.getNotificationSettings();

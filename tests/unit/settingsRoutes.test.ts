@@ -48,7 +48,7 @@ describe('settings routes', () => {
     expect(res.body.slackEnabled).toBe(false);
   });
 
-  // TODO: These tests are for features not yet implemented in this branch
+  // NOTE: These tests cover features not yet implemented in this branch.
   it.skip('returns default backup settings when unset', async () => {
     const res = await request(app).get('/api/v1/settings/backup');
 

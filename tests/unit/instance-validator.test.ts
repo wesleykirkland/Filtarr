@@ -11,7 +11,17 @@ vi.mock('../../src/server/lib/logger.js', () => ({ logger: state.logger }));
 
 import { startInstanceValidator, stopInstanceValidator } from '../../src/server/cron/instanceValidator.js';
 
-const makeDb = (value: string | Error) => ({ prepare: vi.fn().mockReturnValue({ get: () => { if (value instanceof Error) throw value; return { value }; } }) }) as never;
+const makeDb = (value: string | Error) =>
+  ({
+    prepare: vi.fn().mockReturnValue({
+      get: () => {
+        if (value instanceof Error) {
+          throw value;
+        }
+        return { value };
+      },
+    }),
+  }) as never;
 const validationMessages = () => state.recordActivityEvent.mock.calls.map(([, event]) => event.message);
 
 describe('instance validator', () => {

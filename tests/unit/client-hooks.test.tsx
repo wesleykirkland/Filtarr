@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import React, { act } from 'react';
+import React from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AuthProvider, useAuth } from '../../src/client/hooks/useAuth';
@@ -90,7 +90,7 @@ describe('client hooks', () => {
       expect(api.post).toHaveBeenCalledWith('/auth/logout');
     });
 
-    window.dispatchEvent(new Event('auth:401'));
+    globalThis.dispatchEvent(new Event('auth:401'));
     await view.unmount();
   });
 

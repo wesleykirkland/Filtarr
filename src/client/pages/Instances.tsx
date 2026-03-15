@@ -26,6 +26,26 @@ import {
 
 const ARR_TYPES = ['sonarr', 'radarr', 'lidarr'] as const;
 
+function buildUpdatePayload(id: number, data: CreateInstanceInput): Record<string, unknown> {
+  const payload: Record<string, unknown> = { id };
+  const stringFields: Array<readonly [keyof CreateInstanceInput, string]> = [
+    ['name', data.name],
+    ['type', data.type],
+    ['url', data.url],
+    ['apiKey', data.apiKey],
+  ];
+
+  for (const [key, value] of stringFields) {
+    if (value) payload[key] = value;
+  }
+
+  if (data.timeout !== undefined) payload['timeout'] = data.timeout;
+  payload['skipSslVerify'] = data.skipSslVerify;
+  if (data.remotePath !== undefined) payload['remotePath'] = data.remotePath;
+  if (data.localPath !== undefined) payload['localPath'] = data.localPath;
+  return payload;
+}
+
 function InstanceForm({
   initial,
   onSubmit,
@@ -46,6 +66,20 @@ function InstanceForm({
   const [testStatus, setTestStatus] = useState<'idle' | 'success' | 'error'>('idle');
 
   const testUnsavedMutation = useTestUnsavedInstance();
+  const canSave = testStatus === 'success';
+  const primaryLabel = initial ? 'Update Connection' : 'Create Connection';
+  const compactLabel = initial ? 'Update' : 'Create';
+  let testVariant: 'secondary' | 'success' | 'danger' = 'secondary';
+  if (testStatus === 'success') testVariant = 'success';
+  if (testStatus === 'error') testVariant = 'danger';
+  let testLabel = 'Test Connection';
+  if (testUnsavedMutation.isPending) {
+    testLabel = 'Testing...';
+  } else if (testStatus === 'error') {
+    testLabel = 'Test Failed';
+  } else if (testStatus === 'success') {
+    testLabel = 'Test Passed';
+  }
 
   const handleUrlChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setUrl(e.target.value);
@@ -219,35 +253,27 @@ function InstanceForm({
           type="button"
           onClick={handleTestConnection}
           disabled={testUnsavedMutation.isPending || !url || (!apiKey && !initial)}
-          variant={
-            testStatus === 'error' ? 'danger' : testStatus === 'success' ? 'success' : 'secondary'
-          }
+          variant={testVariant}
         >
-          {testUnsavedMutation.isPending
-            ? 'Testing...'
-            : testStatus === 'error'
-              ? 'Test Failed'
-              : testStatus === 'success'
-                ? 'Test Passed'
-                : 'Test Connection'}
+          {testLabel}
         </Button>
         <Button
           type="submit"
-          disabled={testStatus !== 'success'}
-          title={testStatus !== 'success' ? 'Must successfully test connection before saving' : ''}
+          disabled={!canSave}
+          title={canSave ? '' : 'Must successfully test connection before saving'}
           variant="success"
           className="hidden sm:inline-flex"
         >
-          {initial ? 'Update Connection' : 'Create Connection'}
+          {primaryLabel}
         </Button>
         <Button
           type="submit"
-          disabled={testStatus !== 'success'}
-          title={testStatus !== 'success' ? 'Must successfully test connection before saving' : ''}
+          disabled={!canSave}
+          title={canSave ? '' : 'Must successfully test connection before saving'}
           variant="success"
           className="sm:hidden"
         >
-          {initial ? 'Update' : 'Create'}
+          {compactLabel}
         </Button>
         <div className="flex-1" />
         <Button type="button" variant="secondary" onClick={onCancel}>
@@ -267,6 +293,17 @@ export default function Instances() {
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Instance | null>(null);
   const [pendingDelete, setPendingDelete] = useState<Instance | null>(null);
+
+  const handleFormSubmit = (data: CreateInstanceInput) => {
+    if (editing) {
+      updateMutation.mutate(buildUpdatePayload(editing.id, data) as Parameters<typeof updateMutation.mutate>[0], {
+        onSuccess: () => setEditing(null),
+      });
+      return;
+    }
+
+    createMutation.mutate(data, { onSuccess: () => setShowForm(false) });
+  };
 
   if (isLoading) return <div className="text-gray-500">Loading instances...</div>;
 
@@ -296,24 +333,7 @@ export default function Instances() {
         {(showForm || editing !== null) && (
           <InstanceForm
             initial={editing ?? undefined}
-            onSubmit={(data) => {
-              if (editing) {
-                const payload: Record<string, unknown> = { id: editing.id };
-                if (data.name) payload['name'] = data.name;
-                if (data.type) payload['type'] = data.type;
-                if (data.url) payload['url'] = data.url;
-                if (data.apiKey) payload['apiKey'] = data.apiKey;
-                if (data.timeout) payload['timeout'] = data.timeout;
-                if (data.skipSslVerify !== undefined) payload['skipSslVerify'] = data.skipSslVerify;
-                if (data.remotePath !== undefined) payload['remotePath'] = data.remotePath;
-                if (data.localPath !== undefined) payload['localPath'] = data.localPath;
-                updateMutation.mutate(payload as Parameters<typeof updateMutation.mutate>[0], {
-                  onSuccess: () => setEditing(null),
-                });
-              } else {
-                createMutation.mutate(data, { onSuccess: () => setShowForm(false) });
-              }
-            }}
+            onSubmit={handleFormSubmit}
             onCancel={() => {
               setShowForm(false);
               setEditing(null);

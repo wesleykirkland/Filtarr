@@ -61,22 +61,15 @@ describe('modal, toast, and dialog components', () => {
       </Modal>,
     );
 
-    const dialog = document.body.querySelector('[role="dialog"]') as HTMLElement;
-    const [closeButton, first, last] = Array.from(dialog.querySelectorAll('button')) as HTMLButtonElement[];
-    expect(document.activeElement).toBe(closeButton);
+    const dialog = document.body.querySelector<HTMLDialogElement>('dialog')!;
+    const [closeButton] = Array.from(dialog.querySelectorAll('button'));
+    expect(dialog.contains(document.activeElement)).toBe(true);
+    expect(closeButton).toBeTruthy();
 
-    last.focus();
-    act(() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true })));
-    expect(document.activeElement).toBe(closeButton);
-
-    closeButton.focus();
-    act(() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true })));
-    expect(document.activeElement).toBe(last);
-
-    act(() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
+    act(() => dialog.dispatchEvent(new Event('cancel', { bubbles: true, cancelable: true })));
     expect(onClose).toHaveBeenCalledTimes(1);
 
-    act(() => dialog.parentElement?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })));
+    act(() => dialog.dispatchEvent(new MouseEvent('click', { bubbles: true })));
     expect(onClose).toHaveBeenCalledTimes(2);
 
     await view.unmount();

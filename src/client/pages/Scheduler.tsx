@@ -47,10 +47,10 @@ function getFilterId(job: Job): number | null {
 }
 
 interface JobFormProps {
-  initial?: Job;
-  filters: Filter[];
-  onClose: () => void;
-  onSaved: () => void;
+  readonly initial?: Job;
+  readonly filters: ReadonlyArray<Filter>;
+  readonly onClose: () => void;
+  readonly onSaved: () => void;
 }
 
 function JobForm({ initial, filters, onClose, onSaved }: JobFormProps) {
@@ -95,6 +95,8 @@ function JobForm({ initial, filters, onClose, onSaved }: JobFormProps) {
   };
 
   const selectedFilter = filters.find((f) => f.id === filterId);
+  let submitLabel = initial ? 'Update Job' : 'Schedule Job';
+  if (mutation.isPending) submitLabel = 'Saving...';
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
@@ -105,20 +107,16 @@ function JobForm({ initial, filters, onClose, onSaved }: JobFormProps) {
       )}
 
       {/* Filter selection */}
-      <div>
-        <label className="block text-sm font-medium dark:text-gray-400 text-gray-700">
+      <fieldset>
+        <legend className="block text-sm font-medium text-gray-700 dark:text-gray-400">
           Filter to Run *
-        </label>
+        </legend>
         <p className="text-xs dark:text-gray-500 text-gray-600 mb-1">
           Choose which filter this job will execute on its schedule.
         </p>
         {filters.length === 0 ? (
           <div className="rounded-lg border dark:border-yellow-800/50 border-yellow-200 dark:bg-yellow-900/20 bg-yellow-50 px-4 py-3 text-sm dark:text-yellow-300 text-yellow-700">
-            No filters configured yet.{' '}
-            <a href="/filters" className="underline">
-              Create a filter first
-            </a>
-            .
+            No filters configured yet. <a href="/filters" className="underline">Create a filter first</a>.
           </div>
         ) : (
           <div className="mt-1 space-y-2">
@@ -161,14 +159,15 @@ function JobForm({ initial, filters, onClose, onSaved }: JobFormProps) {
             ))}
           </div>
         )}
-      </div>
+      </fieldset>
 
       {selectedFilter && (
         <div>
-          <label className="block text-sm font-medium dark:text-gray-400 text-gray-700">
+          <label htmlFor="job-name" className="block text-sm font-medium dark:text-gray-400 text-gray-700">
             Job Name
           </label>
           <input
+            id="job-name"
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder={`Run: ${selectedFilter.name}`}
@@ -178,10 +177,14 @@ function JobForm({ initial, filters, onClose, onSaved }: JobFormProps) {
       )}
 
       <div>
-        <label className="block text-sm font-medium dark:text-gray-400 text-gray-700">
+        <label
+          htmlFor="job-description"
+          className="block text-sm font-medium dark:text-gray-400 text-gray-700"
+        >
           Description
         </label>
         <input
+          id="job-description"
           value={description}
           onChange={(e) => setDescription(e.target.value)}
           className="mt-1 block w-full rounded-lg border dark:border-gray-700 border-gray-300 dark:bg-gray-800 bg-white px-3 py-2 dark:text-gray-100 text-gray-900 focus:border-blue-500 focus:outline-none"
@@ -189,11 +192,12 @@ function JobForm({ initial, filters, onClose, onSaved }: JobFormProps) {
       </div>
 
       <div>
-        <label className="block text-sm font-medium dark:text-gray-400 text-gray-700">
+        <label htmlFor="job-schedule" className="block text-sm font-medium dark:text-gray-400 text-gray-700">
           Cron Schedule *
         </label>
         <div className="mt-1 flex gap-2">
           <input
+            id="job-schedule"
             value={schedule}
             onChange={(e) => setSchedule(e.target.value)}
             required
@@ -241,7 +245,7 @@ function JobForm({ initial, filters, onClose, onSaved }: JobFormProps) {
           disabled={mutation.isPending || !filterId}
           className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
         >
-          {mutation.isPending ? 'Saving...' : initial ? 'Update Job' : 'Schedule Job'}
+          {submitLabel}
         </button>
         <button
           type="button"
@@ -311,6 +315,100 @@ export default function Scheduler() {
     return fid ? filters.find((f) => f.id === fid) : undefined;
   }
 
+  let jobsSection: React.ReactNode;
+  if (isLoading) {
+    jobsSection = <p className="dark:text-gray-400 text-gray-500">Loading jobs...</p>;
+  } else if (jobs.length > 0) {
+    jobsSection = (
+      <div className="space-y-3">
+        {jobs.map((job) => {
+          const linkedFilter = filterForJob(job);
+          return (
+            <div
+              key={job.id}
+              className="rounded-xl border dark:border-gray-800 border-gray-200 dark:bg-gray-900 bg-white shadow-sm px-6 py-4"
+            >
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex items-center gap-3 flex-1 min-w-0">
+                  <button
+                    type="button"
+                    onClick={() => toggleMutation.mutate({ id: job.id, enabled: !job.enabled })}
+                    className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${job.enabled ? 'bg-blue-600' : 'dark:bg-gray-700 bg-gray-300'}`}
+                  >
+                    <span
+                      className={`inline-block h-4 w-4 rounded-full bg-white shadow transform transition-transform ${job.enabled ? 'translate-x-4' : 'translate-x-0'}`}
+                    />
+                  </button>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="font-semibold dark:text-gray-100 text-gray-900">{job.name}</h3>
+                      {statusBadge(job.lastRunStatus)}
+                    </div>
+                    {linkedFilter && (
+                      <p className="mt-0.5 text-sm dark:text-gray-500 text-gray-600">
+                        Runs filter: <span className="dark:text-gray-300 text-gray-700 font-medium">{linkedFilter.name}</span>
+                        {linkedFilter.target_path && (
+                          <span className="ml-2 font-mono text-xs dark:text-gray-500 text-gray-500">
+                            {linkedFilter.target_path}
+                          </span>
+                        )}
+                      </p>
+                    )}
+                    <div className="mt-1 flex items-center gap-3 text-xs dark:text-gray-400 text-gray-600">
+                      <span className="font-mono dark:bg-gray-800 bg-gray-100 px-1.5 py-0.5 rounded">
+                        {job.schedule}
+                      </span>
+                      {job.lastRunAt && <span>Last run: {new Date(job.lastRunAt).toLocaleString()}</span>}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex gap-2 flex-shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setEditing(job)}
+                    className="rounded-lg border dark:border-gray-700 border-gray-300 px-3 py-1.5 text-xs font-medium dark:text-gray-400 text-gray-700 dark:hover:bg-gray-800 hover:bg-gray-100"
+                  >
+                    Edit
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPendingDelete(job)}
+                    className="rounded-lg border dark:border-red-900 border-red-200 px-3 py-1.5 text-xs font-medium dark:text-red-400 text-red-600 dark:hover:bg-red-900/30 hover:bg-red-50"
+                  >
+                    Delete
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  } else {
+    jobsSection = (
+      <div className="rounded-xl border dark:border-gray-800 border-gray-200 dark:bg-gray-900 bg-white shadow-sm p-12 text-center">
+        <span className="text-5xl">⏰</span>
+        <h3 className="mt-4 text-lg font-semibold dark:text-gray-300 text-gray-700">No scheduled jobs</h3>
+        <p className="mt-2 dark:text-gray-500 text-gray-600 max-w-md mx-auto">
+          Schedule a filter to run periodically — for example, scan for .exe files every hour.
+        </p>
+        {filters.length === 0 ? (
+          <p className="mt-3 text-sm dark:text-yellow-400 text-yellow-600">
+            You need to <a href="/filters" className="underline">create a filter</a> before scheduling it.
+          </p>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setShowForm(true)}
+            className="mt-4 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+          >
+            Add First Job
+          </button>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -321,6 +419,7 @@ export default function Scheduler() {
           </p>
         </div>
         <button
+          type="button"
           onClick={() => setShowForm(true)}
           className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
         >
@@ -364,103 +463,7 @@ export default function Scheduler() {
         onConfirm={() => pendingDelete && deleteMutation.mutate(pendingDelete.id)}
       />
 
-      {isLoading ? (
-        <p className="dark:text-gray-400 text-gray-500">Loading jobs...</p>
-      ) : jobs.length > 0 ? (
-        <div className="space-y-3">
-          {jobs.map((job) => {
-            const linkedFilter = filterForJob(job);
-            return (
-              <div
-                key={job.id}
-                className="rounded-xl border dark:border-gray-800 border-gray-200 dark:bg-gray-900 bg-white shadow-sm px-6 py-4"
-              >
-                <div className="flex items-start justify-between gap-4">
-                  <div className="flex items-center gap-3 flex-1 min-w-0">
-                    <button
-                      onClick={() => toggleMutation.mutate({ id: job.id, enabled: !job.enabled })}
-                      className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${job.enabled ? 'bg-blue-600' : 'dark:bg-gray-700 bg-gray-300'}`}
-                    >
-                      <span
-                        className={`inline-block h-4 w-4 rounded-full bg-white shadow transform transition-transform ${job.enabled ? 'translate-x-4' : 'translate-x-0'}`}
-                      />
-                    </button>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <h3 className="font-semibold dark:text-gray-100 text-gray-900">
-                          {job.name}
-                        </h3>
-                        {statusBadge(job.lastRunStatus)}
-                      </div>
-                      {linkedFilter && (
-                        <p className="mt-0.5 text-sm dark:text-gray-500 text-gray-600">
-                          Runs filter:{' '}
-                          <span className="dark:text-gray-300 text-gray-700 font-medium">
-                            {linkedFilter.name}
-                          </span>
-                          {linkedFilter.target_path && (
-                            <span className="ml-2 font-mono text-xs dark:text-gray-500 text-gray-500">
-                              {linkedFilter.target_path}
-                            </span>
-                          )}
-                        </p>
-                      )}
-                      <div className="mt-1 flex items-center gap-3 text-xs dark:text-gray-400 text-gray-600">
-                        <span className="font-mono dark:bg-gray-800 bg-gray-100 px-1.5 py-0.5 rounded">
-                          {job.schedule}
-                        </span>
-                        {job.lastRunAt && (
-                          <span>Last run: {new Date(job.lastRunAt).toLocaleString()}</span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex gap-2 flex-shrink-0">
-                    <button
-                      onClick={() => setEditing(job)}
-                      className="rounded-lg border dark:border-gray-700 border-gray-300 px-3 py-1.5 text-xs font-medium dark:text-gray-400 text-gray-700 dark:hover:bg-gray-800 hover:bg-gray-100"
-                    >
-                      Edit
-                    </button>
-                    <button
-                      onClick={() => setPendingDelete(job)}
-                      className="rounded-lg border dark:border-red-900 border-red-200 px-3 py-1.5 text-xs font-medium dark:text-red-400 text-red-600 dark:hover:bg-red-900/30 hover:bg-red-50"
-                    >
-                      Delete
-                    </button>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      ) : (
-        <div className="rounded-xl border dark:border-gray-800 border-gray-200 dark:bg-gray-900 bg-white shadow-sm p-12 text-center">
-          <span className="text-5xl">⏰</span>
-          <h3 className="mt-4 text-lg font-semibold dark:text-gray-300 text-gray-700">
-            No scheduled jobs
-          </h3>
-          <p className="mt-2 dark:text-gray-500 text-gray-600 max-w-md mx-auto">
-            Schedule a filter to run periodically — for example, scan for .exe files every hour.
-          </p>
-          {filters.length === 0 ? (
-            <p className="mt-3 text-sm dark:text-yellow-400 text-yellow-600">
-              You need to{' '}
-              <a href="/filters" className="underline">
-                create a filter
-              </a>{' '}
-              before scheduling it.
-            </p>
-          ) : (
-            <button
-              onClick={() => setShowForm(true)}
-              className="mt-4 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
-            >
-              Add First Job
-            </button>
-          )}
-        </div>
-      )}
+      {jobsSection}
     </div>
   );
 }

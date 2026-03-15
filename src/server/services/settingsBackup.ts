@@ -291,7 +291,8 @@ export class SettingsBackupService {
 
   private redactExportRow(table: (typeof EXPORT_TABLES)[number], row: Record<string, unknown>) {
     if (table === 'settings') {
-      const key = String(row['key'] ?? '');
+      const rawKey = row['key'];
+      const key = typeof rawKey === 'string' ? rawKey : '';
       if (key === 'auth_mode') {
         return { ...row, value: 'none' };
       }
@@ -320,7 +321,8 @@ export class SettingsBackupService {
 
   private normalizeImportedRow(table: (typeof EXPORT_TABLES)[number], row: Record<string, unknown>) {
     if (table === 'settings') {
-      const key = String(row['key'] ?? '');
+      const rawKey = row['key'];
+      const key = typeof rawKey === 'string' ? rawKey : '';
 
       if (key === 'auth_mode') {
         return { ...row, value: 'none' };
@@ -422,12 +424,13 @@ export class SettingsBackupService {
       .filter((value) => !Number.isNaN(Date.parse(value)));
 
     if (valid.length === 0) return null;
-    return valid.sort((left, right) => Date.parse(right) - Date.parse(left))[0] ?? null;
+    valid.sort((left, right) => Date.parse(right) - Date.parse(left));
+    return valid[0] ?? null;
   }
 
   private getNullableSetting(key: string): string | null {
     const value = this.getSettingValue(key)?.trim();
-    return value ? value : null;
+    return value || null;
   }
 
   private getDirectorySetting(): string {
@@ -469,14 +472,25 @@ export class SettingsBackupService {
     if (value === null || value === undefined) return 'NULL';
     if (typeof value === 'number') return Number.isFinite(value) ? String(value) : 'NULL';
     if (typeof value === 'bigint') return value.toString();
-    return `'${String(value).replace(/'/g, "''")}'`;
+    if (typeof value === 'boolean') return value ? '1' : '0';
+
+    let stringValue: string;
+    if (typeof value === 'string') {
+      stringValue = value;
+    } else if (value instanceof Date) {
+      stringValue = value.toISOString();
+    } else {
+      stringValue = JSON.stringify(value) ?? '';
+    }
+
+    return `'${stringValue.replaceAll("'", "''")}'`;
   }
 
   private quoteIdentifier(value: string): string {
-    return `"${value.replace(/"/g, '""')}"`;
+    return `"${value.replaceAll('"', '""')}"`;
   }
 
   private formatFileTimestamp(isoString: string): string {
-    return isoString.replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z').replace('T', '-').replace('Z', '');
+    return isoString.replaceAll(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z').replace('T', '-').replace('Z', '');
   }
 }

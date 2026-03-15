@@ -41,6 +41,7 @@ const DEFAULT_TIMEOUT = 30_000; // 30 seconds
 const DEFAULT_MAX_RETRIES = 3;
 const RETRY_BASE_DELAY = 1000; // 1 second
 const RETRYABLE_STATUS_CODES = new Set([408, 429, 500, 502, 503, 504]);
+type QueryParamValue = string | number | boolean;
 
 export class ArrClient {
   protected readonly baseUrl: string;
@@ -65,7 +66,7 @@ export class ArrClient {
 
   protected async get<T>(
     path: string,
-    params?: Record<string, string | number | boolean>,
+    params?: Record<string, QueryParamValue>,
   ): Promise<T> {
     const url = this.buildUrl(path, params);
     return this.requestWithRetry<T>('GET', url);
@@ -83,7 +84,7 @@ export class ArrClient {
 
   protected async delete<T = void>(
     path: string,
-    params?: Record<string, string | number | boolean>,
+    params?: Record<string, QueryParamValue>,
   ): Promise<T> {
     const url = this.buildUrl(path, params);
     return this.requestWithRetry<T>('DELETE', url);
@@ -128,7 +129,7 @@ export class ArrClient {
 
   /** DELETE /api/v3/queue/{id} with options */
   async deleteQueueItem(id: number, options: DeleteQueueOptions = {}): Promise<void> {
-    const params: Record<string, string | number | boolean> = {};
+    const params: Record<string, QueryParamValue> = {};
     if (options.removeFromClient !== undefined)
       params['removeFromClient'] = options.removeFromClient;
     if (options.blocklist !== undefined) params['blocklist'] = options.blocklist;
@@ -162,7 +163,7 @@ export class ArrClient {
 
   // ── Internal ────────────────────────────────────────────────────────────
 
-  private buildUrl(path: string, params?: Record<string, string | number | boolean>): string {
+  private buildUrl(path: string, params?: Record<string, QueryParamValue>): string {
     const url = new URL(path, this.baseUrl);
     if (params) {
       for (const [key, value] of Object.entries(params)) {

@@ -56,7 +56,7 @@ describe('Login page', () => {
     state.auth.login.mockRejectedValueOnce(new Error('Bad credentials'));
 
     const view = await render(<Login />);
-    const inputs = Array.from(document.body.querySelectorAll('input')) as HTMLInputElement[];
+    const inputs = Array.from(document.body.querySelectorAll('input'));
     await setInputValue(inputs[0]!, 'admin');
     await setInputValue(inputs[1]!, 'wrong-password');
 

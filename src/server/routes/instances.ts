@@ -58,7 +58,16 @@ function validateTimeout(timeout: unknown): number {
     return 30000; // Default 30 seconds
   }
 
-  const timeoutNum = typeof timeout === 'number' ? timeout : Number.parseInt(String(timeout), 10);
+  let timeoutNum: number;
+  if (typeof timeout === 'number') {
+    timeoutNum = timeout;
+  } else if (typeof timeout === 'string') {
+    const trimmed = timeout.trim();
+    if (trimmed.length === 0) return 30000;
+    timeoutNum = Number.parseInt(trimmed, 10);
+  } else {
+    return 30000;
+  }
 
   if (Number.isNaN(timeoutNum) || timeoutNum < MIN_TIMEOUT_MS) {
     return MIN_TIMEOUT_MS;
@@ -206,8 +215,7 @@ export function createInstancesRouter(db: Database): Router {
         return;
       }
 
-      const input: UpdateInstanceInput = {};
-      const body = req.body;
+      const body = req.body as Record<string, unknown>;
       const current = getInstanceConfigById(db, id);
 
       if (!current) {
@@ -215,29 +223,32 @@ export function createInstancesRouter(db: Database): Router {
         return;
       }
 
-      if (body.name !== undefined) input.name = body.name;
-      if (body.type !== undefined) {
-        if (!VALID_ARR_TYPES.includes(body.type)) {
+      const input = Object.fromEntries(
+        Object.entries({
+          name: body['name'],
+          url: body['url'],
+          apiKey: body['apiKey'],
+          enabled: body['enabled'],
+          skipSslVerify: body['skipSslVerify'],
+          remotePath: body['remotePath'],
+          localPath: body['localPath'],
+        }).filter(([, value]) => value !== undefined),
+      ) as UpdateInstanceInput;
+
+      if (body['type'] !== undefined) {
+        if (!VALID_ARR_TYPES.includes(body['type'] as ArrType)) {
           res.status(400).json({ error: `type must be one of: ${VALID_ARR_TYPES.join(', ')}` });
           return;
         }
-        input.type = body.type;
+        input.type = body['type'] as ArrType;
       }
-      if (body.url !== undefined) {
-        input.url = body.url;
-      }
-      if (body.apiKey !== undefined) input.apiKey = body.apiKey;
-      if (body.timeout !== undefined) input.timeout = validateTimeout(body.timeout);
-      if (body.enabled !== undefined) input.enabled = body.enabled;
-      if (body.skipSslVerify !== undefined) input.skipSslVerify = body.skipSslVerify;
-      if (body.remotePath !== undefined) input.remotePath = body.remotePath;
-      if (body.localPath !== undefined) input.localPath = body.localPath;
+      if (body['timeout'] !== undefined) input.timeout = validateTimeout(body['timeout']);
 
       const normalizedUrl = validateInstanceUrl(
         input.url ?? current.url,
         input.skipSslVerify ?? current.skipSslVerify,
       );
-      if (input.url !== undefined) input.url = normalizedUrl;
+      if (body['url'] !== undefined) input.url = normalizedUrl;
 
       const instance = updateInstance(db, id, input);
       if (!instance) {

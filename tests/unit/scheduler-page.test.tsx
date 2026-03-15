@@ -55,10 +55,10 @@ describe('Scheduler page', () => {
     });
     await click(Array.from(document.body.querySelectorAll('button')).find((node) => node.textContent?.includes('Add First Job')) ?? null);
     await waitFor(() => {
-      expect(Array.from(document.body.querySelectorAll('input')).find((node) => (node as HTMLInputElement).placeholder === 'Run: Movies')).toBeTruthy();
+      expect(Array.from(document.body.querySelectorAll('input')).find((node) => node.placeholder === 'Run: Movies')).toBeTruthy();
     });
-    await setInputValue(Array.from(document.body.querySelectorAll('input')).find((node) => (node as HTMLInputElement).placeholder === 'Run: Movies') as HTMLInputElement, 'Nightly movie run');
-    await setSelectValue(Array.from(document.body.querySelectorAll('select'))[0] as HTMLSelectElement, '*/15 * * * *');
+    await setInputValue(Array.from(document.body.querySelectorAll('input')).find((node) => node.placeholder === 'Run: Movies')!, 'Nightly movie run');
+    await setSelectValue(Array.from(document.body.querySelectorAll('select'))[0]!, '*/15 * * * *');
     await click(Array.from(document.body.querySelectorAll('button')).find((node) => node.textContent === 'Schedule Job') ?? null);
     await waitFor(() => {
       expect(api.post).toHaveBeenCalledWith('/jobs', {
@@ -88,7 +88,7 @@ describe('Scheduler page', () => {
       expect(document.body.textContent).toContain('Hourly cleanup');
     });
     await click(Array.from(document.body.querySelectorAll('button')).find((node) => node.textContent === 'Edit') ?? null);
-    await setInputValue(Array.from(document.body.querySelectorAll('input')).find((node) => (node as HTMLInputElement).value === 'Hourly cleanup') as HTMLInputElement, 'Updated cleanup');
+    await setInputValue(Array.from(document.body.querySelectorAll('input')).find((node) => node.value === 'Hourly cleanup')!, 'Updated cleanup');
     await click(Array.from(document.body.querySelectorAll('button')).find((node) => node.textContent === 'Update Job') ?? null);
     await waitFor(() => {
       expect(api.put).toHaveBeenCalledWith('/jobs/7', {

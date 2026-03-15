@@ -9,6 +9,38 @@ import { PageHeader, cn } from '../components/ui';
 
 type AuthMode = 'none' | 'basic' | 'forms';
 
+const AUTH_MODE_LABELS: Record<AuthMode, string> = {
+  none: 'No Authentication',
+  forms: 'Forms (Login Page)',
+  basic: 'Basic (Browser Prompt)',
+};
+
+const AUTH_MODE_DESCRIPTIONS: Record<AuthMode, string> = {
+  none: '⚠️ Anyone can access Filtarr',
+  basic: 'HTTP Basic auth (browser login prompt)',
+  forms: 'Username/password login form',
+};
+
+function getSlackWebhookHint({
+  slackWebhookEdited,
+  slackWebhookUrl,
+  slackWebhookUrlConfigured,
+}: {
+  slackWebhookEdited: boolean;
+  slackWebhookUrl: string;
+  slackWebhookUrlConfigured: boolean;
+}): string {
+  if (slackWebhookEdited) {
+    return slackWebhookUrl.trim()
+      ? 'A new webhook will replace the saved value.'
+      : 'The saved webhook will be cleared when you save.';
+  }
+
+  return slackWebhookUrlConfigured
+    ? 'A webhook is already stored securely. Leave this blank to keep it.'
+    : 'Paste a Slack incoming webhook URL to enable Slack alerts.';
+}
+
 interface ApiKeyResponse {
   id: number;
   name: string;
@@ -457,26 +489,28 @@ export default function Settings() {
           Configure default notification channels for Slack and outbound webhooks.
         </p>
 
-        <div className="mt-4 space-y-5">
-          <label htmlFor="slack-enabled-checkbox" className="flex items-start justify-between gap-4 rounded-xl border border-gray-200 px-4 py-3 dark:border-gray-800">
-            <div>
-              <span className="text-sm font-medium text-gray-900 dark:text-gray-100">Slack notifications</span>
-              <p className="mt-1 text-xs text-gray-600 dark:text-gray-500">
-                Enable Slack delivery for notification-capable workflows.
-              </p>
-            </div>
-            <input
-              id="slack-enabled-checkbox"
-              type="checkbox"
-              checked={slackEnabled}
+	        <div className="mt-4 space-y-5">
+	          <div className="flex items-start justify-between gap-4 rounded-xl border border-gray-200 px-4 py-3 dark:border-gray-800">
+	            <div>
+	              <label htmlFor="slack-enabled-checkbox" className="text-sm font-medium text-gray-900 dark:text-gray-100">
+	                Slack notifications
+	              </label>
+	              <p className="mt-1 text-xs text-gray-600 dark:text-gray-500">
+	                Enable Slack delivery for notification-capable workflows.
+	              </p>
+	            </div>
+	            <input
+	              id="slack-enabled-checkbox"
+	              type="checkbox"
+	              checked={slackEnabled}
               onChange={(e) => {
                 const nextChecked = e.target.checked;
                 setSlackEnabled(nextChecked);
                 updateNotificationDirtyState({ slackEnabled: nextChecked });
-              }}
-              className="mt-1 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-            />
-          </label>
+	              }}
+	              className="mt-1 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+	            />
+	          </div>
 
           <div>
             <div className="flex items-center justify-between gap-3">
@@ -507,19 +541,14 @@ export default function Settings() {
               }
               className="mt-2 block w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:border-blue-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
             />
-            <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-gray-500">
-              <span>
-                {(() => {
-                  if (slackWebhookEdited) {
-                    return slackWebhookUrl.trim()
-                      ? 'A new webhook will replace the saved value.'
-                      : 'The saved webhook will be cleared when you save.';
-                  }
-                  return notificationSettings?.slackWebhookUrlConfigured
-                    ? 'A webhook is already stored securely. Leave this blank to keep it.'
-                    : 'Paste a Slack incoming webhook URL to enable Slack alerts.';
-                })()}
-              </span>
+	            <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-gray-500">
+	              <span>
+	                {getSlackWebhookHint({
+	                  slackWebhookEdited,
+	                  slackWebhookUrl,
+	                  slackWebhookUrlConfigured: Boolean(notificationSettings?.slackWebhookUrlConfigured),
+	                })}
+	              </span>
               {notificationSettings?.slackWebhookUrlConfigured && (
                 <button
                   type="button"
@@ -539,14 +568,16 @@ export default function Settings() {
             </div>
           </div>
 
-          <label htmlFor="webhook-enabled-checkbox" className="flex items-start justify-between gap-4 rounded-xl border border-gray-200 px-4 py-3 dark:border-gray-800">
-            <div>
-              <p className="text-sm font-medium text-gray-900 dark:text-gray-100">Webhook notifications</p>
-              <p className="mt-1 text-xs text-gray-600 dark:text-gray-500">
-                Allow outbound webhook notifications for matching filters and related actions.
-              </p>
-            </div>
-            <input
+	          <div className="flex items-start justify-between gap-4 rounded-xl border border-gray-200 px-4 py-3 dark:border-gray-800">
+	            <div>
+	              <label htmlFor="webhook-enabled-checkbox" className="text-sm font-medium text-gray-900 dark:text-gray-100">
+	                Webhook notifications
+	              </label>
+	              <p className="mt-1 text-xs text-gray-600 dark:text-gray-500">
+	                Allow outbound webhook notifications for matching filters and related actions.
+	              </p>
+	            </div>
+	            <input
               id="webhook-enabled-checkbox"
               type="checkbox"
               checked={webhookEnabled}
@@ -554,10 +585,10 @@ export default function Settings() {
                 const nextChecked = e.target.checked;
                 setWebhookEnabled(nextChecked);
                 updateNotificationDirtyState({ webhookEnabled: nextChecked });
-              }}
-              className="mt-1 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-            />
-          </label>
+	              }}
+	              className="mt-1 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+	            />
+	          </div>
 
           <div className="pt-2">
             <button
@@ -776,20 +807,14 @@ export default function Settings() {
                     onChange={() => setSelectedAuthMode(mode)}
                     className="mt-0.5"
                   />
-                  <div>
-                    <div className="font-medium dark:text-gray-100 text-gray-900 capitalize">
-                      {(() => {
-                        if (mode === 'none') return 'No Authentication';
-                        if (mode === 'forms') return 'Forms (Login Page)';
-                        return 'Basic (Browser Prompt)';
-                      })()}
-                    </div>
-                    <div className="text-xs dark:text-gray-500 text-gray-600">
-                      {mode === 'none' && '⚠️ Anyone can access Filtarr'}
-                      {mode === 'basic' && 'HTTP Basic auth (browser login prompt)'}
-                      {mode === 'forms' && 'Username/password login form'}
-                    </div>
-                  </div>
+	                  <div>
+	                    <div className="font-medium dark:text-gray-100 text-gray-900 capitalize">
+	                      {AUTH_MODE_LABELS[mode]}
+	                    </div>
+	                    <div className="text-xs dark:text-gray-500 text-gray-600">
+	                      {AUTH_MODE_DESCRIPTIONS[mode]}
+	                    </div>
+	                  </div>
                 </label>
               ))}
             </div>

@@ -75,7 +75,7 @@ describe('Settings page', () => {
     toast.mockClear();
 
     await click(Array.from(document.body.querySelectorAll('button')).find((node) => node.textContent?.includes('Notifications')) ?? null);
-    await setChecked(Array.from(document.body.querySelectorAll('input')).find((node) => (node as HTMLInputElement).type === 'checkbox') as HTMLInputElement, true);
+    await setChecked(Array.from(document.body.querySelectorAll('input')).find((node) => node.type === 'checkbox')!, true);
     await click(Array.from(document.body.querySelectorAll('button')).find((node) => node.textContent === 'Save notification settings') ?? null);
     expect(toast.mock.calls).toContainEqual(['error', 'Provide a Slack webhook URL or disable Slack notifications.']);
 
@@ -94,7 +94,7 @@ describe('Settings page', () => {
     });
 
     await click(Array.from(document.body.querySelectorAll('button')).find((node) => node.textContent?.includes('Paths & Storage')) ?? null);
-    const textInputs = Array.from(document.body.querySelectorAll('input')).filter((node) => (node as HTMLInputElement).type === 'text') as HTMLInputElement[];
+    const textInputs = Array.from(document.body.querySelectorAll('input')).filter((node) => node.type === 'text');
     await setInputValue(textInputs[0]!, '/media/downloads');
     await click(Array.from(document.body.querySelectorAll('button')).find((node) => node.textContent === 'Add Directory') ?? null);
     await waitFor(() => {
@@ -102,9 +102,9 @@ describe('Settings page', () => {
     });
 
     await click(Array.from(document.body.querySelectorAll('button')).find((node) => node.textContent === 'Edit') ?? null);
-    const editInputs = Array.from(document.body.querySelectorAll('input')).filter((node) => (node as HTMLInputElement).type === 'text') as HTMLInputElement[];
-    await setInputValue(editInputs[editInputs.length - 1]!, '/media/updated');
-    await setChecked(Array.from(document.body.querySelectorAll('input')).find((node) => (node as HTMLInputElement).id === 'editRec-3') as HTMLInputElement, false);
+    const editInputs = Array.from(document.body.querySelectorAll('input')).filter((node) => node.type === 'text');
+    await setInputValue(editInputs.at(-1)!, '/media/updated');
+    await setChecked(Array.from(document.body.querySelectorAll('input')).find((node) => node.id === 'editRec-3')!, false);
     await click(Array.from(document.body.querySelectorAll('button')).find((node) => node.textContent === 'Save') ?? null);
     await waitFor(() => {
       expect(api.put).toHaveBeenCalledWith('/directories/3', { path: '/media/updated', recursive: false });
@@ -121,9 +121,9 @@ describe('Settings page', () => {
     await click(Array.from(document.body.querySelectorAll('button')).find((node) => node.textContent === 'Change') ?? null);
     await click(Array.from(document.body.querySelectorAll('button')).find((node) => node.textContent === 'Cancel') ?? null);
     await click(Array.from(document.body.querySelectorAll('button')).find((node) => node.textContent === 'Change') ?? null);
-    const radios = Array.from(document.body.querySelectorAll('input')).filter((node) => (node as HTMLInputElement).type === 'radio') as HTMLInputElement[];
+    const radios = Array.from(document.body.querySelectorAll('input')).filter((node) => node.type === 'radio');
     await setChecked(radios.find((node) => node.value === 'forms')!, true);
-    const authInputs = Array.from(document.body.querySelectorAll('input')).filter((node) => (node as HTMLInputElement).type !== 'radio') as HTMLInputElement[];
+    const authInputs = Array.from(document.body.querySelectorAll('input')).filter((node) => node.type !== 'radio');
     await setInputValue(authInputs.find((node) => node.placeholder?.toLowerCase().includes('username')) ?? authInputs[0]!, 'root');
     await setInputValue(authInputs.find((node) => node.type === 'password')!, 'secret123');
     await click(Array.from(document.body.querySelectorAll('button')).find((node) => node.textContent === 'Save Changes') ?? null);

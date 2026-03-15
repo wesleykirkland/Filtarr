@@ -42,7 +42,7 @@ function restoreSnapshot(snapshot: Snapshot) {
   }
 }
 
-// TODO: These tests are for OIDC features not yet implemented in this branch
+// NOTE: These tests cover OIDC features not yet implemented in this branch.
 describe.skip('settings auth mode OIDC configuration', () => {
   let snapshot: Snapshot;
 

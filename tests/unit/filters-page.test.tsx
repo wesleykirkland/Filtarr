@@ -127,9 +127,16 @@ describe('Filters page', () => {
     });
 
     await click(editButton);
-    await setInputValue(document.body.querySelector('#filter-name') as HTMLInputElement, 'Keep cleaner');
-    await setChecked(document.body.querySelector('#notifyOnMatch') as HTMLInputElement, true);
-    await setChecked(Array.from(document.body.querySelectorAll('input')).find((node) => (node as HTMLInputElement).type === 'checkbox' && node !== document.body.querySelector('#notifyOnMatch') && node !== document.body.querySelector('#filterEnabled')) as HTMLInputElement, true);
+    await setInputValue(document.body.querySelector<HTMLInputElement>('#filter-name')!, 'Keep cleaner');
+    const notifyOnMatch = document.body.querySelector<HTMLInputElement>('#notifyOnMatch')!;
+    const filterEnabled = document.body.querySelector<HTMLInputElement>('#filterEnabled')!;
+    await setChecked(notifyOnMatch, true);
+    await setChecked(
+      Array.from(document.body.querySelectorAll('input')).find(
+        (node) => node.type === 'checkbox' && node !== notifyOnMatch && node !== filterEnabled,
+      )!,
+      true,
+    );
 
     let updateFilterButton: Element | null = null;
     await waitFor(() => {

@@ -55,7 +55,11 @@ function validateBrowsePath(requestedPath: string): { valid: boolean; error?: st
   // On Windows, ensure we're not accessing sensitive system paths
   if (process.platform === 'win32') {
     const lowerNormalized = normalized.toLowerCase();
-    const forbidden = ['c:\\windows\\system32', 'c:\\windows\\syswow64', 'c:\\program files'];
+    const forbidden = [
+      String.raw`c:\windows\system32`,
+      String.raw`c:\windows\syswow64`,
+      String.raw`c:\program files`,
+    ];
     if (forbidden.some((f) => lowerNormalized.startsWith(f))) {
       return { valid: false, error: 'Access to system directories is not allowed' };
     }
@@ -108,7 +112,7 @@ protectedSystemRoutes.get('/browse', (req, res) => {
 
     res.json({
       current: resolved,
-      parent: resolved !== '/' ? path.dirname(resolved) : null,
+      parent: resolved === '/' ? null : path.dirname(resolved),
       entries: dirs,
     });
   } catch (err) {

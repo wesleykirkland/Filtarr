@@ -47,7 +47,7 @@ describe('Setup page branches', () => {
     await click(Array.from(document.body.querySelectorAll('button')).find((node) => node.textContent === 'Continue') ?? null);
     await waitFor(() => expect(document.body.querySelectorAll('input').length).toBeGreaterThanOrEqual(3));
 
-    const inputs = Array.from(document.body.querySelectorAll('input')).slice(-3) as HTMLInputElement[];
+    const inputs = Array.from(document.body.querySelectorAll('input')).slice(-3);
     await setInputValue(inputs[0]!, 'admin');
     await setInputValue(inputs[1]!, 'password123');
     await setInputValue(inputs[2]!, 'password124');
@@ -69,12 +69,12 @@ describe('Setup page branches', () => {
 
     await click(Array.from(document.body.querySelectorAll('button')).find((node) => node.textContent?.includes('Get Started')) ?? null);
     await act(async () => {
-      (Array.from(document.body.querySelectorAll('input')).find((node) => (node as HTMLInputElement).value === 'basic') as HTMLInputElement).click();
+      Array.from(document.body.querySelectorAll('input')).find((node) => node.value === 'basic')!.click();
     });
     await click(Array.from(document.body.querySelectorAll('button')).find((node) => node.textContent === 'Continue') ?? null);
     await waitFor(() => expect(document.body.querySelectorAll('input').length).toBeGreaterThanOrEqual(3));
 
-    const inputs = Array.from(document.body.querySelectorAll('input')).slice(-3) as HTMLInputElement[];
+    const inputs = Array.from(document.body.querySelectorAll('input')).slice(-3);
     await setInputValue(inputs[0]!, 'admin');
     await setInputValue(inputs[1]!, 'password123');
     await setInputValue(inputs[2]!, 'password123');
@@ -95,7 +95,7 @@ describe('Setup page branches', () => {
     await click(Array.from(document.body.querySelectorAll('button')).find((node) => node.textContent === 'Continue') ?? null);
     await waitFor(() => expect(document.body.querySelectorAll('input').length).toBeGreaterThanOrEqual(3));
 
-    const inputs = Array.from(document.body.querySelectorAll('input')).slice(-3) as HTMLInputElement[];
+    const inputs = Array.from(document.body.querySelectorAll('input')).slice(-3);
     await setInputValue(inputs[0]!, 'admin');
     await setInputValue(inputs[1]!, 'password123');
     await setInputValue(inputs[2]!, 'password123');

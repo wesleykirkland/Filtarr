@@ -57,7 +57,7 @@ describe('Instances page', () => {
     expect(document.body.textContent).toContain('No instances configured');
     await click(Array.from(document.body.querySelectorAll('button')).find((node) => node.textContent?.includes('Add Instance')) ?? null);
 
-    const inputs = Array.from(document.body.querySelectorAll('input')) as HTMLInputElement[];
+    const inputs = Array.from(document.body.querySelectorAll('input'));
     await setInputValue(inputs.find((node) => node.id === 'instance-name')!, 'Movies');
     await setInputValue(inputs.find((node) => node.id === 'instance-url')!, 'https://radarr.example.com');
     await setInputValue(inputs.find((node) => node.id === 'instance-api-key')!, 'secret');
@@ -122,7 +122,7 @@ describe('Instances page', () => {
     expect(state.testMutate).toHaveBeenCalledWith(1);
 
     await click(Array.from(document.body.querySelectorAll('button')).find((node) => node.textContent === 'Edit') ?? null);
-    const inputs = Array.from(document.body.querySelectorAll('input')) as HTMLInputElement[];
+    const inputs = Array.from(document.body.querySelectorAll('input'));
     await setInputValue(inputs.find((node) => node.id === 'instance-url')!, 'https://updated.example.com');
     await setChecked(inputs.find((node) => node.id === 'skipSslVerify')!, true);
 

@@ -15,7 +15,7 @@ describe('schedulerUi helpers', () => {
   it('detects when a filter can use watcher automation', () => {
     expect(supportsWatcherAutomation(watcherCapableFilter)).toBe(true);
     expect(supportsWatcherAutomation({ ...watcherCapableFilter, target_path: '   ' })).toBe(false);
-    expect(supportsWatcherAutomation(undefined)).toBe(false);
+    expect(supportsWatcherAutomation()).toBe(false);
   });
 
   it('prompts for watcher automation only for new cron scheduling flows', () => {

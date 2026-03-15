@@ -86,7 +86,10 @@ describe('instances routes', () => {
     expect((await request(app).delete('/3')).status).toBe(204);
     expect((await request(app).delete('/3')).status).toBe(404);
 
-    state.createInstance.mockImplementationOnce(() => { throw { code: 'SQLITE_CONSTRAINT_UNIQUE' }; });
+    state.createInstance.mockImplementationOnce(() => {
+      const err = Object.assign(new Error('SQLITE_CONSTRAINT_UNIQUE'), { code: 'SQLITE_CONSTRAINT_UNIQUE' });
+      throw err;
+    });
     expect((await request(app).post('/').send({ name: 'Main', type: 'sonarr', url: 'https://sonarr.example.com', apiKey: 'secret' })).status).toBe(409);
 
     state.getInstanceConfigById.mockReturnValueOnce(null).mockReturnValueOnce({ id: 3, name: 'Main', type: 'sonarr', url: 'http://plain.example.com', apiKey: 'secret', skipSslVerify: false });
@@ -124,4 +127,3 @@ describe('instances routes', () => {
     expect((await request(app).get('/7/test')).body).toEqual({ success: false, error: 'offline' });
   });
 });
-

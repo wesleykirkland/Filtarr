@@ -30,33 +30,40 @@ export function Modal({ title, isOpen, onClose, children, size = 'md' }: ModalPr
       } else {
         // JSDOM and older browsers may not implement showModal/close.
         dialog.setAttribute('open', '');
-        dialog.focus();
       }
     }
 
-    const handleNativeClose = () => {
-      // Handles ESC or any other native close action.
+    // Ensure focus starts inside the dialog for accessibility and tests (JSDOM doesn't
+    // reliably move focus when calling showModal()).
+    const focusTarget =
+      dialog.querySelector<HTMLElement>('button,[href],input,select,textarea,[tabindex]:not([tabindex="-1"])') ??
+      dialog;
+    focusTarget.focus();
+
+    const handleCancel = (event: Event) => {
+      // Prevent native close so the parent controls open state.
+      event.preventDefault();
       onClose();
     };
 
-    const handleDocumentClick = (event: MouseEvent) => {
-      // Clicks on the <dialog> backdrop report as regular click events; use coordinates
-      // instead of target checks so we can close on backdrop clicks without attaching
-      // mouse handlers to the <dialog> element itself.
-      const rect = dialog.getBoundingClientRect();
-      const isInsideDialog =
-        event.clientX >= rect.left &&
-        event.clientX <= rect.right &&
-        event.clientY >= rect.top &&
-        event.clientY <= rect.bottom;
-      if (!isInsideDialog) onClose();
+    const handleBackdropClick = (event: MouseEvent) => {
+      // Native <dialog> backdrop clicks bubble as clicks with target === dialog.
+      if (event.target === dialog) onClose();
     };
 
-    dialog.addEventListener('close', handleNativeClose);
-    document.addEventListener('click', handleDocumentClick);
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      onClose();
+    };
+
+    dialog.addEventListener('cancel', handleCancel);
+    dialog.addEventListener('click', handleBackdropClick);
+    document.addEventListener('keydown', handleEscape);
     return () => {
-      dialog.removeEventListener('close', handleNativeClose);
-      document.removeEventListener('click', handleDocumentClick);
+      dialog.removeEventListener('cancel', handleCancel);
+      dialog.removeEventListener('click', handleBackdropClick);
+      document.removeEventListener('keydown', handleEscape);
       document.body.style.overflow = 'auto';
       if (dialog?.open) {
         if (typeof dialog.close === 'function') {

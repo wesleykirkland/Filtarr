@@ -17,6 +17,28 @@ import type { AuthConfig, AuthMode } from '../../config/auth.js';
 import { getConfig } from '../../config/index.js';
 import type { User } from '../../db/schemas/users.js';
 import { apiKeyMiddleware } from './apiKey.js';
+import { csrfMiddleware } from './security.js';
+
+function parseCookieHeader(headerValue: string | undefined): Record<string, string> {
+  const cookies: Record<string, string> = {};
+  if (!headerValue) return cookies;
+
+  for (const part of headerValue.split(';')) {
+    const index = part.indexOf('=');
+    if (index === -1) continue;
+    const key = decodeURIComponent(part.slice(0, index).trim());
+    const value = decodeURIComponent(part.slice(index + 1).trim());
+    cookies[key] = value;
+  }
+
+  return cookies;
+}
+
+function ensureCookies(req: Request): void {
+  const anyReq = req as unknown as { cookies?: Record<string, string> };
+  if (anyReq.cookies) return;
+  anyReq.cookies = parseCookieHeader(req.headers.cookie);
+}
 
 /**
  * Get the current auth mode from the database settings.
@@ -178,9 +200,7 @@ export function getOrCreateSessionSecret(config: AuthConfig): string {
  * provides equivalent protection for modern browsers. For additional defense-in-depth,
  * consider adding the csrfMiddleware from security.ts to state-changing routes.
  */
-function sessionMiddleware(config: AuthConfig): RequestHandler {
-  const secret = getOrCreateSessionSecret(config);
-
+function sessionMiddleware(config: AuthConfig, secret: string): RequestHandler {
   return session({
     name: config.forms?.cookieName || 'filtarr.sid',
     secret,
@@ -276,12 +296,56 @@ export function createAuthMiddleware(
   // Always apply basic auth middleware (validates if Authorization header present)
   router.use(basicAuthMiddleware(db));
 
-  // Always apply session middleware for forms/oidc auth support
-  // This is needed so that sessions work after setup completion with forms mode
-  router.use(sessionMiddleware(config));
+  const sessionSecret = getOrCreateSessionSecret(config);
+  const sessionHandler = sessionMiddleware(config, sessionSecret);
+  const passportInit = passport.initialize();
+  const passportSession = passport.session();
+  const { csrfProtection } = csrfMiddleware(sessionSecret);
+
   configurePassportLocal(db);
-  router.use(passport.initialize());
-  router.use(passport.session());
+
+  // Only enable session + CSRF when the current auth mode uses cookie-based auth.
+  // This preserves dynamic auth mode switching after setup completion without restart.
+  router.use((req, res, next) => {
+    // API key requests are header-authenticated and don't use cookie sessions.
+    if (req.apiKey) {
+      next();
+      return;
+    }
+
+    const authMode = getCurrentAuthMode(db);
+    if (authMode !== 'forms' && authMode !== 'oidc') {
+      next();
+      return;
+    }
+
+    sessionHandler(req, res, (sessionErr: unknown) => {
+      if (sessionErr) return next(sessionErr);
+      passportInit(req, res, (initErr: unknown) => {
+        if (initErr) return next(initErr);
+        passportSession(req, res, (passportErr: unknown) => {
+          if (passportErr) return next(passportErr);
+
+          const method = req.method.toUpperCase();
+          const stateChanging = method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS';
+          if (!stateChanging) {
+            next();
+            return;
+          }
+
+          // Only enforce CSRF once the request is using a session-authenticated user.
+          // This preserves the expected 401 flow for unauthenticated requests.
+          if (req.isAuthenticated?.()) {
+            ensureCookies(req);
+            csrfProtection(req, res, next);
+            return;
+          }
+
+          next();
+        });
+      });
+    });
+  });
 
   // The requireAuth middleware checks if the request is authenticated
   // It dynamically reads auth mode from DB to support setup completion without restart

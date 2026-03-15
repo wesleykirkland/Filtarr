@@ -10,11 +10,54 @@ export class ApiError extends Error {
   }
 }
 
+let cachedCsrfToken: string | null = null;
+let csrfTokenPromise: Promise<string | null> | null = null;
+
+async function getCsrfToken(): Promise<string | null> {
+  if (cachedCsrfToken) return cachedCsrfToken;
+  if (csrfTokenPromise) return csrfTokenPromise;
+
+  csrfTokenPromise = fetch(`${BASE}/auth/csrf`, { method: 'GET' })
+    .then(async (res) => {
+      if (!res.ok) return null;
+      const body = (await res.json().catch(() => null)) as { csrfToken?: string | null } | null;
+      return body?.csrfToken ?? null;
+    })
+    .then((token) => {
+      cachedCsrfToken = token;
+      return token;
+    })
+    .finally(() => {
+      csrfTokenPromise = null;
+    });
+
+  return csrfTokenPromise;
+}
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
-    ...options,
-  });
+  const method = (options?.method ?? 'GET').toUpperCase();
+  const needsCsrf = method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS';
+  const headers = new Headers({ 'Content-Type': 'application/json', ...(options?.headers ?? {}) });
+
+  if (needsCsrf && !headers.has('X-CSRF-Token') && !headers.has('x-csrf-token')) {
+    const token = await getCsrfToken();
+    if (token) headers.set('X-CSRF-Token', token);
+  }
+
+  const doFetch = () =>
+    fetch(`${BASE}${path}`, {
+      headers,
+      ...options,
+    });
+
+  let res = await doFetch();
+  if (res.status === 403 && needsCsrf) {
+    // Token may have rotated or cookie may have been cleared. Refresh once and retry.
+    cachedCsrfToken = null;
+    const token = await getCsrfToken();
+    if (token) headers.set('X-CSRF-Token', token);
+    res = await doFetch();
+  }
 
   if (!res.ok) {
     if (res.status === 401) {

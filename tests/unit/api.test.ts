@@ -59,6 +59,8 @@ describe('API Client', () => {
   it('sends JSON requests for get/post/put/delete helpers and handles 204 responses', async () => {
     mockFetch
       .mockResolvedValueOnce(createResponse({ body: { id: 1 } }))
+      // First state-changing request triggers a CSRF token fetch.
+      .mockResolvedValueOnce(createResponse({ body: { csrfToken: 'csrf-token' } }))
       .mockResolvedValueOnce(createResponse({ body: { created: true } }))
       .mockResolvedValueOnce(createResponse({ body: { updated: true } }))
       .mockResolvedValueOnce(createResponse({ status: 204 }));
@@ -68,26 +70,29 @@ describe('API Client', () => {
     await expect(api.put('/widgets/1', { enabled: true })).resolves.toEqual({ updated: true });
     await expect(api.delete('/widgets/1')).resolves.toBeUndefined();
 
-    expect(mockFetch).toHaveBeenNthCalledWith(
-      1,
-      '/api/v1/widgets',
-      expect.objectContaining({ headers: { 'Content-Type': 'application/json' } }),
-    );
-    expect(mockFetch).toHaveBeenNthCalledWith(
-      2,
-      '/api/v1/widgets',
-      expect.objectContaining({ method: 'POST', body: JSON.stringify({ name: 'alpha' }) }),
-    );
-    expect(mockFetch).toHaveBeenNthCalledWith(
-      3,
-      '/api/v1/widgets/1',
-      expect.objectContaining({ method: 'PUT', body: JSON.stringify({ enabled: true }) }),
-    );
-    expect(mockFetch).toHaveBeenNthCalledWith(
-      4,
-      '/api/v1/widgets/1',
-      expect.objectContaining({ method: 'DELETE' }),
-    );
+    expect(mockFetch).toHaveBeenNthCalledWith(1, '/api/v1/widgets', expect.any(Object));
+    expect(mockFetch).toHaveBeenNthCalledWith(2, '/api/v1/auth/csrf', expect.any(Object));
+    expect(mockFetch).toHaveBeenNthCalledWith(3, '/api/v1/widgets', expect.any(Object));
+    expect(mockFetch).toHaveBeenNthCalledWith(4, '/api/v1/widgets/1', expect.any(Object));
+    expect(mockFetch).toHaveBeenNthCalledWith(5, '/api/v1/widgets/1', expect.any(Object));
+
+    const firstHeaders = (mockFetch.mock.calls[0]?.[1] as RequestInit | undefined)?.headers as Headers | undefined;
+    expect(firstHeaders?.get('Content-Type')).toBe('application/json');
+
+    const postOptions = mockFetch.mock.calls[2]?.[1] as RequestInit | undefined;
+    expect(postOptions).toEqual(expect.objectContaining({ method: 'POST', body: JSON.stringify({ name: 'alpha' }) }));
+    const postHeaders = postOptions?.headers as Headers | undefined;
+    expect(postHeaders?.get('X-CSRF-Token')).toBe('csrf-token');
+
+    const putOptions = mockFetch.mock.calls[3]?.[1] as RequestInit | undefined;
+    expect(putOptions).toEqual(expect.objectContaining({ method: 'PUT', body: JSON.stringify({ enabled: true }) }));
+    const putHeaders = putOptions?.headers as Headers | undefined;
+    expect(putHeaders?.get('X-CSRF-Token')).toBe('csrf-token');
+
+    const deleteOptions = mockFetch.mock.calls[4]?.[1] as RequestInit | undefined;
+    expect(deleteOptions).toEqual(expect.objectContaining({ method: 'DELETE' }));
+    const deleteHeaders = deleteOptions?.headers as Headers | undefined;
+    expect(deleteHeaders?.get('X-CSRF-Token')).toBe('csrf-token');
   });
 
   it('extracts error details from nested messages, plain strings, and status text fallbacks', async () => {

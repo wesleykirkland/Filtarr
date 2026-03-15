@@ -2,7 +2,8 @@ import { Router, type Request, type Response, type NextFunction } from 'express'
 import passport from 'passport';
 import type Database from 'better-sqlite3';
 import type { AuthConfig, AuthMode } from '../../config/auth.js';
-import { authRateLimiter } from '../middleware/security.js';
+import { authRateLimiter, csrfMiddleware } from '../middleware/security.js';
+import { getOrCreateSessionSecret } from '../middleware/auth.js';
 import { generateApiKey, hashApiKey, getKeyIdentifiers } from '../middleware/apiKey.js';
 import { type ApiKey, toApiKeyResponse } from '../../db/schemas/users.js';
 
@@ -49,9 +50,38 @@ function requireAuthenticatedRequest(db: Database.Database) {
  */
 export function createAuthRoutes(db: Database.Database, config: AuthConfig): Router {
   const router = Router();
+  const sessionSecret = getOrCreateSessionSecret(config);
+  const { generateCsrfToken } = csrfMiddleware(sessionSecret);
 
   // Rate limit all auth endpoints
   router.use(authRateLimiter(config.rateLimitAuth));
+
+  // --- CSRF token (double-submit cookie) ---
+  // Only meaningful for cookie-based auth modes (forms/oidc). For other modes we return null.
+  router.get('/csrf', (req: Request, res: Response): void => {
+    const authMode = getCurrentAuthMode(db);
+    if (authMode !== 'forms' && authMode !== 'oidc') {
+      res.json({ csrfToken: null });
+      return;
+    }
+
+    const anyReq = req as unknown as { cookies?: Record<string, string> };
+    if (!anyReq.cookies) {
+      anyReq.cookies = Object.fromEntries(
+        (req.headers.cookie ?? '')
+          .split(';')
+          .map((part) => part.trim())
+          .filter(Boolean)
+          .map((part) => {
+            const idx = part.indexOf('=');
+            if (idx === -1) return [part, ''] as const;
+            return [decodeURIComponent(part.slice(0, idx)), decodeURIComponent(part.slice(idx + 1))] as const;
+          }),
+      );
+    }
+
+    res.json({ csrfToken: generateCsrfToken(req, res) });
+  });
 
   // --- Login ---
   router.post('/login', (req: Request, res: Response, next: NextFunction): void => {

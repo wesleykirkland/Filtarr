@@ -13,6 +13,7 @@ describe('system routes', () => {
   beforeEach(() => {
     process.env = { ...originalEnv };
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'filtarr-browse-'));
+    process.env['FILTARR_BROWSE_ROOTS'] = tempDir;
   });
 
   afterEach(() => {

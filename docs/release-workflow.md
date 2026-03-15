@@ -54,10 +54,10 @@ Filtarr uses a **three-stage automated release workflow** with semantic versioni
 ### Example
 ```bash
 # PR #42 with commits abc1234, def5678, ghi9012
-ghcr.io/owner/filtarr:pr-42           # Always points to latest (ghi9012)
-ghcr.io/owner/filtarr:pr-42-abc1234   # Deleted on PR close
-ghcr.io/owner/filtarr:pr-42-def5678   # Deleted on PR close
-ghcr.io/owner/filtarr:pr-42-ghi9012   # Deleted on PR close
+https://github.com/wesleykirkland/Filtarr/pkgs/container/filtarr/737659665?tag=pr-42           # Always points to latest (ghi9012)
+https://github.com/wesleykirkland/Filtarr/pkgs/container/filtarr/737659665?tag=pr-42-abc1234   # Deleted on PR close
+https://github.com/wesleykirkland/Filtarr/pkgs/container/filtarr/737659665?tag=pr-42-def5678   # Deleted on PR close
+https://github.com/wesleykirkland/Filtarr/pkgs/container/filtarr/737659665?tag=pr-42-ghi9012   # Deleted on PR close
 ```
 
 After PR is closed, only `pr-42` remains as a reference.
@@ -83,8 +83,8 @@ After PR is closed, only `pr-42` remains as a reference.
 ### Example
 ```bash
 # After merging PR to main (commit abc1234)
-ghcr.io/owner/filtarr:develop   # Always points to latest main
-ghcr.io/owner/filtarr:abc1234   # Immutable reference to this commit
+ghcr.io/wesleykirkland/filtarr:develop   # Always points to latest main
+ghcr.io/wesleykirkland/filtarr:abc1234   # Immutable reference to this commit
 ```
 
 ---
@@ -128,8 +128,8 @@ ghcr.io/owner/filtarr:abc1234   # Immutable reference to this commit
 ### Example
 ```bash
 # After creating release v1.2.3
-ghcr.io/owner/filtarr:1.2.3   # Immutable version tag
-ghcr.io/owner/filtarr:latest  # Points to 1.2.3 (most recent stable)
+ghcr.io/wesleykirkland/filtarr:1.2.3   # Immutable version tag
+ghcr.io/wesleykirkland/filtarr:latest  # Points to 1.2.3 (most recent stable)
 ```
 
 ---
@@ -193,4 +193,3 @@ Add `BREAKING CHANGE:` in the commit body or use `!` after the type (e.g., `feat
 - `.github/workflows/conventional-pr-title.yml` - Enforce conventional commits
 - `.releaserc.json` - Semantic-release configuration
 - `CHANGELOG.md` - Auto-generated changelog
-

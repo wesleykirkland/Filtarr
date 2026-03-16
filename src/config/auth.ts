@@ -3,6 +3,9 @@ import { z } from 'zod';
 export const AuthMode = z.enum(['none', 'basic', 'forms', 'oidc']);
 export type AuthMode = z.infer<typeof AuthMode>;
 
+export const DEFAULT_OIDC_CALLBACK_URL = 'http://localhost:9898/api/v1/auth/oidc/callback';
+export const DEFAULT_OIDC_SCOPES = ['openid', 'profile', 'email'] as const;
+
 export const BasicAuthConfigSchema = z.object({
   username: z.string().min(1, 'Username is required'),
   password: z.string().min(8, 'Password must be at least 8 characters'),
@@ -18,9 +21,11 @@ export const OidcAuthConfigSchema = z.object({
   issuerUrl: z.string().url('OIDC issuer must be a valid URL'),
   clientId: z.string().min(1, 'OIDC client ID is required'),
   clientSecret: z.string().min(1, 'OIDC client secret is required'),
-  callbackUrl: z.string().url().default('http://localhost:9898/api/v1/auth/oidc/callback'),
-  scopes: z.array(z.string()).default(['openid', 'profile', 'email']),
+  callbackUrl: z.string().url().default(DEFAULT_OIDC_CALLBACK_URL),
+  scopes: z.array(z.string()).default([...DEFAULT_OIDC_SCOPES]),
 });
+
+export type OidcAuthConfig = z.infer<typeof OidcAuthConfigSchema>;
 
 export const AuthConfigSchema = z.object({
   mode: AuthMode.default('none'),
@@ -28,8 +33,8 @@ export const AuthConfigSchema = z.object({
   forms: FormsAuthConfigSchema.optional(),
   oidc: OidcAuthConfigSchema.optional(),
   apiKeyBcryptRounds: z.number().int().min(10).max(14).default(12),
-  rateLimitAuth: z.number().int().positive().default(5),       // attempts per minute on auth endpoints
-  rateLimitGeneral: z.number().int().positive().default(100),   // requests per minute general API
+  rateLimitAuth: z.number().int().positive().default(5), // attempts per minute on auth endpoints
+  rateLimitGeneral: z.number().int().positive().default(100), // requests per minute general API
   corsOrigin: z.union([z.string(), z.array(z.string())]).default('same-origin'),
 });
 
@@ -59,7 +64,7 @@ export function loadAuthConfigFromEnv(): Partial<AuthConfig> {
   if (env['FILTARR_SESSION_SECRET']) {
     config.forms = {
       sessionSecret: env['FILTARR_SESSION_SECRET'],
-      sessionMaxAge: parseInt(env['FILTARR_SESSION_MAX_AGE'] || '86400000', 10),
+      sessionMaxAge: Number.parseInt(env['FILTARR_SESSION_MAX_AGE'] || '86400000', 10),
       cookieName: env['FILTARR_SESSION_COOKIE_NAME'] || 'filtarr.sid',
     };
   }
@@ -70,8 +75,8 @@ export function loadAuthConfigFromEnv(): Partial<AuthConfig> {
       issuerUrl: env['FILTARR_OIDC_ISSUER'],
       clientId: env['FILTARR_OIDC_CLIENT_ID'] || '',
       clientSecret: env['FILTARR_OIDC_CLIENT_SECRET'] || '',
-      callbackUrl: env['FILTARR_OIDC_CALLBACK_URL'] || 'http://localhost:9898/api/v1/auth/oidc/callback',
-      scopes: (env['FILTARR_OIDC_SCOPES'] || 'openid,profile,email').split(','),
+      callbackUrl: env['FILTARR_OIDC_CALLBACK_URL'] || DEFAULT_OIDC_CALLBACK_URL,
+      scopes: (env['FILTARR_OIDC_SCOPES'] || DEFAULT_OIDC_SCOPES.join(',')).split(','),
     };
   }
 
@@ -82,4 +87,3 @@ export function loadAuthConfigFromEnv(): Partial<AuthConfig> {
 
   return config;
 }
-

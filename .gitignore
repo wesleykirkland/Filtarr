@@ -28,7 +28,12 @@ npm-debug.log*
 
 # Filtarr data
 data/
+config/
+.encryption-key
 *.db
 *.db-wal
 *.db-shm
+
 coverage/
+
+compose-local.yml

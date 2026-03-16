@@ -1,4 +1,13 @@
-@import "tailwindcss";
+@import 'tailwindcss';
+
+@theme {
+  --color-brand: #2563eb;
+  --color-brand-soft: #dbeafe;
+  --color-surface: #ffffff;
+  --color-surface-subtle: #f8fafc;
+  --color-border-subtle: #e5e7eb;
+  --variant-dark: .dark &;
+}
 
 /* Dark mode default, light mode via class toggle */
 :root {
@@ -9,3 +18,22 @@
   color-scheme: light;
 }
 
+.dark {
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  background: rgb(249 250 251);
+  color: rgb(17 24 39);
+}
+
+.dark body {
+  background: rgb(3 7 18);
+  color: rgb(243 244 246);
+}

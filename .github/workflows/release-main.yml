@@ -1,0 +1,177 @@
+name: Release main
+
+on:
+  release:
+    types:
+      - published
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: release-main
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: 22.14.0
+
+jobs:
+  release:
+    name: Publish GitHub Release and GHCR image
+    if: >
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'release' && github.event.release.target_commitish == 'main')
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: write
+      packages: write
+      attestations: write
+      id-token: write
+    steps:
+      - name: Derive release context
+        id: context
+        shell: bash
+        env:
+          RELEASE_TAG_NAME: ${{ github.event.release.tag_name }}
+        run: |
+          # Security: Use environment variables to prevent script injection
+          # For release events, use the tag from the release
+          # For workflow_dispatch, use the current commit
+          if [ "${GITHUB_EVENT_NAME}" = "release" ]; then
+            # Validate tag format (v followed by semver)
+            if ! printf '%s' "${RELEASE_TAG_NAME}" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+'; then
+              echo "Error: Invalid release tag format (expected vX.Y.Z)" >&2
+              exit 1
+            fi
+            release_sha="${GITHUB_SHA}"
+            release_ref="${GITHUB_REF}"
+            release_ref_name="${RELEASE_TAG_NAME}"
+          else
+            release_sha="${GITHUB_SHA}"
+            release_ref="${GITHUB_REF}"
+            release_ref_name="${GITHUB_REF_NAME}"
+          fi
+
+          image_repository="$(printf '%s' "${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')"
+          created_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+          {
+            echo "release_sha=${release_sha}"
+            echo "release_ref=${release_ref}"
+            echo "release_ref_name=${release_ref_name}"
+            echo "image=ghcr.io/${image_repository}"
+            echo "created_at=${created_at}"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Check out repository
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ steps.context.outputs.release_sha }}
+          fetch-depth: 0
+
+      - name: Fetch release tags
+        run: git fetch --force --tags origin
+
+      - name: Use Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Capture existing tag on release commit
+        id: previous_release
+        shell: bash
+        run: |
+          existing_tag="$(git tag --points-at "${{ steps.context.outputs.release_sha }}" 'v*' | sort -V | tail -n1)"
+          echo "tag=${existing_tag}" >> "${GITHUB_OUTPUT}"
+
+      - name: Run semantic-release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REF: ${{ steps.context.outputs.release_ref }}
+          GITHUB_REF_NAME: ${{ steps.context.outputs.release_ref_name }}
+          GITHUB_SHA: ${{ steps.context.outputs.release_sha }}
+        run: npx --yes semantic-release@25.0.3
+
+      - name: Determine release outcome
+        id: release_version
+        shell: bash
+        run: |
+          current_tag="$(git tag --points-at "${{ steps.context.outputs.release_sha }}" 'v*' | sort -V | tail -n1)"
+
+          if [ -z "${current_tag}" ] || [ "${current_tag}" = "${{ steps.previous_release.outputs.tag }}" ]; then
+            echo "published=false" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+
+          echo "published=true" >> "${GITHUB_OUTPUT}"
+          echo "git_tag=${current_tag}" >> "${GITHUB_OUTPUT}"
+          echo "version=${current_tag#v}" >> "${GITHUB_OUTPUT}"
+
+      - name: Set up QEMU
+        if: steps.release_version.outputs.published == 'true'
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        if: steps.release_version.outputs.published == 'true'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        if: steps.release_version.outputs.published == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push release image
+        if: steps.release_version.outputs.published == 'true'
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Containerfile
+          push: true
+          provenance: false
+          sbom: false
+          platforms: linux/amd64,linux/arm64
+          tags: |
+            ${{ steps.context.outputs.image }}:${{ steps.release_version.outputs.version }}
+            ${{ steps.context.outputs.image }}:latest
+          build-args: |
+            OCI_VERSION=${{ steps.release_version.outputs.version }}
+            OCI_REVISION=${{ steps.context.outputs.release_sha }}
+            OCI_CREATED=${{ steps.context.outputs.created_at }}
+            OCI_REF_NAME=${{ steps.context.outputs.release_ref_name }}
+            OCI_SOURCE=${{ github.server_url }}/${{ github.repository }}
+
+      - name: Attest pushed image
+        if: steps.release_version.outputs.published == 'true'
+        uses: actions/attest@v4
+        with:
+          subject-name: ${{ steps.context.outputs.image }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+          create-storage-record: false
+
+      - name: Summarize release result
+        if: always()
+        shell: bash
+        run: |
+          if [ "${{ steps.release_version.outputs.published }}" = "true" ]; then
+            {
+              echo "### Published release"
+              echo
+              echo "- Git tag: \`${{ steps.release_version.outputs.git_tag }}\`"
+              echo "- Image: \`${{ steps.context.outputs.image }}:${{ steps.release_version.outputs.version }}\`"
+              echo "- Image: \`${{ steps.context.outputs.image }}:latest\`"
+              echo "- Digest: \`${{ steps.build.outputs.digest }}\`"
+            } >> "${GITHUB_STEP_SUMMARY}"
+          else
+            {
+              echo "### No release published"
+              echo
+              echo "Semantic-release found no new stable version for this main-branch commit, so GHCR publication was skipped."
+            } >> "${GITHUB_STEP_SUMMARY}"
+          fi

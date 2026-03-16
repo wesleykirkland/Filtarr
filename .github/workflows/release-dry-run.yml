@@ -1,0 +1,31 @@
+name: Release dry run
+
+on:
+  workflow_dispatch:
+
+env:
+  NODE_VERSION: 22.14.0
+
+permissions:
+  contents: write
+
+jobs:
+  semantic-release-dry-run:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Use Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Run semantic-release in dry-run mode
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx --yes semantic-release@25.0.3 --dry-run

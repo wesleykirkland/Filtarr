@@ -1,0 +1,226 @@
+name: PR preview image lifecycle
+
+on:
+  pull_request:
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - ready_for_review
+      - closed
+
+permissions: {}
+
+jobs:
+  publish-preview:
+    name: Publish PR preview image
+    if: github.event.action != 'closed' && github.event.pull_request.head.repo.fork == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    permissions:
+      contents: read
+      packages: write
+    concurrency:
+      group: pr-preview-publish-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    steps:
+      - name: Derive preview context
+        id: context
+        shell: bash
+        run: |
+          preview_sha="${{ github.event.pull_request.head.sha }}"
+          short_sha="${preview_sha::7}"
+          image_repository="$(printf '%s' "${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')"
+          preview_tag="pr-${{ github.event.pull_request.number }}"
+          preview_sha_tag="${preview_tag}-${short_sha}"
+          created_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+          {
+            echo "image=ghcr.io/${image_repository}"
+            echo "preview_tag=${preview_tag}"
+            echo "preview_sha_tag=${preview_sha_tag}"
+            echo "preview_sha=${preview_sha}"
+            echo "created_at=${created_at}"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Check out PR head commit
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ steps.context.outputs.preview_sha }}
+          persist-credentials: false
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push PR preview image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Containerfile
+          push: true
+          provenance: false
+          sbom: false
+          platforms: linux/amd64,linux/arm64
+          tags: |
+            ${{ steps.context.outputs.image }}:${{ steps.context.outputs.preview_tag }}
+            ${{ steps.context.outputs.image }}:${{ steps.context.outputs.preview_sha_tag }}
+          build-args: |
+            OCI_VERSION=${{ steps.context.outputs.preview_sha_tag }}
+            OCI_REVISION=${{ steps.context.outputs.preview_sha }}
+            OCI_CREATED=${{ steps.context.outputs.created_at }}
+            OCI_REF_NAME=${{ steps.context.outputs.preview_tag }}
+            OCI_SOURCE=${{ github.server_url }}/${{ github.repository }}
+
+      - name: Inspect published image
+        shell: bash
+        run: |
+          echo "Inspecting multi-platform manifest..."
+          docker buildx imagetools inspect ${{ steps.context.outputs.image }}:${{ steps.context.outputs.preview_tag }}
+
+      - name: Summarize preview publication
+        shell: bash
+        run: |
+          {
+            echo "### Published PR preview image"
+            echo
+            echo "- Image: \`${{ steps.context.outputs.image }}:${{ steps.context.outputs.preview_tag }}\`"
+            echo "- Image: \`${{ steps.context.outputs.image }}:${{ steps.context.outputs.preview_sha_tag }}\`"
+            echo "- Source PR: #${{ github.event.pull_request.number }}"
+            echo "- Source commit: \`${{ steps.context.outputs.preview_sha }}\`"
+            echo "- Stable tags intentionally untouched: \`latest\` and semantic-version tags are never emitted from this workflow."
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+  fork-preview-note:
+    name: Preview publish unavailable for fork PRs
+    if: github.event.action != 'closed' && github.event.pull_request.head.repo.fork == true
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Explain fork PR behavior
+        shell: bash
+        run: |
+          {
+            echo "### Preview publish skipped"
+            echo
+            echo "Fork-based pull requests do not publish GHCR preview images from this workflow."
+            echo "This avoids granting package-write access to untrusted PR code via \`pull_request_target\` or long-lived registry credentials."
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+  cleanup-preview:
+    name: Clean up PR preview images
+    if: github.event.action == 'closed'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      packages: write
+    steps:
+      - name: Delete preview package versions
+        uses: actions/github-script@v8
+        env:
+          OWNER: ${{ github.repository_owner }}
+          PACKAGE_NAME: ${{ github.event.repository.name }}
+          PR_TAG: pr-${{ github.event.pull_request.number }}
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const owner = process.env.OWNER;
+            const packageName = process.env.PACKAGE_NAME.toLowerCase();
+            const prTag = process.env.PR_TAG;
+            const isPreviewTag = (tag) => tag === prTag || tag.startsWith(`${prTag}-`);
+
+            const ownerInfo = await github.request('GET /users/{username}', {
+              username: owner,
+            });
+            const ownerType = ownerInfo.data.type;
+            const listRoute =
+              ownerType === 'Organization'
+                ? 'GET /orgs/{org}/packages/{package_type}/{package_name}/versions'
+                : 'GET /users/{username}/packages/{package_type}/{package_name}/versions';
+            const deleteRoute =
+              ownerType === 'Organization'
+                ? 'DELETE /orgs/{org}/packages/{package_type}/{package_name}/versions/{package_version_id}'
+                : 'DELETE /users/{username}/packages/{package_type}/{package_name}/versions/{package_version_id}';
+            const routeParams =
+              ownerType === 'Organization'
+                ? { org: owner, package_type: 'container', package_name: packageName }
+                : { username: owner, package_type: 'container', package_name: packageName };
+
+            let versions;
+            try {
+              versions = await github.paginate(listRoute, {
+                ...routeParams,
+                per_page: 100,
+              });
+            } catch (error) {
+              if (error.status === 404) {
+                await core.summary
+                  .addHeading('No preview package versions found')
+                  .addRaw(`No GHCR package named \`${packageName}\` exists yet, so there is nothing to clean up for \`${prTag}\`.`)
+                  .write();
+                return;
+              }
+
+              throw error;
+            }
+
+            // Filter versions that have SHA-specific tags (pr-#-sha) but preserve pr-# base tag
+            const isShaTag = (tag) => tag.startsWith(`${prTag}-`) && tag !== prTag;
+
+            const shaOnlyVersions = versions.filter((version) => {
+              const tags = version.metadata?.container?.tags ?? [];
+              // Delete if it has pr-#-sha tags AND does not have the base pr-# tag
+              return tags.some(isShaTag) && !tags.includes(prTag);
+            });
+
+            const mixedTagVersions = versions.filter((version) => {
+              const tags = version.metadata?.container?.tags ?? [];
+              // Skip if it has both preview tags and non-preview tags
+              return tags.some(isPreviewTag) && !tags.every(isPreviewTag);
+            });
+
+            const preservedVersions = versions.filter((version) => {
+              const tags = version.metadata?.container?.tags ?? [];
+              // Preserve if it has the base pr-# tag
+              return tags.includes(prTag);
+            });
+
+            for (const version of shaOnlyVersions) {
+              await github.request(deleteRoute, {
+                ...routeParams,
+                package_version_id: version.id,
+              });
+            }
+
+            const deletedTags = shaOnlyVersions.map((version) => {
+              const tags = version.metadata?.container?.tags ?? [];
+              return tags.length > 0 ? tags.join(', ') : `(untagged preview digest ${version.name})`;
+            });
+
+            await core.summary
+              .addHeading('PR preview cleanup result')
+              .addList([
+                ...(deletedTags.length > 0
+                  ? deletedTags.map((tags) => `Deleted SHA-specific version with tags: \`${tags}\``)
+                  : [`No SHA-specific GHCR versions matched \`${prTag}-*\`.`]),
+                ...(preservedVersions.length > 0
+                  ? [`Preserved base tag \`${prTag}\` as reference point (${preservedVersions.length} version(s))`]
+                  : []),
+              ])
+              .write();
+
+            if (mixedTagVersions.length > 0) {
+              core.warning(
+                `Skipped ${mixedTagVersions.length} package version(s) because they had both preview tags and non-preview tags.`,
+              );
+            }

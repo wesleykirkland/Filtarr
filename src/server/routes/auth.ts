@@ -1,15 +1,43 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import passport from 'passport';
-import bcrypt from 'bcrypt';
 import type Database from 'better-sqlite3';
 import type { AuthConfig, AuthMode } from '../../config/auth.js';
-import { authRateLimiter } from '../middleware/security.js';
-import {
-  generateApiKey,
-  hashApiKey,
-  getKeyIdentifiers,
-} from '../middleware/apiKey.js';
+import { authRateLimiter, csrfMiddleware } from '../middleware/security.js';
+import { getOrCreateSessionSecret } from '../middleware/auth.js';
+import { generateApiKey, hashApiKey, getKeyIdentifiers } from '../middleware/apiKey.js';
 import { type ApiKey, toApiKeyResponse } from '../../db/schemas/users.js';
+
+function parseCookieHeader(headerValue: string | undefined): Record<string, string> {
+  // Use Object.create(null) to prevent prototype pollution
+  const cookies: Record<string, string> = Object.create(null);
+  if (!headerValue) return cookies;
+
+  for (const part of headerValue.split(';')) {
+    const index = part.indexOf('=');
+    if (index === -1) continue;
+    const key = decodeURIComponent(part.slice(0, index).trim());
+    const value = decodeURIComponent(part.slice(index + 1).trim());
+
+    // Prevent prototype pollution by rejecting dangerous property names
+    if (key === '__proto__' || key === 'constructor' || key === 'prototype') {
+      continue;
+    }
+
+    // Additional safety: only allow alphanumeric keys with underscores, hyphens, and dots
+    if (!/^[a-zA-Z0-9_.-]+$/.test(key)) {
+      continue;
+    }
+
+    cookies[key] = value;
+  }
+
+  return cookies;
+}
+
+function ensureCookies(req: Request): void {
+  const anyReq = req as unknown as { cookies?: Record<string, string> };
+  anyReq.cookies ??= parseCookieHeader(req.headers.cookie);
+}
 
 /**
  * Get the current auth mode from the database settings.
@@ -17,13 +45,35 @@ import { type ApiKey, toApiKeyResponse } from '../../db/schemas/users.js';
  */
 function getCurrentAuthMode(db: Database.Database): AuthMode {
   try {
-    const result = db.prepare<[], { value: string }>(
-      `SELECT value FROM settings WHERE key = 'auth_mode'`,
-    ).get();
+    const result = db
+      .prepare<[], { value: string }>(`SELECT value FROM settings WHERE key = 'auth_mode'`)
+      .get();
     return (result?.value as AuthMode) || 'none';
   } catch {
     return 'none';
   }
+}
+
+function requireAuthenticatedRequest(db: Database.Database) {
+  return (req: Request, res: Response, next: NextFunction): void => {
+    const authMode = getCurrentAuthMode(db);
+
+    if (authMode === 'none') {
+      next();
+      return;
+    }
+
+    if (req.apiKey || req.isAuthenticated?.() || (authMode === 'basic' && req._basicAuthValid)) {
+      next();
+      return;
+    }
+
+    if (authMode === 'basic') {
+      res.setHeader('WWW-Authenticate', 'Basic realm="Filtarr"');
+    }
+
+    res.status(401).json({ error: 'Authentication required' });
+  };
 }
 
 /**
@@ -32,9 +82,25 @@ function getCurrentAuthMode(db: Database.Database): AuthMode {
  */
 export function createAuthRoutes(db: Database.Database, config: AuthConfig): Router {
   const router = Router();
+  const sessionSecret = getOrCreateSessionSecret(config);
+  const { generateCsrfToken } = csrfMiddleware(sessionSecret);
 
   // Rate limit all auth endpoints
   router.use(authRateLimiter(config.rateLimitAuth));
+
+  // --- CSRF token (double-submit cookie) ---
+  // Only meaningful for cookie-based auth modes (forms/oidc). For other modes we return null.
+  router.get('/csrf', (req: Request, res: Response): void => {
+    const authMode = getCurrentAuthMode(db);
+    if (authMode !== 'forms' && authMode !== 'oidc') {
+      res.json({ csrfToken: null });
+      return;
+    }
+
+    ensureCookies(req);
+
+    res.json({ csrfToken: generateCsrfToken(req, res) });
+  });
 
   // --- Login ---
   router.post('/login', (req: Request, res: Response, next: NextFunction): void => {
@@ -53,21 +119,24 @@ export function createAuthRoutes(db: Database.Database, config: AuthConfig): Rou
     }
 
     if (authMode === 'forms') {
-      passport.authenticate('local', (err: Error | null, user: Express.User | false, info: { message: string }) => {
-        if (err) return next(err);
-        if (!user) {
-          res.status(401).json({ error: info?.message || 'Invalid credentials' });
-          return;
-        }
-        req.logIn(user, (loginErr) => {
-          if (loginErr) return next(loginErr);
-          // Never return sensitive data
-          res.json({
-            success: true,
-            user: { id: user.id, username: user.username, displayName: user.displayName },
+      passport.authenticate(
+        'local',
+        (err: Error | null, user: Express.User | false, info: { message: string }) => {
+          if (err) return next(err);
+          if (!user) {
+            res.status(401).json({ error: info?.message || 'Invalid credentials' });
+            return;
+          }
+          req.logIn(user, (loginErr) => {
+            if (loginErr) return next(loginErr);
+            // Never return sensitive data
+            res.json({
+              success: true,
+              user: { id: user.id, username: user.username, displayName: user.displayName },
+            });
           });
-        });
-      })(req, res, next);
+        },
+      )(req, res, next);
       return;
     }
 
@@ -113,7 +182,7 @@ export function createAuthRoutes(db: Database.Database, config: AuthConfig): Rou
     }
 
     // Check basic auth
-    if (authMode === 'basic' && (req as any)._basicAuthValid) {
+    if (authMode === 'basic' && req._basicAuthValid) {
       res.json({
         authenticated: true,
         mode: 'basic',
@@ -135,7 +204,8 @@ export function createAuthRoutes(db: Database.Database, config: AuthConfig): Rou
 
   // --- OIDC callback ---
   if (config.mode === 'oidc') {
-    router.get('/oidc/callback',
+    router.get(
+      '/oidc/callback',
       passport.authenticate('openidconnect', { failureRedirect: '/login' }),
       (_req: Request, res: Response) => {
         res.redirect('/');
@@ -144,102 +214,120 @@ export function createAuthRoutes(db: Database.Database, config: AuthConfig): Rou
   }
 
   // --- API Key Management ---
-  // These require an authenticated session (not just API key)
+  router.use('/api-keys', requireAuthenticatedRequest(db));
+
+  // --- API Key Management ---
   router.get('/api-keys', (req: Request, res: Response): void => {
-    const keys = db.prepare<[], ApiKey>('SELECT * FROM api_keys WHERE revoked_at IS NULL ORDER BY created_at DESC').all();
+    const keys = db
+      .prepare<
+        [],
+        ApiKey
+      >('SELECT * FROM api_keys WHERE revoked_at IS NULL ORDER BY created_at DESC')
+      .all();
     res.json(keys.map(toApiKeyResponse));
   });
 
-  router.post('/api-keys', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    try {
-      const { name = 'API Key' } = req.body as { name?: string };
-      const key = generateApiKey();
-      const keyHash = await hashApiKey(key, config.apiKeyBcryptRounds);
-      const { prefix, last4 } = getKeyIdentifiers(key);
+  router.post(
+    '/api-keys',
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+      try {
+        const { name = 'API Key' } = req.body as { name?: string };
+        const key = generateApiKey();
+        const keyHash = await hashApiKey(key, config.apiKeyBcryptRounds);
+        const { prefix, last4 } = getKeyIdentifiers(key);
 
-      const result = db.prepare(
-        `INSERT INTO api_keys (name, key_hash, key_prefix, key_last4, user_id, scopes)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-      ).run(name, keyHash, prefix, last4, req.user?.id ?? null, '["*"]');
+        const result = db
+          .prepare(
+            `INSERT INTO api_keys(name, key_hash, key_prefix, key_last4, user_id, scopes)
+VALUES(?, ?, ?, ?, ?, ?)`,
+          )
+          .run(name, keyHash, prefix, last4, req.user?.id ?? null, '["*"]');
 
-      // Return the key ONCE — it will never be shown again
-      res.status(201).json({
-        id: result.lastInsertRowid,
-        name,
-        key, // Only time the full key is returned
-        maskedKey: `${'•'.repeat(8)}${last4}`,
-        message: 'Save this API key — it will not be shown again.',
-      });
-    } catch (err) {
-      next(err);
-    }
-  });
+        // Return the key ONCE — it will never be shown again
+        res.status(201).json({
+          id: result.lastInsertRowid,
+          name,
+          key, // Only time the full key is returned
+          maskedKey: `${'•'.repeat(8)}${last4} `,
+          message: 'Save this API key — it will not be shown again.',
+        });
+      } catch (err) {
+        next(err);
+      }
+    },
+  );
 
   router.delete('/api-keys/:id', (req: Request, res: Response): void => {
     const { id } = req.params;
-    db.prepare('UPDATE api_keys SET revoked_at = datetime(\'now\') WHERE id = ? AND revoked_at IS NULL')
-      .run(id);
+    db.prepare(
+      "UPDATE api_keys SET revoked_at = datetime('now') WHERE id = ? AND revoked_at IS NULL",
+    ).run(id);
     res.json({ success: true });
   });
 
   // --- API Key Rotation ---
   // Revokes the current (or specified) key and generates a new one
-  router.post('/api-keys/rotate', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    try {
-      // Use provided keyId, or fall back to the current API key being used for auth
-      const { keyId: providedKeyId } = req.body as { keyId?: number };
-      const keyId = providedKeyId ?? req.apiKey?.apiKeyId;
+  router.post(
+    '/api-keys/rotate',
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+      try {
+        // Use provided keyId, or fall back to the current API key being used for auth
+        const { keyId: providedKeyId } = req.body as { keyId?: number };
+        const keyId = providedKeyId ?? req.apiKey?.apiKeyId;
 
-      if (!keyId) {
-        res.status(400).json({ error: 'keyId is required (or authenticate with an API key to rotate it)' });
-        return;
+        if (!keyId) {
+          res
+            .status(400)
+            .json({ error: 'keyId is required (or authenticate with an API key to rotate it)' });
+          return;
+        }
+
+        // Check the key exists and is not already revoked
+        const existingKey = db
+          .prepare<[number], ApiKey>('SELECT * FROM api_keys WHERE id = ? AND revoked_at IS NULL')
+          .get(keyId);
+
+        if (!existingKey) {
+          res.status(404).json({ error: 'API key not found or already revoked' });
+          return;
+        }
+
+        // Generate new key BEFORE revoking old one (atomic-ish operation)
+        const newKey = generateApiKey();
+        const keyHash = await hashApiKey(newKey, config.apiKeyBcryptRounds);
+        const { prefix, last4 } = getKeyIdentifiers(newKey);
+
+        // Use a transaction to ensure atomicity
+        const rotateKey = db.transaction(() => {
+          // Revoke the old key
+          db.prepare("UPDATE api_keys SET revoked_at = datetime('now') WHERE id = ?").run(keyId);
+
+          // Insert new key
+          const result = db
+            .prepare(
+              `INSERT INTO api_keys(name, key_hash, key_prefix, key_last4, user_id, scopes)
+VALUES(?, ?, ?, ?, ?, ?)`,
+            )
+            .run(existingKey.name, keyHash, prefix, last4, existingKey.user_id, existingKey.scopes);
+
+          return result;
+        });
+
+        const result = rotateKey();
+
+        res.status(201).json({
+          id: result.lastInsertRowid,
+          name: existingKey.name,
+          apiKey: newKey, // Only time the full key is returned
+          maskedKey: `${'•'.repeat(8)}${last4} `,
+          message: 'API key rotated. Save the new key — it will not be shown again.',
+          revokedKeyId: keyId,
+        });
+      } catch (err) {
+        next(err);
       }
-
-      // Check the key exists and is not already revoked
-      const existingKey = db.prepare<[number], ApiKey>(
-        'SELECT * FROM api_keys WHERE id = ? AND revoked_at IS NULL',
-      ).get(keyId);
-
-      if (!existingKey) {
-        res.status(404).json({ error: 'API key not found or already revoked' });
-        return;
-      }
-
-      // Generate new key BEFORE revoking old one (atomic-ish operation)
-      const newKey = generateApiKey();
-      const keyHash = await hashApiKey(newKey, config.apiKeyBcryptRounds);
-      const { prefix, last4 } = getKeyIdentifiers(newKey);
-
-      // Use a transaction to ensure atomicity
-      const rotateKey = db.transaction(() => {
-        // Revoke the old key
-        db.prepare('UPDATE api_keys SET revoked_at = datetime(\'now\') WHERE id = ?')
-          .run(keyId);
-
-        // Insert new key
-        const result = db.prepare(
-          `INSERT INTO api_keys (name, key_hash, key_prefix, key_last4, user_id, scopes)
-           VALUES (?, ?, ?, ?, ?, ?)`,
-        ).run(existingKey.name, keyHash, prefix, last4, existingKey.user_id, existingKey.scopes);
-
-        return result;
-      });
-
-      const result = rotateKey();
-
-      res.status(201).json({
-        id: result.lastInsertRowid,
-        name: existingKey.name,
-        apiKey: newKey, // Only time the full key is returned
-        maskedKey: `${'•'.repeat(8)}${last4}`,
-        message: 'API key rotated. Save the new key — it will not be shown again.',
-        revokedKeyId: keyId,
-      });
-    } catch (err) {
-      next(err);
-    }
-  });
+    },
+  );
 
   return router;
 }
-

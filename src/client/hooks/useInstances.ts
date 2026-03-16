@@ -2,6 +2,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { toast } from '../components/Toast';
 
+const DEFAULT_INSTANCE_TEST_FAILURE_MESSAGE = 'Connection failed';
+
 export interface Instance {
   id: number;
   name: string;
@@ -10,6 +12,9 @@ export interface Instance {
   api_key_masked: string;
   timeout: number;
   enabled: number;
+  skipSslVerify: boolean;
+  remotePath?: string | null;
+  localPath?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -21,12 +26,32 @@ export interface CreateInstanceInput {
   apiKey: string;
   timeout?: number;
   enabled?: boolean;
+  skipSslVerify?: boolean;
+  remotePath?: string | null;
+  localPath?: string | null;
 }
 
 export interface TestResult {
   success: boolean;
   version?: string;
   error?: string;
+}
+
+export function notifyInstanceTestResult(data: TestResult) {
+  if (data.success) {
+    const successMessage = data.version ? `Connection OK (v${data.version})` : 'Connection OK';
+    toast('success', successMessage);
+    return;
+  }
+
+  const message = data.error || DEFAULT_INSTANCE_TEST_FAILURE_MESSAGE;
+  console.error('Arr instance connection test failed:', message);
+  toast('error', message);
+}
+
+export function notifyInstanceTestError(err: Error) {
+  console.error('Arr instance connection test failed:', err);
+  toast('error', err.message || DEFAULT_INSTANCE_TEST_FAILURE_MESSAGE);
 }
 
 export function useInstances() {
@@ -76,14 +101,15 @@ export function useDeleteInstance() {
 export function useTestInstance() {
   return useMutation({
     mutationFn: (id: number) => api.get<TestResult>(`/instances/${id}/test`),
-    onSuccess: (data) => {
-      if (data.success) {
-        toast('success', `Connection OK${data.version ? ` (v${data.version})` : ''}`);
-      } else {
-        toast('error', data.error || 'Connection failed');
-      }
-    },
-    onError: (err: Error) => toast('error', err.message),
+    onSuccess: notifyInstanceTestResult,
+    onError: notifyInstanceTestError,
   });
 }
 
+export function useTestUnsavedInstance() {
+  return useMutation({
+    mutationFn: (input: CreateInstanceInput) => api.post<TestResult>('/instances/test', input),
+    onSuccess: notifyInstanceTestResult,
+    onError: notifyInstanceTestError,
+  });
+}

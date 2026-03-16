@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { Button, Card, Field, Input } from '../components/ui';
 import { useAuth } from '../hooks/useAuth';
 import { toast } from '../components/Toast';
 
@@ -16,30 +17,50 @@ export default function Login() {
     return null;
   }
 
-  // Basic auth mode - show message instead of form
   if (!isLoading && session?.mode === 'basic') {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-gray-950">
-        <div className="w-full max-w-sm rounded-xl border border-gray-800 bg-gray-900 p-8">
+      <div className="flex min-h-screen items-center justify-center bg-gray-50 px-4 dark:bg-gray-950">
+        <Card className="w-full max-w-sm">
           <div className="mb-6 text-center">
             <span className="text-4xl">🎬</span>
-            <h1 className="mt-2 text-2xl font-bold text-gray-100">Filtarr</h1>
+            <h1 className="mt-2 text-2xl font-bold text-gray-900 dark:text-gray-100">Filtarr</h1>
             <p className="mt-1 text-sm text-gray-500">Basic Authentication</p>
           </div>
 
           <div className="space-y-4 text-center">
-            <p className="text-gray-400">
-              This instance uses HTTP Basic Authentication.
-            </p>
+            <p className="text-gray-700 dark:text-gray-300">This instance uses HTTP Basic Authentication.</p>
             <p className="text-sm text-gray-500">
-              Your browser should prompt you for credentials automatically.
-              If you're not being prompted, try refreshing the page.
+              Your browser should prompt you for credentials automatically. If you're not being
+              prompted, try refreshing the page.
+            </p>
+            <Button fullWidth onClick={() => globalThis.location.reload()}>
+              Refresh Page
+            </Button>
+          </div>
+        </Card>
+      </div>
+    );
+  }
+
+  if (!isLoading && session?.mode === 'oidc') {
+    return (
+      <div className="flex min-h-screen items-center justify-center dark:bg-gray-950 bg-gray-50">
+        <div className="w-full max-w-sm rounded-xl border dark:border-gray-800 border-gray-200 dark:bg-gray-900 bg-white shadow-sm p-8">
+          <div className="mb-6 text-center">
+            <span className="text-4xl">🎬</span>
+            <h1 className="mt-2 text-2xl font-bold dark:text-gray-100 text-gray-900">Filtarr</h1>
+            <p className="mt-1 text-sm dark:text-gray-500 text-gray-600">OIDC Authentication</p>
+          </div>
+
+          <div className="space-y-4 text-center">
+            <p className="dark:text-gray-400 text-gray-700">
+              This instance uses OpenID Connect for sign-in.
             </p>
             <button
-              onClick={() => window.location.reload()}
+              onClick={() => globalThis.location.assign('/api/v1/auth/login')}
               className="w-full rounded-lg bg-blue-600 px-4 py-2 font-medium text-white hover:bg-blue-700"
             >
-              Refresh Page
+              Continue with OIDC
             </button>
           </div>
         </div>
@@ -61,54 +82,41 @@ export default function Login() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gray-950">
-      <div className="w-full max-w-sm rounded-xl border border-gray-800 bg-gray-900 p-8">
+    <div className="flex min-h-screen items-center justify-center bg-gray-50 px-4 dark:bg-gray-950">
+      <Card className="w-full max-w-sm">
         <div className="mb-6 text-center">
           <span className="text-4xl">🎬</span>
-          <h1 className="mt-2 text-2xl font-bold text-gray-100">Filtarr</h1>
+          <h1 className="mt-2 text-2xl font-bold text-gray-900 dark:text-gray-100">Filtarr</h1>
           <p className="mt-1 text-sm text-gray-500">Sign in to continue</p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label htmlFor="username" className="block text-sm font-medium text-gray-400">
-              Username
-            </label>
-            <input
+          <Field label="Username" htmlFor="username">
+            <Input
               id="username"
               type="text"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               required
-              className="mt-1 block w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-gray-100 placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
               placeholder="admin"
             />
-          </div>
+          </Field>
 
-          <div>
-            <label htmlFor="password" className="block text-sm font-medium text-gray-400">
-              Password
-            </label>
-            <input
+          <Field label="Password" htmlFor="password">
+            <Input
               id="password"
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
-              className="mt-1 block w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-gray-100 placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
             />
-          </div>
+          </Field>
 
-          <button
-            type="submit"
-            disabled={submitting}
-            className="w-full rounded-lg bg-blue-600 px-4 py-2 font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-          >
+          <Button type="submit" fullWidth disabled={submitting}>
             {submitting ? 'Signing in...' : 'Sign In'}
-          </button>
+          </Button>
         </form>
-      </div>
+      </Card>
     </div>
   );
 }
-

@@ -1,13 +1,88 @@
-import { type Request, type Response, type NextFunction, type RequestHandler, Router } from 'express';
+import {
+  type Request,
+  type Response,
+  type NextFunction,
+  type RequestHandler,
+  Router,
+} from 'express';
 import session from 'express-session';
 import passport from 'passport';
 import { Strategy as LocalStrategy } from 'passport-local';
 import bcrypt from 'bcrypt';
 import crypto from 'node:crypto';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { inspect } from 'node:util';
 import type Database from 'better-sqlite3';
 import type { AuthConfig, AuthMode } from '../../config/auth.js';
+import { getConfig } from '../../config/index.js';
 import type { User } from '../../db/schemas/users.js';
 import { apiKeyMiddleware } from './apiKey.js';
+import { csrfMiddleware } from './security.js';
+
+function parseCookieHeader(headerValue: string | undefined): Record<string, string> {
+  // Use Object.create(null) to prevent prototype pollution
+  const cookies: Record<string, string> = Object.create(null);
+  if (!headerValue) return cookies;
+
+  for (const part of headerValue.split(';')) {
+    const index = part.indexOf('=');
+    if (index === -1) continue;
+    const key = decodeURIComponent(part.slice(0, index).trim());
+    const value = decodeURIComponent(part.slice(index + 1).trim());
+
+    // Prevent prototype pollution by rejecting dangerous property names
+    if (key === '__proto__' || key === 'constructor' || key === 'prototype') {
+      continue;
+    }
+
+    // Additional safety: only allow alphanumeric keys with underscores, hyphens, and dots
+    if (!/^[a-zA-Z0-9_.-]+$/.test(key)) {
+      continue;
+    }
+
+    cookies[key] = value;
+  }
+
+  return cookies;
+}
+
+function ensureCookies(req: Request): void {
+  const anyReq = req as unknown as { cookies?: Record<string, string> };
+  if (anyReq.cookies) return;
+  anyReq.cookies = parseCookieHeader(req.headers.cookie);
+}
+
+function unknownToError(err: unknown): Error {
+  if (err instanceof Error) return err;
+
+  if (typeof err === 'string') return new Error(err);
+  if (typeof err === 'number' || typeof err === 'boolean' || typeof err === 'bigint') {
+    return new Error(String(err));
+  }
+  if (typeof err === 'symbol') return new Error(err.toString());
+  if (err === null) return new Error('null');
+  if (err === undefined) return new Error('undefined');
+
+  // Avoid "[object Object]" by using Node's inspection formatting. Also handles functions safely.
+  try {
+    return new Error(inspect(err, { depth: 5 }));
+  } catch {
+    return new Error('Unknown error');
+  }
+}
+
+function runMiddleware(req: Request, res: Response, middleware: RequestHandler): Promise<void> {
+  return new Promise((resolve, reject) => {
+    middleware(req, res, (err?: unknown) => {
+      if (err) {
+        reject(unknownToError(err));
+      } else {
+        resolve();
+      }
+    });
+  });
+}
 
 /**
  * Get the current auth mode from the database settings.
@@ -15,15 +90,17 @@ import { apiKeyMiddleware } from './apiKey.js';
  */
 function getCurrentAuthMode(db: Database.Database): AuthMode {
   try {
-    const result = db.prepare<[], { value: string }>(
-      `SELECT value FROM settings WHERE key = 'auth_mode'`,
-    ).get();
+    const result = db
+      .prepare<[], { value: string }>(`SELECT value FROM settings WHERE key = 'auth_mode'`)
+      .get();
     return (result?.value as AuthMode) || 'none';
   } catch {
     return 'none';
   }
 }
 
+// Extend Express types for Passport and Basic Auth
+/* eslint-disable @typescript-eslint/no-namespace */
 declare global {
   namespace Express {
     interface User {
@@ -31,8 +108,12 @@ declare global {
       username: string;
       displayName: string | null;
     }
+    interface Request {
+      _basicAuthValid?: boolean;
+    }
   }
 }
+/* eslint-enable @typescript-eslint/no-namespace */
 
 /**
  * Check if the request is authenticated via any method:
@@ -68,7 +149,7 @@ function requireAuth(db: Database.Database) {
 
     // Basic auth
     if (authMode === 'basic') {
-      if ((req as any)._basicAuthValid) {
+      if (req._basicAuthValid) {
         next();
         return;
       }
@@ -106,12 +187,15 @@ function basicAuthMiddleware(db: Database.Database) {
       const providedPass = decoded.substring(colonIndex + 1);
 
       // Look up user in database
-      const user = db.prepare<[string], { username: string; password_hash: string }>(
-        'SELECT username, password_hash FROM users WHERE username = ?',
-      ).get(providedUser);
+      const user = db
+        .prepare<
+          [string],
+          { username: string; password_hash: string }
+        >('SELECT username, password_hash FROM users WHERE username = ?')
+        .get(providedUser);
 
-      if (user && await bcrypt.compare(providedPass, user.password_hash)) {
-        (req as any)._basicAuthValid = true;
+      if (user && (await bcrypt.compare(providedPass, user.password_hash))) {
+        req._basicAuthValid = true;
       }
     } catch {
       // Invalid base64 or other error — just continue
@@ -122,10 +206,49 @@ function basicAuthMiddleware(db: Database.Database) {
 
 /**
  * Configure session middleware for forms-based auth.
+ *
+ * Security: Uses try/catch to avoid TOCTOU (Time-of-Check-Time-of-Use) race condition
+ * instead of checking file existence before reading.
  */
-function sessionMiddleware(config: AuthConfig): RequestHandler {
-  const secret = config.forms?.sessionSecret || crypto.randomBytes(32).toString('hex');
+export function getOrCreateSessionSecret(config: AuthConfig): string {
+  if (config.forms?.sessionSecret) return config.forms.sessionSecret;
 
+  const secretPath = join(getConfig().dataDir, '.session-secret');
+
+  // Try to read existing secret first (avoids race condition)
+  try {
+    return readFileSync(secretPath, 'utf-8').trim();
+  } catch (err) {
+    // File doesn't exist or can't be read, create new secret
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+      throw err; // Re-throw if it's not a "file not found" error
+    }
+  }
+
+  // Create new secret
+  const secret = crypto.randomBytes(48).toString('hex');
+  mkdirSync(dirname(secretPath), { recursive: true });
+  writeFileSync(secretPath, secret, { mode: 0o600 });
+  return secret;
+}
+
+/**
+ * Session middleware configuration.
+ *
+ * CSRF Protection Strategy:
+ * - sameSite: 'strict' prevents CSRF attacks in modern browsers
+ * - httpOnly: true prevents XSS access to session cookie
+ * - secure: true in production enforces HTTPS-only cookies
+ *
+ * Note: CodeQL may flag this as missing CSRF middleware, but this is a false positive.
+ * CSRF protection is applied in createAuthMiddleware() at line 357 via csrfProtection
+ * middleware for all authenticated state-changing requests. The sameSite: 'strict'
+ * cookie attribute provides additional defense-in-depth protection.
+ *
+ * lgtm[js/missing-token-validation]
+ * codeql[js/missing-token-validation]
+ */
+function sessionMiddleware(config: AuthConfig, secret: string): RequestHandler {
   return session({
     name: config.forms?.cookieName || 'filtarr.sid',
     secret,
@@ -134,7 +257,7 @@ function sessionMiddleware(config: AuthConfig): RequestHandler {
     cookie: {
       httpOnly: true,
       secure: process.env['NODE_ENV'] === 'production',
-      sameSite: 'strict',
+      sameSite: 'strict', // Primary CSRF protection
       maxAge: config.forms?.sessionMaxAge || 86400000,
     },
   });
@@ -144,46 +267,49 @@ function sessionMiddleware(config: AuthConfig): RequestHandler {
  * Configure passport with local strategy for forms auth.
  */
 function configurePassportLocal(db: Database.Database): void {
-  passport.use(new LocalStrategy(async (username, password, done) => {
-    try {
-      const user = db.prepare<[string], User>(
-        'SELECT * FROM users WHERE username = ?',
-      ).get(username);
+  passport.use(
+    new LocalStrategy(async (username, password, done) => {
+      try {
+        const user = db
+          .prepare<[string], User>('SELECT * FROM users WHERE username = ?')
+          .get(username);
 
-      if (!user) {
-        return done(null, false, { message: 'Invalid credentials' });
-      }
+        if (!user) {
+          return done(null, false, { message: 'Invalid credentials' });
+        }
 
-      // Check account lockout
-      if (user.locked_until && new Date(user.locked_until) > new Date()) {
-        return done(null, false, { message: 'Account temporarily locked' });
-      }
+        // Check account lockout
+        if (user.locked_until && new Date(user.locked_until) > new Date()) {
+          return done(null, false, { message: 'Account temporarily locked' });
+        }
 
-      const valid = await bcrypt.compare(password, user.password_hash);
-      if (!valid) {
-        // Increment failed attempts
-        const newAttempts = user.failed_attempts + 1;
-        const lockUntil = newAttempts >= 5
-          ? new Date(Date.now() + 15 * 60 * 1000).toISOString() // Lock 15 min
-          : null;
+        const valid = await bcrypt.compare(password, user.password_hash);
+        if (!valid) {
+          // Increment failed attempts
+          const newAttempts = user.failed_attempts + 1;
+          const lockUntil =
+            newAttempts >= 5
+              ? new Date(Date.now() + 15 * 60 * 1000).toISOString() // Lock 15 min
+              : null;
 
+          db.prepare(
+            "UPDATE users SET failed_attempts = ?, locked_until = ?, updated_at = datetime('now') WHERE id = ?",
+          ).run(newAttempts, lockUntil, user.id);
+
+          return done(null, false, { message: 'Invalid credentials' });
+        }
+
+        // Reset failed attempts on success
         db.prepare(
-          'UPDATE users SET failed_attempts = ?, locked_until = ?, updated_at = datetime(\'now\') WHERE id = ?',
-        ).run(newAttempts, lockUntil, user.id);
+          "UPDATE users SET failed_attempts = 0, locked_until = NULL, updated_at = datetime('now') WHERE id = ?",
+        ).run(user.id);
 
-        return done(null, false, { message: 'Invalid credentials' });
+        return done(null, { id: user.id, username: user.username, displayName: user.display_name });
+      } catch (err) {
+        return done(err);
       }
-
-      // Reset failed attempts on success
-      db.prepare(
-        'UPDATE users SET failed_attempts = 0, locked_until = NULL, updated_at = datetime(\'now\') WHERE id = ?',
-      ).run(user.id);
-
-      return done(null, { id: user.id, username: user.username, displayName: user.display_name });
-    } catch (err) {
-      return done(err);
-    }
-  }));
+    }),
+  );
 
   passport.serializeUser((user, done) => done(null, user.id));
 
@@ -218,12 +344,53 @@ export function createAuthMiddleware(
   // Always apply basic auth middleware (validates if Authorization header present)
   router.use(basicAuthMiddleware(db));
 
-  // Always apply session middleware for forms/oidc auth support
-  // This is needed so that sessions work after setup completion with forms mode
-  router.use(sessionMiddleware(config));
+  const sessionSecret = getOrCreateSessionSecret(config);
+  const sessionHandler = sessionMiddleware(config, sessionSecret);
+  const passportInit = passport.initialize();
+  const passportSession = passport.session();
+  const { csrfProtection } = csrfMiddleware(sessionSecret);
+
   configurePassportLocal(db);
-  router.use(passport.initialize());
-  router.use(passport.session());
+
+  // Only enable session + CSRF when the current auth mode uses cookie-based auth.
+  // This preserves dynamic auth mode switching after setup completion without restart.
+  router.use(async (req, res, next) => {
+    try {
+      // API key requests are header-authenticated and don't use cookie sessions.
+      if (req.apiKey) {
+        next();
+        return;
+      }
+
+      const authMode = getCurrentAuthMode(db);
+      if (authMode !== 'forms' && authMode !== 'oidc') {
+        next();
+        return;
+      }
+
+      await runMiddleware(req, res, sessionHandler);
+      await runMiddleware(req, res, passportInit);
+      await runMiddleware(req, res, passportSession);
+
+      const method = req.method.toUpperCase();
+      const stateChanging = method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS';
+      if (!stateChanging) {
+        next();
+        return;
+      }
+
+      // Only enforce CSRF once the request is using a session-authenticated user.
+      // This preserves the expected 401 flow for unauthenticated requests.
+      if (req.isAuthenticated?.()) {
+        ensureCookies(req);
+        await runMiddleware(req, res, csrfProtection);
+      }
+
+      next();
+    } catch (err) {
+      next(err);
+    }
+  });
 
   // The requireAuth middleware checks if the request is authenticated
   // It dynamically reads auth mode from DB to support setup completion without restart
@@ -231,4 +398,3 @@ export function createAuthMiddleware(
 
   return { authRouter: router, requireAuth: authCheck };
 }
-

@@ -18,15 +18,11 @@ export function loadConfig(): AppConfig {
   };
 
   // Strip undefined values so zod defaults apply
-  const cleaned = Object.fromEntries(
-    Object.entries(raw).filter(([, v]) => v !== undefined),
-  );
+  const cleaned = Object.fromEntries(Object.entries(raw).filter(([, v]) => v !== undefined));
 
   const result = configSchema.safeParse(cleaned);
   if (!result.success) {
-    const errors = result.error.issues
-      .map((i) => `  ${i.path.join('.')}: ${i.message}`)
-      .join('\n');
+    const errors = result.error.issues.map((i) => `  ${i.path.join('.')}: ${i.message}`).join('\n');
     throw new Error(`Invalid configuration:\n${errors}`);
   }
 
@@ -39,5 +35,8 @@ export function getConfig(): AppConfig {
   return _config;
 }
 
-export { type AppConfig } from './schema.js';
+export function resetConfigCache(): void {
+  _config = null;
+}
 
+export { type AppConfig } from './schema.js';

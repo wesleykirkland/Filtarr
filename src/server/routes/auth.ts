@@ -16,6 +16,12 @@ function parseCookieHeader(headerValue: string | undefined): Record<string, stri
     if (index === -1) continue;
     const key = decodeURIComponent(part.slice(0, index).trim());
     const value = decodeURIComponent(part.slice(index + 1).trim());
+
+    // Prevent prototype pollution by rejecting dangerous property names
+    if (key === '__proto__' || key === 'constructor' || key === 'prototype') {
+      continue;
+    }
+
     cookies[key] = value;
   }
 

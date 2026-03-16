@@ -220,6 +220,13 @@ protectedSystemRoutes.get('/browse', (req, res) => {
     // Use try/catch to avoid TOCTOU race condition
     let stat;
     try {
+      // lgtm[js/path-injection]
+      // codeql[js/path-injection]
+      // The 'resolved' path has been validated by validateBrowsePath() which:
+      // 1. Rejects null bytes (line 152)
+      // 2. Resolves symlinks via realpathSync (line 84)
+      // 3. Ensures path stays within allowed roots (line 171-173)
+      // 4. Blocks Windows system directories (line 176-177)
       stat = fs.statSync(resolved);
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
@@ -234,6 +241,9 @@ protectedSystemRoutes.get('/browse', (req, res) => {
       return;
     }
 
+    // lgtm[js/path-injection]
+    // codeql[js/path-injection]
+    // The 'resolved' path has been validated by validateBrowsePath() (see line 223 comment)
     const entries = fs.readdirSync(resolved, { withFileTypes: true });
     const dirs = entries
       .filter((e) => e.isDirectory() && !e.name.startsWith('.'))

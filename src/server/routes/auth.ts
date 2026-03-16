@@ -8,7 +8,8 @@ import { generateApiKey, hashApiKey, getKeyIdentifiers } from '../middleware/api
 import { type ApiKey, toApiKeyResponse } from '../../db/schemas/users.js';
 
 function parseCookieHeader(headerValue: string | undefined): Record<string, string> {
-  const cookies: Record<string, string> = {};
+  // Use Object.create(null) to prevent prototype pollution
+  const cookies: Record<string, string> = Object.create(null);
   if (!headerValue) return cookies;
 
   for (const part of headerValue.split(';')) {
@@ -19,6 +20,11 @@ function parseCookieHeader(headerValue: string | undefined): Record<string, stri
 
     // Prevent prototype pollution by rejecting dangerous property names
     if (key === '__proto__' || key === 'constructor' || key === 'prototype') {
+      continue;
+    }
+
+    // Additional safety: only allow alphanumeric keys with underscores, hyphens, and dots
+    if (!/^[a-zA-Z0-9_.-]+$/.test(key)) {
       continue;
     }
 

@@ -21,7 +21,8 @@ import { apiKeyMiddleware } from './apiKey.js';
 import { csrfMiddleware } from './security.js';
 
 function parseCookieHeader(headerValue: string | undefined): Record<string, string> {
-  const cookies: Record<string, string> = {};
+  // Use Object.create(null) to prevent prototype pollution
+  const cookies: Record<string, string> = Object.create(null);
   if (!headerValue) return cookies;
 
   for (const part of headerValue.split(';')) {
@@ -32,6 +33,11 @@ function parseCookieHeader(headerValue: string | undefined): Record<string, stri
 
     // Prevent prototype pollution by rejecting dangerous property names
     if (key === '__proto__' || key === 'constructor' || key === 'prototype') {
+      continue;
+    }
+
+    // Additional safety: only allow alphanumeric keys with underscores, hyphens, and dots
+    if (!/^[a-zA-Z0-9_.-]+$/.test(key)) {
       continue;
     }
 
@@ -56,7 +62,7 @@ function unknownToError(err: unknown): Error {
   }
   if (typeof err === 'symbol') return new Error(err.toString());
   if (err === null) return new Error('null');
-  if (typeof err === 'undefined') return new Error('undefined');
+  if (err === undefined) return new Error('undefined');
 
   // Avoid "[object Object]" by using Node's inspection formatting. Also handles functions safely.
   try {
@@ -69,7 +75,7 @@ function unknownToError(err: unknown): Error {
 function runMiddleware(req: Request, res: Response, middleware: RequestHandler): Promise<void> {
   return new Promise((resolve, reject) => {
     middleware(req, res, (err?: unknown) => {
-      if (err != null) {
+      if (err) {
         reject(unknownToError(err));
       } else {
         resolve();

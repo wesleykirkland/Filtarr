@@ -85,7 +85,9 @@ jobs:
           file: Containerfile
           push: true
           provenance: false
+          sbom: false
           platforms: linux/amd64,linux/arm64
+          outputs: type=registry
           tags: |
             ${{ steps.context.outputs.image }}:develop
             ${{ steps.context.outputs.image }}:${{ steps.context.outputs.short_sha }}
@@ -118,4 +120,3 @@ jobs:
             echo "**Note:** This is a development build. No GitHub release or Git tag was created."
             echo "Stable releases are created manually via the GitHub Releases page."
           } >> "${GITHUB_STEP_SUMMARY}"
-

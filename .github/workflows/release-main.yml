@@ -134,7 +134,9 @@ jobs:
           file: Containerfile
           push: true
           provenance: false
+          sbom: false
           platforms: linux/amd64,linux/arm64
+          outputs: type=registry
           tags: |
             ${{ steps.context.outputs.image }}:${{ steps.release_version.outputs.version }}
             ${{ steps.context.outputs.image }}:latest

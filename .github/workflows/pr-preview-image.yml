@@ -69,7 +69,9 @@ jobs:
           file: Containerfile
           push: true
           provenance: false
+          sbom: false
           platforms: linux/amd64,linux/arm64
+          outputs: type=registry
           tags: |
             ${{ steps.context.outputs.image }}:${{ steps.context.outputs.preview_tag }}
             ${{ steps.context.outputs.image }}:${{ steps.context.outputs.preview_sha_tag }}

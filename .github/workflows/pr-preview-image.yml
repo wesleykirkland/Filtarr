@@ -81,6 +81,12 @@ jobs:
             OCI_REF_NAME=${{ steps.context.outputs.preview_tag }}
             OCI_SOURCE=${{ github.server_url }}/${{ github.repository }}
 
+      - name: Inspect published image
+        shell: bash
+        run: |
+          echo "Inspecting multi-platform manifest..."
+          docker buildx imagetools inspect ${{ steps.context.outputs.image }}:${{ steps.context.outputs.preview_tag }}
+
       - name: Summarize preview publication
         shell: bash
         run: |

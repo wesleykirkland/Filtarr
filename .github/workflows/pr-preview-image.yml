@@ -44,7 +44,7 @@ jobs:
           } >> "${GITHUB_OUTPUT}"
 
       - name: Check out PR head commit
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           ref: ${{ steps.context.outputs.preview_sha }}
           persist-credentials: false

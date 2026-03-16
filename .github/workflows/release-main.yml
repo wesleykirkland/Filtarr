@@ -119,7 +119,7 @@ jobs:
 
       - name: Log in to GHCR
         if: steps.release_version.outputs.published == 'true'
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}

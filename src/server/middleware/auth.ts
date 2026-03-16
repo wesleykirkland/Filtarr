@@ -12,6 +12,7 @@ import bcrypt from 'bcrypt';
 import crypto from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { inspect } from 'node:util';
 import type Database from 'better-sqlite3';
 import type { AuthConfig, AuthMode } from '../../config/auth.js';
 import { getConfig } from '../../config/index.js';
@@ -46,20 +47,30 @@ function ensureCookies(req: Request): void {
   anyReq.cookies = parseCookieHeader(req.headers.cookie);
 }
 
+function unknownToError(err: unknown): Error {
+  if (err instanceof Error) return err;
+
+  if (typeof err === 'string') return new Error(err);
+  if (typeof err === 'number' || typeof err === 'boolean' || typeof err === 'bigint') {
+    return new Error(String(err));
+  }
+  if (typeof err === 'symbol') return new Error(err.toString());
+  if (err === null) return new Error('null');
+  if (typeof err === 'undefined') return new Error('undefined');
+
+  // Avoid "[object Object]" by using Node's inspection formatting. Also handles functions safely.
+  try {
+    return new Error(inspect(err, { depth: 5 }));
+  } catch {
+    return new Error('Unknown error');
+  }
+}
+
 function runMiddleware(req: Request, res: Response, middleware: RequestHandler): Promise<void> {
   return new Promise((resolve, reject) => {
     middleware(req, res, (err?: unknown) => {
-      if (err) {
-        // Ensure we reject with an Error object as expected by ESLint
-        if (err instanceof Error) {
-          reject(err);
-        } else if (typeof err === 'object' && err !== null) {
-          // Convert objects to JSON string for meaningful error messages
-          reject(new Error(JSON.stringify(err)));
-        } else {
-          // Convert primitives (string, number, boolean, etc.) to string
-          reject(new Error(String(err)));
-        }
+      if (err != null) {
+        reject(unknownToError(err));
       } else {
         resolve();
       }

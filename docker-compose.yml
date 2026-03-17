@@ -67,7 +67,7 @@ services:
       # FILTARR_ENABLE_CUSTOM_SCRIPTS: ${FILTARR_ENABLE_CUSTOM_SCRIPTS:-false}
 
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:9898/api/v1/health"]
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9898/api/v1/health"]
       interval: 30s
       timeout: 5s
       start_period: 10s

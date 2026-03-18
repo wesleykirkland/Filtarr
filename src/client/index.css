@@ -6,12 +6,12 @@
   --color-surface: #ffffff;
   --color-surface-subtle: #f8fafc;
   --color-border-subtle: #e5e7eb;
-  --variant-dark: .dark &;
 }
 
-/* Dark mode default, light mode via class toggle */
+@variant dark (&:where(.dark, .dark *));
+
 :root {
-  color-scheme: dark;
+  color-scheme: light dark;
 }
 
 .light {

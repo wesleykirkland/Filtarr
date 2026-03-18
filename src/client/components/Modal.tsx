@@ -89,7 +89,7 @@ export function Modal({ title, isOpen, onClose, children, size = 'md' }: ModalPr
       ref={dialogRef}
       aria-labelledby={titleId}
       className={cn(
-        'w-[calc(100%-2rem)] overflow-hidden rounded-3xl border border-gray-200 bg-white p-0 text-gray-900 shadow-2xl outline-none dark:border-gray-800 dark:bg-gray-900 dark:text-gray-100 sm:w-full',
+        'm-auto w-[calc(100%-2rem)] overflow-hidden rounded-3xl border border-gray-200 bg-white p-0 text-gray-900 shadow-2xl outline-none dark:border-gray-800 dark:bg-gray-900 dark:text-gray-100 sm:w-full',
         'backdrop:bg-black/60 backdrop:backdrop-blur-sm',
         sizeClass,
       )}

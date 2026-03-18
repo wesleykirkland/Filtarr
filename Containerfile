@@ -53,7 +53,7 @@ ENV FILTARR_DATA_DIR=/config
 
 EXPOSE 9898
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD wget -qO- http://localhost:9898/api/v1/health || exit 1
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+  CMD wget -qO- http://127.0.0.1:9898/api/v1/health || exit 1
 
 CMD ["node", "dist/server/index.js"]

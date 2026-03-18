@@ -1,0 +1,121 @@
+name: Develop build
+
+on:
+  workflow_run:
+    workflows:
+      - CI validation
+    types:
+      - completed
+
+permissions: {}
+
+concurrency:
+  group: develop-build
+  cancel-in-progress: false
+
+jobs:
+  publish-develop:
+    name: Publish develop Docker image
+    if: >
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: read
+      packages: write
+      attestations: write
+      id-token: write
+    steps:
+      - name: Derive develop context
+        id: context
+        shell: bash
+        env:
+          WORKFLOW_RUN_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          WORKFLOW_RUN_HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+        run: |
+          # Security: Use environment variables to prevent script injection
+          # The job condition already validates head_branch == 'main'
+          if ! printf '%s' "${WORKFLOW_RUN_HEAD_SHA}" | grep -qE '^[0-9a-f]{40}$'; then
+            echo "Error: Invalid SHA format" >&2
+            exit 1
+          fi
+          if ! printf '%s' "${WORKFLOW_RUN_HEAD_BRANCH}" | grep -qE '^[a-zA-Z0-9/_-]+$'; then
+            echo "Error: Invalid branch name format" >&2
+            exit 1
+          fi
+
+          develop_sha="${WORKFLOW_RUN_HEAD_SHA}"
+          short_sha="${develop_sha::7}"
+          image_repository="$(printf '%s' "${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')"
+          created_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+          {
+            echo "develop_sha=${develop_sha}"
+            echo "short_sha=${short_sha}"
+            echo "image=ghcr.io/${image_repository}"
+            echo "created_at=${created_at}"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ steps.context.outputs.develop_sha }}
+          persist-credentials: false
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push develop image
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: Containerfile
+          push: true
+          provenance: false
+          sbom: false
+          platforms: linux/amd64,linux/arm64
+          tags: |
+            ${{ steps.context.outputs.image }}:develop
+            ${{ steps.context.outputs.image }}:${{ steps.context.outputs.short_sha }}
+          build-args: |
+            OCI_VERSION=develop-${{ steps.context.outputs.short_sha }}
+            OCI_REVISION=${{ steps.context.outputs.develop_sha }}
+            OCI_CREATED=${{ steps.context.outputs.created_at }}
+            OCI_REF_NAME=main
+            OCI_SOURCE=${{ github.server_url }}/${{ github.repository }}
+
+      - name: Attest pushed image
+        uses: actions/attest@v4
+        with:
+          subject-name: ${{ steps.context.outputs.image }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+          create-storage-record: false
+
+      - name: Summarize develop build
+        shell: bash
+        run: |
+          {
+            echo "### Published develop build"
+            echo
+            echo "- Image: \`${{ steps.context.outputs.image }}:develop\`"
+            echo "- Image: \`${{ steps.context.outputs.image }}:${{ steps.context.outputs.short_sha }}\`"
+            echo "- Source commit: \`${{ steps.context.outputs.develop_sha }}\`"
+            echo "- Digest: \`${{ steps.build.outputs.digest }}\`"
+            echo
+            echo "**Note:** This is a development build. No GitHub release or Git tag was created."
+            echo "Stable releases are created manually via the GitHub Releases page."
+          } >> "${GITHUB_STEP_SUMMARY}"

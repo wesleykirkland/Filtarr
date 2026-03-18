@@ -15,6 +15,8 @@ export interface ApiKeyContext {
   scopes: string[];
 }
 
+// Extend Express Request type to include apiKey
+/* eslint-disable @typescript-eslint/no-namespace */
 declare global {
   namespace Express {
     interface Request {
@@ -22,6 +24,7 @@ declare global {
     }
   }
 }
+/* eslint-enable @typescript-eslint/no-namespace */
 
 /**
  * Generate a new cryptographically random API key.

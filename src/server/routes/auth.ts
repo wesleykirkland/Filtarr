@@ -43,6 +43,14 @@ function requireAuthenticatedRequest(db: Database.Database) {
   };
 }
 
+function hasOidcStrategy(): boolean {
+  const passportWithStrategy = passport as unknown as { _strategy?: (name: string) => unknown };
+
+  return typeof passportWithStrategy._strategy === 'function'
+    ? Boolean(passportWithStrategy._strategy('openidconnect'))
+    : false;
+}
+
 /**
  * Create auth routes for login, logout, session, and API key management.
  * Rate limiting is applied to auth endpoints (5 attempts/min).

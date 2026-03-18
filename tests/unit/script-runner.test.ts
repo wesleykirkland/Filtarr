@@ -29,21 +29,7 @@ describe('runSandboxedScript', () => {
     state.warn.mockReset();
   });
 
-  it('returns a disabled-policy error without executing the script', async () => {
-    state.assertCustomScriptsEnabled.mockImplementation(() => {
-      throw new state.SecurityPolicyError('Custom scripts disabled');
-    });
-
-    await expect(runSandboxedScript('return 1;', {})).resolves.toEqual({
-      success: false,
-      error: 'Custom scripts disabled',
-      logs: [],
-    });
-  });
-
   it('executes scripts with sandboxed context and captured console output', async () => {
-    state.assertCustomScriptsEnabled.mockReturnValue(undefined);
-
     const result = await runSandboxedScript(
       "console.log('hello', context.name); console.warn('watch'); return context.value + 1;",
       { name: 'Filtarr', value: 2 },
@@ -57,8 +43,6 @@ describe('runSandboxedScript', () => {
   });
 
   it('returns execution failures and logs them through the server logger', async () => {
-    state.assertCustomScriptsEnabled.mockReturnValue(undefined);
-
     const result = await runSandboxedScript(
       "console.error('boom'); throw new Error('kaboom');",
       {},

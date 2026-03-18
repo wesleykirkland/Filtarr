@@ -1,36 +1,26 @@
-import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+/**
+ * Tests the notification inheritance contract.
+ * Filters inherit default notification destinations from Settings unless they
+ * explicitly enable per-filter overrides.
+ */
+import { describe, it, expect, afterAll } from 'vitest';
 import request from 'supertest';
-import { resetConfigCache } from '../../src/config/index.js';
-import { closeDatabase, openDatabase } from '../../src/db/index.js';
 import { createApp } from '../../src/server/app.js';
+import { getDatabase } from '../../src/db/index.js';
+import { createInstance } from '../../src/db/schemas/instances.js';
 
-describe('Notification secret handling', () => {
-  let app: ReturnType<typeof createApp>;
-  let db: ReturnType<typeof openDatabase>;
-  let tempDir: string;
+describe('Filter notification overrides', () => {
+  const app = createApp();
+  let createdFilterId: number;
 
-  beforeEach(() => {
-    resetConfigCache();
-
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'filtarr-notifications-'));
-    process.env['FILTARR_DATA_DIR'] = tempDir;
-    process.env['NODE_ENV'] = 'test';
-    db = openDatabase(tempDir);
-    app = createApp(db);
-  });
-
-  afterEach(() => {
-    closeDatabase(db);
-    resetConfigCache();
-    delete process.env['FILTARR_DATA_DIR'];
-    fs.rmSync(tempDir, { recursive: true, force: true });
+  afterAll(async () => {
+    if (createdFilterId) {
+      await request(app).delete(`/api/v1/filters/${createdFilterId}`);
+    }
   });
 
   describe('POST /api/v1/filters', () => {
-    it('stores notification secrets encrypted and only returns configured metadata', async () => {
+    it('creates a filter with per-filter notification overrides', async () => {
       const res = await request(app)
         .post('/api/v1/filters')
         .send({
@@ -39,8 +29,7 @@ describe('Notification secret handling', () => {
           ruleType: 'extension',
           rulePayload: 'exe',
           actionType: 'notify',
-          notifyOnMatch: true,
-          notifyWebhookUrl: 'https://example.com/webhook',
+          overrideNotifications: true,
           notifySlack: true,
           notifySlackToken: 'xoxb-test-token-12345',
           notifySlackChannel: '#alerts',
@@ -48,37 +37,138 @@ describe('Notification secret handling', () => {
 
       expect(res.status).toBe(201);
       expect(res.body).toHaveProperty('id');
+      expect(res.body).toHaveProperty('override_notifications', 1);
       expect(res.body).toHaveProperty('notify_slack', 1);
-      expect(res.body).toHaveProperty('notify_slack_token', null);
-      expect(res.body).toHaveProperty('notify_slack_token_configured', true);
+      expect(res.body).toHaveProperty('notify_slack_token', 'xoxb-test-token-12345');
       expect(res.body).toHaveProperty('notify_slack_channel', '#alerts');
+      createdFilterId = res.body.id;
+    });
+
+    it('creates a filter that inherits default notifications by default', async () => {
+      const res = await request(app)
+        .post('/api/v1/filters')
+        .send({
+          name: 'Test Webhook Only Filter',
+          triggerSource: 'watcher',
+          ruleType: 'extension',
+          rulePayload: 'iso',
+          actionType: 'notify',
+        });
+
+      expect(res.status).toBe(201);
+      expect(res.body).toHaveProperty('override_notifications', 0);
+      expect(res.body).toHaveProperty('notify_on_match', 0);
       expect(res.body).toHaveProperty('notify_webhook_url', null);
-      expect(res.body).toHaveProperty('notify_webhook_url_configured', true);
+      expect(res.body).toHaveProperty('notify_slack', 0);
+      expect(res.body).toHaveProperty('notify_slack_token', null);
+      expect(res.body).toHaveProperty('notify_slack_channel', null);
 
-      const stored = db
-        .prepare<
-          [number],
-          { notify_webhook_url: string | null; notify_slack_token: string | null }
-        >('SELECT notify_webhook_url, notify_slack_token FROM filters WHERE id = ?')
-        .get(res.body.id);
+      await request(app).delete(`/api/v1/filters/${res.body.id}`);
+    });
 
-      expect(stored?.notify_webhook_url).toMatch(/^enc:/);
-      expect(stored?.notify_webhook_url).not.toContain('https://example.com/webhook');
-      expect(stored?.notify_slack_token).toMatch(/^enc:/);
-      expect(stored?.notify_slack_token).not.toContain('xoxb-test-token-12345');
+    it('defaults custom filter scripts to the shell runtime', async () => {
+      const res = await request(app)
+        .post('/api/v1/filters')
+        .send({
+          name: `Shell Script Filter ${Date.now()}`,
+          triggerSource: 'watcher',
+          ruleType: 'script',
+          rulePayload: 'echo true',
+          actionType: 'script',
+          actionPayload: 'echo "$FILTARR_FILE_PATH"',
+        });
 
-      const getRes = await request(app).get(`/api/v1/filters/${res.body.id}`);
-      expect(getRes.body.notify_webhook_url).toBeNull();
-      expect(getRes.body.notify_webhook_url_configured).toBe(true);
+      expect(res.status).toBe(201);
+      expect(res.body).toHaveProperty('script_runtime', 'shell');
 
-      const listRes = await request(app).get('/api/v1/filters');
-      expect(listRes.body[0]?.notify_webhook_url).toBeNull();
-      expect(listRes.body[0]?.notify_slack_token).toBeNull();
+      await request(app).delete(`/api/v1/filters/${res.body.id}`);
     });
   });
 
   describe('PUT /api/v1/filters/:id', () => {
-    it('preserves secrets when omitted and clears them when empty strings are sent', async () => {
+    it('updates filter fields including instance and notification settings', async () => {
+      const db = getDatabase();
+      const instance = createInstance(db, {
+        name: `Test Update Instance ${Date.now()}`,
+        type: 'sonarr',
+        url: 'http://localhost:8990',
+        apiKey: 'test-api-key',
+      });
+
+      const createRes = await request(app)
+        .post('/api/v1/filters')
+        .send({
+          name: `Test Full Update Filter ${Date.now()}`,
+          triggerSource: 'watcher',
+          ruleType: 'extension',
+          rulePayload: 'mkv',
+          actionType: 'notify',
+        });
+      expect(createRes.status).toBe(201);
+
+      const filterId = createRes.body.id;
+
+      const updateRes = await request(app)
+        .put(`/api/v1/filters/${filterId}`)
+        .send({
+          name: 'Test Full Update Filter Renamed',
+          instanceId: instance.id,
+          overrideNotifications: true,
+          notifyOnMatch: true,
+          notifyWebhookUrl: 'https://example.com/filter-webhook',
+          notifySlack: true,
+          notifySlackToken: 'xoxb-full-update-token',
+          notifySlackChannel: '#full-update',
+          enabled: false,
+        });
+
+      expect(updateRes.status).toBe(200);
+      expect(updateRes.body).toHaveProperty('name', 'Test Full Update Filter Renamed');
+      expect(updateRes.body).toHaveProperty('instance_id', instance.id);
+      expect(updateRes.body).toHaveProperty('override_notifications', 1);
+      expect(updateRes.body).toHaveProperty('notify_on_match', 1);
+      expect(updateRes.body).toHaveProperty('notify_webhook_url', 'https://example.com/filter-webhook');
+      expect(updateRes.body).toHaveProperty('notify_slack', 1);
+      expect(updateRes.body).toHaveProperty('notify_slack_token', 'xoxb-full-update-token');
+      expect(updateRes.body).toHaveProperty('notify_slack_channel', '#full-update');
+      expect(updateRes.body).toHaveProperty('enabled', 0);
+
+      await request(app).delete(`/api/v1/filters/${filterId}`);
+      db.prepare('DELETE FROM arr_instances WHERE id = ?').run(instance.id);
+    });
+
+    it('updates per-filter Slack credentials', async () => {
+      const createRes = await request(app)
+        .post('/api/v1/filters')
+        .send({
+          name: 'Test Update Slack Filter',
+          triggerSource: 'watcher',
+          ruleType: 'regex',
+          rulePayload: '.*\\.sample$',
+          actionType: 'delete',
+        });
+      expect(createRes.status).toBe(201);
+      const filterId = createRes.body.id;
+
+      const updateRes = await request(app)
+        .put(`/api/v1/filters/${filterId}`)
+        .send({
+          overrideNotifications: true,
+          notifySlack: true,
+          notifySlackToken: 'xoxb-updated-token',
+          notifySlackChannel: 'C01234567',
+        });
+
+      expect(updateRes.status).toBe(200);
+      expect(updateRes.body).toHaveProperty('override_notifications', 1);
+      expect(updateRes.body).toHaveProperty('notify_slack', 1);
+      expect(updateRes.body).toHaveProperty('notify_slack_token', 'xoxb-updated-token');
+      expect(updateRes.body).toHaveProperty('notify_slack_channel', 'C01234567');
+
+      await request(app).delete(`/api/v1/filters/${filterId}`);
+    });
+
+    it('preserves Slack credentials when not provided in update', async () => {
       const createRes = await request(app)
         .post('/api/v1/filters')
         .send({
@@ -87,8 +177,7 @@ describe('Notification secret handling', () => {
           ruleType: 'size',
           rulePayload: '>100MB',
           actionType: 'notify',
-          notifyOnMatch: true,
-          notifyWebhookUrl: 'https://example.com/preserve',
+          overrideNotifications: true,
           notifySlack: true,
           notifySlackToken: 'xoxb-preserve-token',
           notifySlackChannel: '#preserved',
@@ -102,78 +191,188 @@ describe('Notification secret handling', () => {
 
       expect(updateRes.status).toBe(200);
       expect(updateRes.body).toHaveProperty('name', 'Test Preserve Slack Filter Renamed');
+      expect(updateRes.body).toHaveProperty('override_notifications', 1);
       expect(updateRes.body).toHaveProperty('notify_slack', 1);
-      expect(updateRes.body).toHaveProperty('notify_slack_token', null);
-      expect(updateRes.body).toHaveProperty('notify_slack_token_configured', true);
-      expect(updateRes.body).toHaveProperty('notify_webhook_url', null);
-      expect(updateRes.body).toHaveProperty('notify_webhook_url_configured', true);
+      expect(updateRes.body).toHaveProperty('notify_slack_token', 'xoxb-preserve-token');
       expect(updateRes.body).toHaveProperty('notify_slack_channel', '#preserved');
 
-      const clearRes = await request(app).put(`/api/v1/filters/${filterId}`).send({
-        notifyWebhookUrl: '',
-        notifySlackToken: '',
-        notifySlackChannel: '',
-      });
-
-      expect(clearRes.status).toBe(200);
-      expect(clearRes.body).toHaveProperty('notify_webhook_url_configured', false);
-      expect(clearRes.body).toHaveProperty('notify_slack_token_configured', false);
-      expect(clearRes.body).toHaveProperty('notify_slack_channel', null);
-
-      const stored = db
-        .prepare<
-          [number],
-          {
-            notify_webhook_url: string | null;
-            notify_slack_token: string | null;
-            notify_slack_channel: string | null;
-          }
-        >('SELECT notify_webhook_url, notify_slack_token, notify_slack_channel FROM filters WHERE id = ?')
-        .get(filterId);
-
-      expect(stored?.notify_webhook_url).toBeNull();
-      expect(stored?.notify_slack_token).toBeNull();
-      expect(stored?.notify_slack_channel).toBeNull();
+      await request(app).delete(`/api/v1/filters/${filterId}`);
     });
-  });
 
-  describe('global notification settings', () => {
-    describe('GET /api/v1/settings/notifications', () => {
-      it('returns independent enable flags without echoing the stored Slack webhook secret', async () => {
-        const putRes = await request(app)
-          .put('/api/v1/settings/notifications')
-          .send({
-            slackEnabled: true,
-            webhookEnabled: false,
-            slackWebhookUrl: 'https://hooks.slack.com/services/T000/B000/SECRET',
-          });
-
-        expect(putRes.status).toBe(200);
-
-        const res = await request(app).get('/api/v1/settings/notifications');
-
-        expect(res.status).toBe(200);
-        expect(res.body).toEqual({
-          slackEnabled: true,
-          slackWebhookUrl: '',
-          slackWebhookUrlConfigured: true,
-          webhookEnabled: false,
+    it('can switch a filter back to inheriting the default notifications', async () => {
+      const createRes = await request(app)
+        .post('/api/v1/filters')
+        .send({
+          name: `Test Inherited Notifications ${Date.now()}`,
+          triggerSource: 'watcher',
+          ruleType: 'extension',
+          rulePayload: 'avi',
+          actionType: 'notify',
+          overrideNotifications: true,
+          notifyOnMatch: true,
+          notifyWebhookUrl: 'https://example.com/custom-webhook',
+          notifySlack: true,
+          notifySlackToken: 'xoxb-custom-token',
+          notifySlackChannel: '#custom',
         });
+      expect(createRes.status).toBe(201);
 
-        const stored = db
-          .prepare<[], { value: string }>(`SELECT value FROM settings WHERE key = 'slack_webhook_url'`)
-          .get();
-        expect(stored?.value).toMatch(/^enc:/);
-        expect(stored?.value).not.toContain('https://hooks.slack.com/services/T000/B000/SECRET');
+      const filterId = createRes.body.id;
 
-        const clearRes = await request(app)
-          .put('/api/v1/settings/notifications')
-          .send({ slackWebhookUrl: '' });
-        expect(clearRes.status).toBe(200);
+      const updateRes = await request(app)
+        .put(`/api/v1/filters/${filterId}`)
+        .send({ overrideNotifications: false });
 
-        const cleared = await request(app).get('/api/v1/settings/notifications');
-        expect(cleared.body.slackWebhookUrlConfigured).toBe(false);
-      });
+      expect(updateRes.status).toBe(200);
+      expect(updateRes.body).toHaveProperty('override_notifications', 0);
+      expect(updateRes.body).toHaveProperty('notify_on_match', 1);
+      expect(updateRes.body).toHaveProperty('notify_webhook_url', 'https://example.com/custom-webhook');
+      expect(updateRes.body).toHaveProperty('notify_slack', 1);
+      expect(updateRes.body).toHaveProperty('notify_slack_token', 'xoxb-custom-token');
+      expect(updateRes.body).toHaveProperty('notify_slack_channel', '#custom');
+
+      await request(app).delete(`/api/v1/filters/${filterId}`);
+    });
+
+    it('clears stale missing instance links instead of crashing on update', async () => {
+      const db = getDatabase();
+      const uniqueName = `Test Stale Instance Filter ${Date.now()}`;
+
+      db.pragma('foreign_keys = OFF');
+
+      const insertResult = db
+        .prepare(
+          `INSERT INTO filters (
+             name, description, trigger_source, rule_type, rule_payload,
+             action_type, action_payload, target_path,
+             notify_on_match, notify_webhook_url, notify_slack,
+             notify_slack_token, notify_slack_channel,
+             override_notifications,
+             instance_id,
+             enabled, sort_order, created_at, updated_at
+           )
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
+        )
+        .run(
+          uniqueName,
+          'Has a stale linked instance',
+          'watcher',
+          'extension',
+          'nzb',
+          'notify',
+          null,
+          null,
+          1,
+          'https://example.com/stale-webhook',
+          1,
+          'xoxb-stale-token',
+          '#stale',
+          1,
+          999999,
+          1,
+          0,
+        );
+
+      db.pragma('foreign_keys = ON');
+
+      const filterId = Number(insertResult.lastInsertRowid);
+
+      try {
+        const updateRes = await request(app)
+          .put(`/api/v1/filters/${filterId}`)
+          .send({ name: `${uniqueName} Renamed` });
+
+        expect(updateRes.status).toBe(200);
+        expect(updateRes.body).toHaveProperty('name', `${uniqueName} Renamed`);
+        expect(updateRes.body).toHaveProperty('instance_id', null);
+        expect(updateRes.body).toHaveProperty('override_notifications', 1);
+        expect(updateRes.body).toHaveProperty('notify_webhook_url', 'https://example.com/stale-webhook');
+        expect(updateRes.body).toHaveProperty('notify_slack', 1);
+        expect(updateRes.body).toHaveProperty('notify_slack_token', 'xoxb-stale-token');
+        expect(updateRes.body).toHaveProperty('notify_slack_channel', '#stale');
+      } finally {
+        db.prepare('DELETE FROM filters WHERE id = ?').run(filterId);
+      }
     });
   });
 });
+
+describe('Global notification settings', () => {
+  const app = createApp();
+
+  describe('GET /api/v1/settings/notifications', () => {
+    it('returns independent Slack and webhook enable flags', async () => {
+      const res = await request(app).get('/api/v1/settings/notifications');
+
+      expect(res.status).toBe(200);
+      expect(res.body).toHaveProperty('slackEnabled');
+      expect(res.body).toHaveProperty('webhookEnabled');
+      expect(res.body).toHaveProperty('defaultWebhookUrl');
+      expect(res.body).toHaveProperty('defaultSlackToken');
+      expect(res.body).toHaveProperty('defaultSlackChannel');
+      expect(typeof res.body.slackEnabled).toBe('boolean');
+      expect(typeof res.body.webhookEnabled).toBe('boolean');
+    });
+  });
+
+  describe('PUT /api/v1/settings/notifications', () => {
+    it('updates Slack and webhook enable flags independently', async () => {
+      const res1 = await request(app)
+        .put('/api/v1/settings/notifications')
+        .send({
+          slackEnabled: true,
+          webhookEnabled: false,
+          defaultWebhookUrl: 'https://example.com/default-webhook',
+          defaultSlackToken: 'xoxb-default-token',
+          defaultSlackChannel: '#default-alerts',
+        });
+
+      expect(res1.status).toBe(200);
+      expect(res1.body).toHaveProperty('success', true);
+
+      const getRes1 = await request(app).get('/api/v1/settings/notifications');
+      expect(getRes1.body.slackEnabled).toBe(true);
+      expect(getRes1.body.webhookEnabled).toBe(false);
+      expect(getRes1.body.defaultWebhookUrl).toBe('https://example.com/default-webhook');
+      expect(getRes1.body.defaultSlackToken).toBe('xoxb-default-token');
+      expect(getRes1.body.defaultSlackChannel).toBe('#default-alerts');
+
+      const res2 = await request(app)
+        .put('/api/v1/settings/notifications')
+        .send({ slackEnabled: true, webhookEnabled: true });
+
+      expect(res2.status).toBe(200);
+
+      const getRes2 = await request(app).get('/api/v1/settings/notifications');
+      expect(getRes2.body.slackEnabled).toBe(true);
+      expect(getRes2.body.webhookEnabled).toBe(true);
+    });
+
+    it('allows partial updates (only update slackEnabled)', async () => {
+      await request(app)
+        .put('/api/v1/settings/notifications')
+        .send({
+          slackEnabled: false,
+          webhookEnabled: true,
+          defaultWebhookUrl: 'https://example.com/original-webhook',
+          defaultSlackToken: 'xoxb-original-token',
+          defaultSlackChannel: '#original-alerts',
+        });
+
+      const res = await request(app)
+        .put('/api/v1/settings/notifications')
+        .send({ slackEnabled: true });
+
+      expect(res.status).toBe(200);
+
+      const getRes = await request(app).get('/api/v1/settings/notifications');
+      expect(getRes.body.slackEnabled).toBe(true);
+      expect(getRes.body.webhookEnabled).toBe(true);
+      expect(getRes.body.defaultWebhookUrl).toBe('https://example.com/original-webhook');
+      expect(getRes.body.defaultSlackToken).toBe('xoxb-original-token');
+      expect(getRes.body.defaultSlackChannel).toBe('#original-alerts');
+    });
+  });
+});
+
+

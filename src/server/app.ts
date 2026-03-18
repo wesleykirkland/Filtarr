@@ -19,7 +19,6 @@ import type { Database } from 'better-sqlite3';
 
 /** Get the current auth configuration from database settings */
 function getAuthConfig(db: Database): AuthConfig {
-  const envConfig = loadAuthConfigFromEnv();
   const mode = getStoredAuthMode(db);
   const envConfig = loadAuthConfigFromEnv();
   const config: AuthConfig = {

@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import Activity from '../../src/client/pages/Activity';
 import Dashboard from '../../src/client/pages/Dashboard';
 import Settings from '../../src/client/pages/Settings';
+import SettingsNotificationsPage from '../../src/client/pages/settings/SettingsNotificationsPage';
 import { click, render, waitFor } from '../support/render';
 
 const { api, useInstances } = vi.hoisted(() => ({
@@ -62,9 +63,10 @@ function mockSettingsQueries() {
     if (url === '/settings/notifications') {
       return Promise.resolve({
         slackEnabled: false,
-        slackWebhookUrl: '',
-        slackWebhookUrlConfigured: false,
         webhookEnabled: true,
+        defaultWebhookUrl: '',
+        defaultSlackToken: '',
+        defaultSlackChannel: '',
       });
     }
     if (url === '/directories') return Promise.resolve([]);
@@ -168,36 +170,27 @@ describe('settings form state', () => {
   });
 
   it('preserves unsaved notification edits when the query cache refetches', async () => {
-    const { queryClient, ui } = createWrapper(<Settings />);
+    const { queryClient, ui } = createWrapper(<SettingsNotificationsPage />);
     const view = await render(ui);
-    let notificationsButton: Element | null = null;
-    await waitFor(() => {
-      notificationsButton =
-        Array.from(document.body.querySelectorAll('button')).find(
-          (node) => node.textContent?.includes('Notifications') ?? false,
-        ) ?? null;
-      expect(notificationsButton).toBeTruthy();
-    });
-
-    await click(notificationsButton);
 
     await waitFor(() => {
       expect(document.body.querySelector('input[type="url"]')).toBeTruthy();
     });
 
     const urlInput = document.body.querySelector('input[type="url"]') as HTMLInputElement;
-    await setInputValue(urlInput, 'https://hooks.slack.com/services/T/B/NEW');
+    await setInputValue(urlInput, 'https://discord.com/api/webhooks/NEW');
 
     act(() => {
       queryClient.setQueryData(['settings', 'notifications'], {
         slackEnabled: false,
-        slackWebhookUrl: '',
-        slackWebhookUrlConfigured: false,
         webhookEnabled: true,
+        defaultWebhookUrl: '',
+        defaultSlackToken: '',
+        defaultSlackChannel: '',
       });
     });
     await waitFor(() => {
-      expect(urlInput.value).toBe('https://hooks.slack.com/services/T/B/NEW');
+      expect(urlInput.value).toBe('https://discord.com/api/webhooks/NEW');
     });
     await view.unmount();
   });

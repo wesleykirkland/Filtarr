@@ -1,6 +1,7 @@
 import type Database from 'better-sqlite3';
 import type { FilterRow } from '../../db/schemas/filters.js';
 import type { ArrInstanceConfig } from '../../services/arr/types.js';
+import { validateWebhookUrl } from '../../services/security.js';
 import { logger } from '../lib/logger.js';
 import type { FileEvent } from './filterEngine.js';
 
@@ -321,7 +322,10 @@ export class NotificationService {
     failureMessage: string,
     successMessage: string,
   ): Promise<boolean> {
-    const response = await fetch(webhookUrl, {
+    // Validate the webhook URL to prevent SSRF (must be HTTPS, non-private)
+    const validatedUrl = validateWebhookUrl(webhookUrl, { fieldName: 'Webhook URL' });
+
+    const response = await fetch(validatedUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),

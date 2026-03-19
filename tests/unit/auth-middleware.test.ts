@@ -23,7 +23,11 @@ const state = vi.hoisted(() => {
   box.bcryptCompare = vi.fn();
   box.existsSync = vi.fn();
   box.mkdirSync = vi.fn();
-  box.readFileSync = vi.fn();
+  box.readFileSync = vi.fn(() => {
+    const err = new Error('ENOENT: no such file or directory') as NodeJS.ErrnoException;
+    err.code = 'ENOENT';
+    throw err;
+  });
   box.writeFileSync = vi.fn();
   box.randomBytes = vi.fn(() => Buffer.alloc(48, 7));
   box.getConfig = vi.fn(() => ({ dataDir: '/tmp/filtarr-data' }));

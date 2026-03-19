@@ -69,6 +69,81 @@ interface JobFormProps {
   onSaved: () => void;
 }
 
+async function saveWatcherAutomation(
+  selectedFilter: Filter,
+  enabled: boolean,
+  initialJob: Job | undefined,
+  jobs: Job[],
+): Promise<SaveAutomationResult> {
+  if (!selectedFilter.target_path?.trim()) {
+    throw new Error('Built-in watcher requires the selected filter to have a target path');
+  }
+
+  await api.put(`/filters/${selectedFilter.id}`, {
+    triggerSource: 'watcher',
+    enabled,
+  });
+
+  const jobsToDelete = new Map<number, Job>();
+  if (initialJob) jobsToDelete.set(initialJob.id, initialJob);
+
+  for (const job of jobs) {
+    if (getFilterId(job) === selectedFilter.id) {
+      jobsToDelete.set(job.id, job);
+    }
+  }
+
+  await Promise.all([...jobsToDelete.keys()].map((jobId) => api.delete(`/jobs/${jobId}`)));
+
+  return { mode: 'watcher', deletedJobs: jobsToDelete.size };
+}
+
+async function saveCronAutomation(
+  selectedFilter: Filter,
+  name: string,
+  description: string,
+  schedule: string,
+  enabled: boolean,
+  initialJob: Job | undefined,
+): Promise<SaveAutomationResult> {
+  await api.put(`/filters/${selectedFilter.id}`, { triggerSource: 'cron' });
+
+  const body = {
+    name: name || selectedFilter.name || 'Scheduled filter run',
+    description: description || undefined,
+    schedule,
+    type: 'filter_run',
+    payload: JSON.stringify({ filterId: selectedFilter.id }),
+    enabled,
+  };
+
+  if (initialJob) {
+    await api.put(`/jobs/${initialJob.id}`, body);
+  } else {
+    await api.post('/jobs', body);
+  }
+
+  return { mode: 'cron', deletedJobs: 0 };
+}
+
+function getInitialEnabled(
+  initialJob: Job | undefined,
+  initialFilter: Filter | undefined,
+): boolean {
+  if (initialJob) return Boolean(initialJob.enabled);
+  if (initialFilter) return initialFilter.enabled === 1;
+  return true;
+}
+
+function buildSuccessMessage(mode: AutomationMode, deletedJobs: number, isEditing: boolean): string {
+  if (mode === 'watcher') {
+    return deletedJobs > 0
+      ? `Watcher automation saved and ${deletedJobs} scheduled job${deletedJobs === 1 ? '' : 's'} removed`
+      : 'Watcher automation saved';
+  }
+  return isEditing ? 'Automation updated' : 'Job created';
+}
+
 function JobForm({ initialJob, initialWatcherFilter, filters, jobs, onClose, onSaved }: JobFormProps) {
   const initialFilterId = initialJob ? getFilterId(initialJob) : (initialWatcherFilter?.id ?? null);
   const initialFilter =
@@ -81,9 +156,7 @@ function JobForm({ initialJob, initialWatcherFilter, filters, jobs, onClose, onS
   const [schedule, setSchedule] = useState(initialJob?.schedule ?? '0 * * * *');
   const [filterId, setFilterId] = useState<number | ''>(initialFilterId ?? filters[0]?.id ?? '');
   const [automationMode, setAutomationMode] = useState<AutomationMode>(initialWatcherFilter ? 'watcher' : 'cron');
-  const [enabled, setEnabled] = useState(
-    initialJob ? Boolean(initialJob.enabled) : initialFilter ? initialFilter.enabled === 1 : true,
-  );
+  const [enabled, setEnabled] = useState(getInitialEnabled(initialJob, initialFilter));
   const [err, setErr] = useState('');
   const [watcherPromptFilterId, setWatcherPromptFilterId] = useState<number | null>(null);
   const [promptedFilterIds, setPromptedFilterIds] = useState<number[]>([]);
@@ -120,63 +193,15 @@ function JobForm({ initialJob, initialWatcherFilter, filters, jobs, onClose, onS
       if (!selectedFilter) throw new Error('Selected filter no longer exists');
 
       if (automationMode === 'watcher') {
-        if (!selectedFilter.target_path?.trim()) {
-          throw new Error('Built-in watcher requires the selected filter to have a target path');
-        }
-
-        await api.put(`/filters/${selectedFilter.id}`, {
-          triggerSource: 'watcher',
-          enabled,
-        });
-
-        const jobsToDelete = new Map<number, Job>();
-        if (initialJob) jobsToDelete.set(initialJob.id, initialJob);
-
-        for (const job of jobs) {
-          if (getFilterId(job) === selectedFilter.id) {
-            jobsToDelete.set(job.id, job);
-          }
-        }
-
-        await Promise.all([...jobsToDelete.keys()].map((jobId) => api.delete(`/jobs/${jobId}`)));
-
-        return { mode: 'watcher', deletedJobs: jobsToDelete.size };
+        return saveWatcherAutomation(selectedFilter, enabled, initialJob, jobs);
       }
 
-      await api.put(`/filters/${selectedFilter.id}`, { triggerSource: 'cron' });
-
-      const body = {
-        name: name || selectedFilter.name || 'Scheduled filter run',
-        description: description || undefined,
-        schedule,
-        type: 'filter_run',
-        payload: JSON.stringify({ filterId: selectedFilter.id }),
-        enabled,
-      };
-
-      if (initialJob) {
-        await api.put(`/jobs/${initialJob.id}`, body);
-      } else {
-        await api.post('/jobs', body);
-      }
-
-      return { mode: 'cron', deletedJobs: 0 };
+      return saveCronAutomation(selectedFilter, name, description, schedule, enabled, initialJob);
     },
     onSuccess: ({ mode, deletedJobs }) => {
       queryClient.invalidateQueries({ queryKey: ['jobs'] });
       queryClient.invalidateQueries({ queryKey: ['filters'] });
-
-      if (mode === 'watcher') {
-        toast(
-          'success',
-          deletedJobs > 0
-            ? `Watcher automation saved and ${deletedJobs} scheduled job${deletedJobs === 1 ? '' : 's'} removed`
-            : 'Watcher automation saved',
-        );
-      } else {
-        toast('success', isEditing ? 'Automation updated' : 'Job created');
-      }
-
+      toast('success', buildSuccessMessage(mode, deletedJobs, isEditing));
       onSaved();
     },
     onError: (e: Error) => setErr(e.message),

@@ -115,6 +115,134 @@ const TYPE_COLORS: Record<string, string> = {
   lidarr: 'bg-green-500/20 text-green-400',
 };
 
+function NotificationOverrideFields({
+  overrideNotifications,
+  notifyOnMatch,
+  setNotifyOnMatch,
+  notifyWebhookUrl,
+  setNotifyWebhookUrl,
+  notifySlack,
+  setNotifySlack,
+  notifySlackToken,
+  setNotifySlackToken,
+  notifySlackChannel,
+  setNotifySlackChannel,
+}: {
+  overrideNotifications: boolean;
+  notifyOnMatch: boolean;
+  setNotifyOnMatch: (v: boolean) => void;
+  notifyWebhookUrl: string;
+  setNotifyWebhookUrl: (v: string) => void;
+  notifySlack: boolean;
+  setNotifySlack: (v: boolean) => void;
+  notifySlackToken: string;
+  setNotifySlackToken: (v: string) => void;
+  notifySlackChannel: string;
+  setNotifySlackChannel: (v: string) => void;
+}) {
+  if (!overrideNotifications) {
+    return (
+      <div className="rounded-lg border border-blue-200 bg-blue-50/80 px-3 py-3 text-xs text-blue-900 dark:border-blue-900/50 dark:bg-blue-950/30 dark:text-blue-100">
+        This filter will inherit the default notification destinations configured on the
+        Settings page.
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3 border-t border-gray-200 pt-3 dark:border-gray-800">
+      <div className="space-y-3 rounded-xl border border-gray-200 bg-white/80 p-4 dark:border-gray-800 dark:bg-gray-950/40">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <label
+              htmlFor="notifyOnMatch"
+              className="text-sm font-medium dark:text-gray-300 text-gray-700"
+            >
+              Webhook notifications
+            </label>
+            <p className="text-xs dark:text-gray-500 text-gray-600">
+              Send a JSON payload to a per-filter webhook when this filter matches.
+            </p>
+          </div>
+          <input
+            type="checkbox"
+            id="notifyOnMatch"
+            checked={notifyOnMatch}
+            onChange={(e) => setNotifyOnMatch(e.target.checked)}
+            className="h-4 w-4 rounded dark:border-gray-700 border-gray-300"
+          />
+        </div>
+        {notifyOnMatch && (
+          <div>
+            <label className="mb-1 block text-xs font-medium dark:text-gray-400 text-gray-700">
+              Webhook URL *
+            </label>
+            <input
+              type="url"
+              value={notifyWebhookUrl}
+              onChange={(e) => setNotifyWebhookUrl(e.target.value)}
+              placeholder="https://discord.com/api/webhooks/..."
+              required={overrideNotifications && notifyOnMatch}
+              className="block w-full rounded-lg border dark:border-gray-700 border-gray-300 dark:bg-gray-800 bg-white px-3 py-2 text-sm dark:text-gray-100 text-gray-900 focus:border-blue-500 focus:outline-none"
+            />
+          </div>
+        )}
+      </div>
+
+      <div className="space-y-3 rounded-xl border border-gray-200 bg-white/80 p-4 dark:border-gray-800 dark:bg-gray-950/40">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <label
+              htmlFor="notifySlack"
+              className="text-sm font-medium dark:text-gray-300 text-gray-700"
+            >
+              Slack notifications
+            </label>
+            <p className="text-xs dark:text-gray-500 text-gray-600">
+              Uses the verified per-filter Slack bot token + channel fields.
+            </p>
+          </div>
+          <input
+            type="checkbox"
+            id="notifySlack"
+            checked={notifySlack}
+            onChange={(e) => setNotifySlack(e.target.checked)}
+            className="h-4 w-4 rounded dark:border-gray-700 border-gray-300"
+          />
+        </div>
+        {notifySlack && (
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <label className="mb-1 block text-xs font-medium dark:text-gray-400 text-gray-700">
+                Slack Bot Token *
+              </label>
+              <input
+                value={notifySlackToken}
+                onChange={(e) => setNotifySlackToken(e.target.value)}
+                placeholder="xoxb-..."
+                required={overrideNotifications && notifySlack}
+                className="block w-full rounded-lg border dark:border-gray-700 border-gray-300 dark:bg-gray-800 bg-white px-3 py-2 text-sm dark:text-gray-100 text-gray-900 focus:border-blue-500 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium dark:text-gray-400 text-gray-700">
+                Slack Channel *
+              </label>
+              <input
+                value={notifySlackChannel}
+                onChange={(e) => setNotifySlackChannel(e.target.value)}
+                placeholder="#alerts"
+                required={overrideNotifications && notifySlack}
+                className="block w-full rounded-lg border dark:border-gray-700 border-gray-300 dark:bg-gray-800 bg-white px-3 py-2 text-sm dark:text-gray-100 text-gray-900 focus:border-blue-500 focus:outline-none"
+              />
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 interface FilterFormProps {
   initial?: Filter;
   instances: Instance[];
@@ -178,6 +306,41 @@ function FilterForm({ initial, instances, onClose, onSaved }: FilterFormProps) {
     setShowPresets(false);
   };
 
+  const validateForm = (
+    trimmedTargetPath: string | undefined,
+    trimmedWebhookUrl: string | undefined,
+    trimmedSlackToken: string | undefined,
+    trimmedSlackChannel: string | undefined,
+  ): string | null => {
+    if (!trimmedTargetPath) return 'Please choose a watched directory for this filter';
+    if (!instanceId) return 'Please select an Arr instance';
+    if (overrideNotifications && notifyOnMatch && !trimmedWebhookUrl) {
+      return 'Please provide a webhook URL or turn off webhook notifications';
+    }
+    if (overrideNotifications && notifySlack && (!trimmedSlackToken || !trimmedSlackChannel)) {
+      return 'Slack notifications require both a bot token and a channel';
+    }
+    return null;
+  };
+
+  const buildNotificationPayload = (
+    trimmedWebhookUrl: string | undefined,
+    trimmedSlackToken: string | undefined,
+    trimmedSlackChannel: string | undefined,
+  ): Record<string, unknown> => {
+    if (!overrideNotifications) {
+      return { overrideNotifications, notifyOnMatch: undefined, notifyWebhookUrl: undefined, notifySlack: undefined, notifySlackToken: undefined, notifySlackChannel: undefined };
+    }
+    return {
+      overrideNotifications,
+      notifyOnMatch,
+      notifyWebhookUrl: notifyOnMatch ? trimmedWebhookUrl : undefined,
+      notifySlack,
+      notifySlackToken: notifySlack ? trimmedSlackToken : undefined,
+      notifySlackChannel: notifySlack ? trimmedSlackChannel : undefined,
+    };
+  };
+
   const handleSubmit = (evt: React.FormEvent) => {
     evt.preventDefault();
     const trimmedTargetPath = trimToUndefined(targetPath);
@@ -185,20 +348,9 @@ function FilterForm({ initial, instances, onClose, onSaved }: FilterFormProps) {
     const trimmedSlackToken = trimToUndefined(notifySlackToken);
     const trimmedSlackChannel = trimToUndefined(notifySlackChannel);
 
-    if (!trimmedTargetPath) {
-      setErr('Please choose a watched directory for this filter');
-      return;
-    }
-    if (!instanceId) {
-      setErr('Please select an Arr instance');
-      return;
-    }
-    if (overrideNotifications && notifyOnMatch && !trimmedWebhookUrl) {
-      setErr('Please provide a webhook URL or turn off webhook notifications');
-      return;
-    }
-    if (overrideNotifications && notifySlack && (!trimmedSlackToken || !trimmedSlackChannel)) {
-      setErr('Slack notifications require both a bot token and a channel');
+    const validationError = validateForm(trimmedTargetPath, trimmedWebhookUrl, trimmedSlackToken, trimmedSlackChannel);
+    if (validationError) {
+      setErr(validationError);
       return;
     }
     setErr('');
@@ -213,13 +365,7 @@ function FilterForm({ initial, instances, onClose, onSaved }: FilterFormProps) {
       scriptRuntime,
       targetPath: trimmedTargetPath,
       instanceId,
-      overrideNotifications,
-      notifyOnMatch: overrideNotifications ? notifyOnMatch : undefined,
-      notifyWebhookUrl: overrideNotifications && notifyOnMatch ? trimmedWebhookUrl : undefined,
-      notifySlack: overrideNotifications ? notifySlack : undefined,
-      notifySlackToken: overrideNotifications && notifySlack ? trimmedSlackToken : undefined,
-      notifySlackChannel:
-        overrideNotifications && notifySlack ? trimmedSlackChannel : undefined,
+      ...buildNotificationPayload(trimmedWebhookUrl, trimmedSlackToken, trimmedSlackChannel),
       enabled,
     });
   };
@@ -507,103 +653,19 @@ function FilterForm({ initial, instances, onClose, onSaved }: FilterFormProps) {
                 </div>
               </div>
 
-              {overrideNotifications ? (
-                <div className="space-y-3 border-t border-gray-200 pt-3 dark:border-gray-800">
-                  <div className="space-y-3 rounded-xl border border-gray-200 bg-white/80 p-4 dark:border-gray-800 dark:bg-gray-950/40">
-                    <div className="flex items-center justify-between gap-3">
-                      <div>
-                        <label
-                          htmlFor="notifyOnMatch"
-                          className="text-sm font-medium dark:text-gray-300 text-gray-700"
-                        >
-                          Webhook notifications
-                        </label>
-                        <p className="text-xs dark:text-gray-500 text-gray-600">
-                          Send a JSON payload to a per-filter webhook when this filter matches.
-                        </p>
-                      </div>
-                      <input
-                        type="checkbox"
-                        id="notifyOnMatch"
-                        checked={notifyOnMatch}
-                        onChange={(e) => setNotifyOnMatch(e.target.checked)}
-                        className="h-4 w-4 rounded dark:border-gray-700 border-gray-300"
-                      />
-                    </div>
-                    {notifyOnMatch && (
-                      <div>
-                        <label className="mb-1 block text-xs font-medium dark:text-gray-400 text-gray-700">
-                          Webhook URL *
-                        </label>
-                        <input
-                          type="url"
-                          value={notifyWebhookUrl}
-                          onChange={(e) => setNotifyWebhookUrl(e.target.value)}
-                          placeholder="https://discord.com/api/webhooks/..."
-                          required={overrideNotifications && notifyOnMatch}
-                          className="block w-full rounded-lg border dark:border-gray-700 border-gray-300 dark:bg-gray-800 bg-white px-3 py-2 text-sm dark:text-gray-100 text-gray-900 focus:border-blue-500 focus:outline-none"
-                        />
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="space-y-3 rounded-xl border border-gray-200 bg-white/80 p-4 dark:border-gray-800 dark:bg-gray-950/40">
-                    <div className="flex items-center justify-between gap-3">
-                      <div>
-                        <label
-                          htmlFor="notifySlack"
-                          className="text-sm font-medium dark:text-gray-300 text-gray-700"
-                        >
-                          Slack notifications
-                        </label>
-                        <p className="text-xs dark:text-gray-500 text-gray-600">
-                          Uses the verified per-filter Slack bot token + channel fields.
-                        </p>
-                      </div>
-                      <input
-                        type="checkbox"
-                        id="notifySlack"
-                        checked={notifySlack}
-                        onChange={(e) => setNotifySlack(e.target.checked)}
-                        className="h-4 w-4 rounded dark:border-gray-700 border-gray-300"
-                      />
-                    </div>
-                    {notifySlack && (
-                      <div className="grid gap-3 sm:grid-cols-2">
-                        <div>
-                          <label className="mb-1 block text-xs font-medium dark:text-gray-400 text-gray-700">
-                            Slack Bot Token *
-                          </label>
-                          <input
-                            value={notifySlackToken}
-                            onChange={(e) => setNotifySlackToken(e.target.value)}
-                            placeholder="xoxb-..."
-                            required={overrideNotifications && notifySlack}
-                            className="block w-full rounded-lg border dark:border-gray-700 border-gray-300 dark:bg-gray-800 bg-white px-3 py-2 text-sm dark:text-gray-100 text-gray-900 focus:border-blue-500 focus:outline-none"
-                          />
-                        </div>
-                        <div>
-                          <label className="mb-1 block text-xs font-medium dark:text-gray-400 text-gray-700">
-                            Slack Channel *
-                          </label>
-                          <input
-                            value={notifySlackChannel}
-                            onChange={(e) => setNotifySlackChannel(e.target.value)}
-                            placeholder="#alerts"
-                            required={overrideNotifications && notifySlack}
-                            className="block w-full rounded-lg border dark:border-gray-700 border-gray-300 dark:bg-gray-800 bg-white px-3 py-2 text-sm dark:text-gray-100 text-gray-900 focus:border-blue-500 focus:outline-none"
-                          />
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ) : (
-                <div className="rounded-lg border border-blue-200 bg-blue-50/80 px-3 py-3 text-xs text-blue-900 dark:border-blue-900/50 dark:bg-blue-950/30 dark:text-blue-100">
-                  This filter will inherit the default notification destinations configured on the
-                  Settings page.
-                </div>
-              )}
+              <NotificationOverrideFields
+                overrideNotifications={overrideNotifications}
+                notifyOnMatch={notifyOnMatch}
+                setNotifyOnMatch={setNotifyOnMatch}
+                notifyWebhookUrl={notifyWebhookUrl}
+                setNotifyWebhookUrl={setNotifyWebhookUrl}
+                notifySlack={notifySlack}
+                setNotifySlack={setNotifySlack}
+                notifySlackToken={notifySlackToken}
+                setNotifySlackToken={setNotifySlackToken}
+                notifySlackChannel={notifySlackChannel}
+                setNotifySlackChannel={setNotifySlackChannel}
+              />
             </div>
           </div>
 

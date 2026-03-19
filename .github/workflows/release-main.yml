@@ -39,11 +39,14 @@ jobs:
       - name: Derive release context
         id: context
         shell: bash
+        env:
+          WF_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          WF_HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
         run: |
           if [ "${GITHUB_EVENT_NAME}" = "workflow_run" ]; then
-            release_sha="${{ github.event.workflow_run.head_sha }}"
-            release_ref="refs/heads/${{ github.event.workflow_run.head_branch }}"
-            release_ref_name="${{ github.event.workflow_run.head_branch }}"
+            release_sha="${WF_HEAD_SHA}"
+            release_ref="refs/heads/${WF_HEAD_BRANCH}"
+            release_ref_name="${WF_HEAD_BRANCH}"
           else
             release_sha="${GITHUB_SHA}"
             release_ref="${GITHUB_REF}"
@@ -78,8 +81,10 @@ jobs:
       - name: Capture existing tag on release commit
         id: previous_release
         shell: bash
+        env:
+          RELEASE_SHA: ${{ steps.context.outputs.release_sha }}
         run: |
-          existing_tag="$(git tag --points-at "${{ steps.context.outputs.release_sha }}" 'v*' | sort -V | tail -n1)"
+          existing_tag="$(git tag --points-at "${RELEASE_SHA}" 'v*' | sort -V | tail -n1)"
           echo "tag=${existing_tag}" >> "${GITHUB_OUTPUT}"
 
       - name: Run semantic-release
@@ -94,10 +99,13 @@ jobs:
       - name: Determine release outcome
         id: release_version
         shell: bash
+        env:
+          RELEASE_SHA: ${{ steps.context.outputs.release_sha }}
+          PREVIOUS_TAG: ${{ steps.previous_release.outputs.tag }}
         run: |
-          current_tag="$(git tag --points-at "${{ steps.context.outputs.release_sha }}" 'v*' | sort -V | tail -n1)"
+          current_tag="$(git tag --points-at "${RELEASE_SHA}" 'v*' | sort -V | tail -n1)"
 
-          if [ -z "${current_tag}" ] || [ "${current_tag}" = "${{ steps.previous_release.outputs.tag }}" ]; then
+          if [ -z "${current_tag}" ] || [ "${current_tag}" = "${PREVIOUS_TAG}" ]; then
             echo "published=false" >> "${GITHUB_OUTPUT}"
             exit 0
           fi
@@ -154,15 +162,21 @@ jobs:
       - name: Summarize release result
         if: always()
         shell: bash
+        env:
+          PUBLISHED: ${{ steps.release_version.outputs.published }}
+          GIT_TAG: ${{ steps.release_version.outputs.git_tag }}
+          VERSION: ${{ steps.release_version.outputs.version }}
+          IMAGE: ${{ steps.context.outputs.image }}
+          DIGEST: ${{ steps.build.outputs.digest }}
         run: |
-          if [ "${{ steps.release_version.outputs.published }}" = "true" ]; then
+          if [ "${PUBLISHED}" = "true" ]; then
             {
               echo "### Published release"
               echo
-              echo "- Git tag: \`${{ steps.release_version.outputs.git_tag }}\`"
-              echo "- Image: \`${{ steps.context.outputs.image }}:${{ steps.release_version.outputs.version }}\`"
-              echo "- Image: \`${{ steps.context.outputs.image }}:latest\`"
-              echo "- Digest: \`${{ steps.build.outputs.digest }}\`"
+              echo "- Git tag: \`${GIT_TAG}\`"
+              echo "- Image: \`${IMAGE}:${VERSION}\`"
+              echo "- Image: \`${IMAGE}:latest\`"
+              echo "- Digest: \`${DIGEST}\`"
             } >> "${GITHUB_STEP_SUMMARY}"
           else
             {

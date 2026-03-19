@@ -9,7 +9,7 @@ import { createSetupRoutes, getStoredAuthMode } from './routes/setup.js';
 import { createAuthRoutes } from './routes/auth.js';
 import { createSettingsRoutes } from './routes/settings.js';
 import { createAuthMiddleware } from './middleware/auth.js';
-import { applySecurityMiddleware } from './middleware/security.js';
+import { applySecurityMiddleware, authRateLimiter } from './middleware/security.js';
 import { publicSystemRoutes, protectedSystemRoutes } from './routes/system.js';
 import { getDatabase } from '../db/index.js';
 import { errorHandler } from './middleware/errorHandler.js';
@@ -57,11 +57,15 @@ export function createApp(db: Database = getDatabase()): express.Application {
   app.use(express.json());
   app.use(express.urlencoded({ extended: false }));
 
+  // Auth-sensitive rate limiter (login, setup)
+  const authLimiter = authRateLimiter(authConfig.rateLimitAuth);
+
   // Unauthenticated routes — setup and health check
   // SECURITY: These routes are intentionally unauthenticated
   app.use('/api/v1', publicSystemRoutes);
   app.use(
     '/api/v1/setup',
+    authLimiter,
     createSetupRoutes(db, (authMode: AuthMode) => {
       // Runtime config update callback
       console.log(`Setup completed with auth mode: ${authMode}`);
@@ -76,7 +80,7 @@ export function createApp(db: Database = getDatabase()): express.Application {
 
   // Auth routes (login, logout, session, API key management)
   // These are mounted AFTER auth middleware so they can use session
-  app.use('/api/v1/auth', createAuthRoutes(db, authConfig));
+  app.use('/api/v1/auth', authLimiter, createAuthRoutes(db, authConfig));
   app.use('/api/v1', requireAuth, protectedSystemRoutes);
 
   // Protected routes - require authentication

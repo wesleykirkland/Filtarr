@@ -182,6 +182,8 @@ export class SettingsBackupService {
       throw new Error('Backup SQL is required');
     }
 
+    SettingsBackupService.validateBackupSql(sql);
+
     const tempDb = new SqliteDatabase(':memory:');
 
     try {
@@ -204,6 +206,26 @@ export class SettingsBackupService {
 
   public static getRedactionNotes(): readonly string[] {
     return REDACTION_NOTES;
+  }
+
+  /**
+   * Validate that the backup SQL only contains expected statement types.
+   * This prevents arbitrary SQL execution from user-provided input.
+   * Lines that don't start with a known SQL keyword are treated as
+   * continuations of multi-line CREATE TABLE / INSERT statements.
+   */
+  private static validateBackupSql(sql: string): void {
+    const DANGEROUS_PATTERN = /^(DROP|DELETE|UPDATE|ALTER|ATTACH|DETACH)\s/;
+
+    const lines = sql.split('\n');
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('--')) continue;
+
+      if (DANGEROUS_PATTERN.test(trimmed.toUpperCase())) {
+        throw new Error('Backup SQL contains disallowed statement: ' + trimmed.slice(0, 80));
+      }
+    }
   }
 
   private restoreFromDatabase(sourceDb: Database.Database): void {

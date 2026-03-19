@@ -15,6 +15,19 @@ import { ConfirmModal } from '../components/ConfirmModal';
 
 const ARR_TYPES = ['sonarr', 'radarr', 'lidarr'] as const;
 
+function getTestButtonLabel(isPending: boolean, status: 'idle' | 'success' | 'error'): string {
+  if (isPending) return 'Testing...';
+  if (status === 'error') return 'Test Failed';
+  if (status === 'success') return 'Test Passed';
+  return 'Test Connection';
+}
+
+function getTestButtonColor(status: 'idle' | 'success' | 'error'): string {
+  if (status === 'error') return 'bg-red-600 hover:bg-red-700';
+  if (status === 'success') return 'bg-green-600 hover:bg-green-700';
+  return 'bg-gray-700 hover:bg-gray-600';
+}
+
 function InstanceForm({
   initial,
   onSubmit,
@@ -57,6 +70,11 @@ function InstanceForm({
     resetTestState();
   };
 
+  const applyTestResult = (success: boolean, errorMessage?: string) => {
+    setTestStatus(success ? 'success' : 'error');
+    setTestError(success ? null : (errorMessage || 'Connection failed'));
+  };
+
   const handleTestConnection = (e: React.MouseEvent) => {
     e.preventDefault();
     testUnsavedMutation.mutate(
@@ -64,10 +82,7 @@ function InstanceForm({
         name: name || 'Test',
         type,
         url,
-        apiKey: apiKey || (initial ? initial.api_key_masked : ''), // Note: We need real API key if editing and not changed. Wait, we can't get it.
-        // Actually, if editing and apiKey is blank, the backend expects us to send it blank to keep it.
-        // But testing needs the real API key. The backend /test route will need to be able to pull it if id is provided.
-        // For now, if editing and blank, we should warn the user they must re-enter the API key to test.
+        apiKey: apiKey || (initial ? initial.api_key_masked : ''),
         timeout: parseInt(timeout, 10) || undefined,
         skipSslVerify,
         remotePath: remotePath || null,
@@ -75,17 +90,10 @@ function InstanceForm({
       },
       {
         onSuccess: (data: { success: boolean; error?: string }) => {
-          if (data.success) {
-            setTestStatus('success');
-            setTestError(null);
-          } else {
-            setTestStatus('error');
-            setTestError(data.error || 'Connection failed');
-          }
+          applyTestResult(data.success, data.error);
         },
         onError: (error: Error) => {
-          setTestStatus('error');
-          setTestError(error.message || 'Connection failed');
+          applyTestResult(false, error.message);
         },
       },
     );
@@ -238,20 +246,9 @@ function InstanceForm({
           type="button"
           onClick={handleTestConnection}
           disabled={testUnsavedMutation.isPending || !url || (!apiKey && !initial)}
-          className={`rounded-lg px-4 py-2 text-sm font-medium text-white disabled:opacity-50 transition-colors ${testStatus === 'error'
-            ? 'bg-red-600 hover:bg-red-700'
-            : testStatus === 'success'
-              ? 'bg-green-600 hover:bg-green-700'
-              : 'bg-gray-700 hover:bg-gray-600'
-            }`}
+          className={`rounded-lg px-4 py-2 text-sm font-medium text-white disabled:opacity-50 transition-colors ${getTestButtonColor(testStatus)}`}
         >
-          {testUnsavedMutation.isPending
-            ? 'Testing...'
-            : testStatus === 'error'
-              ? 'Test Failed'
-              : testStatus === 'success'
-                ? 'Test Passed'
-                : 'Test Connection'}
+          {getTestButtonLabel(testUnsavedMutation.isPending, testStatus)}
         </button>
         <button
           type="submit"
@@ -283,6 +280,90 @@ function InstanceForm({
         <p className="text-sm font-medium text-red-600 dark:text-red-400">{testError}</p>
       )}
     </form>
+  );
+}
+
+function InstanceCard({
+  instance: inst,
+  darkMode,
+  onTest,
+  isTestPending,
+  onEdit,
+  onDelete,
+}: {
+  instance: Instance;
+  darkMode: boolean;
+  onTest: () => void;
+  isTestPending: boolean;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  return (
+    <div
+      className={`group relative overflow-hidden rounded-2xl border p-5 transition-all hover:shadow-xl ${darkMode
+        ? 'bg-gray-900/40 border-gray-800 hover:border-gray-700/50'
+        : 'bg-white border-gray-200'
+        }`}
+    >
+      <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-blue-600/50 via-green-600/50 to-blue-600/50 opacity-0 transition-opacity group-hover:opacity-100" />
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex items-start gap-4">
+          <div className="mt-1 flex-shrink-0">
+            <span
+              className={`flex h-3 w-3 rounded-full ${inst.enabled ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.5)]' : 'bg-gray-400 dark:bg-gray-600'}`}
+            />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <p className="font-bold dark:text-gray-100 text-gray-900">{inst.name}</p>
+              <span className="rounded dark:bg-gray-800 bg-gray-100 px-2 py-0.5 text-[10px] font-bold dark:text-gray-400 text-gray-500 uppercase tracking-wider border dark:border-gray-700 border-gray-200">
+                {inst.type}
+              </span>
+            </div>
+            <p className="mt-0.5 text-sm dark:text-gray-500 text-gray-600 font-medium">
+              {inst.url}
+            </p>
+            {inst.skipSslVerify && (
+              <span className="mt-1 inline-flex items-center rounded-full bg-yellow-500/10 px-2 py-0.5 text-[10px] font-semibold text-yellow-600 dark:text-yellow-500 border border-yellow-500/20 lowercase">
+                insecure ssl
+              </span>
+            )}
+            {(inst.remotePath || inst.localPath) && (
+              <p className="mt-2 flex items-center gap-2 text-xs font-medium dark:text-gray-400 text-gray-500">
+                <span className="rounded bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 font-mono">
+                  {inst.remotePath || 'None'}
+                </span>
+                <span className="opacity-40">-&gt;</span>
+                <span className="rounded bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 font-mono">
+                  {inst.localPath || 'None'}
+                </span>
+              </p>
+            )}
+          </div>
+        </div>
+        <div className="flex gap-2 flex-shrink-0">
+          <button
+            onClick={onTest}
+            disabled={isTestPending}
+            className="rounded-lg border dark:border-gray-700 border-gray-300 px-3 py-1.5 text-xs font-medium dark:text-gray-400 text-gray-700 dark:hover:bg-gray-800 hover:bg-gray-100 disabled:opacity-50"
+          >
+            {isTestPending ? 'Testing...' : 'Test'}
+          </button>
+          <button
+            onClick={onEdit}
+            className="rounded-lg border dark:border-gray-700 border-gray-300 px-3 py-1.5 text-xs font-medium dark:text-gray-400 text-gray-700 dark:hover:bg-gray-800 hover:bg-gray-100"
+          >
+            Edit
+          </button>
+          <button
+            onClick={onDelete}
+            className="rounded-lg border dark:border-red-900 border-red-200 px-3 py-1.5 text-xs font-medium dark:text-red-400 text-red-600 dark:hover:bg-red-900/30 hover:bg-red-50"
+          >
+            Delete
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -327,15 +408,7 @@ export default function Instances() {
             initial={editing ?? undefined}
             onSubmit={(data) => {
               if (editing) {
-                const payload: Record<string, unknown> = { id: editing.id };
-                if (data.name) payload['name'] = data.name;
-                if (data.type) payload['type'] = data.type;
-                if (data.url) payload['url'] = data.url;
-                if (data.apiKey) payload['apiKey'] = data.apiKey;
-                if (data.timeout) payload['timeout'] = data.timeout;
-                if (data.skipSslVerify !== undefined) payload['skipSslVerify'] = data.skipSslVerify;
-                if (data.remotePath !== undefined) payload['remotePath'] = data.remotePath;
-                if (data.localPath !== undefined) payload['localPath'] = data.localPath;
+                const payload: Record<string, unknown> = { id: editing.id, ...data };
                 updateMutation.mutate(payload as Parameters<typeof updateMutation.mutate>[0], {
                   onSuccess: () => setEditing(null),
                 });
@@ -354,72 +427,15 @@ export default function Instances() {
       {instances && instances.length > 0 ? (
         <div className="space-y-3">
           {instances.map((inst) => (
-            <div
+            <InstanceCard
               key={inst.id}
-              className={`group relative overflow-hidden rounded-2xl border p-5 transition-all hover:shadow-xl ${darkMode
-                ? 'bg-gray-900/40 border-gray-800 hover:border-gray-700/50'
-                : 'bg-white border-gray-200'
-                }`}
-            >
-              <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-blue-600/50 via-green-600/50 to-blue-600/50 opacity-0 transition-opacity group-hover:opacity-100" />
-              <div className="flex items-center justify-between gap-4">
-                <div className="flex items-start gap-4">
-                  <div className="mt-1 flex-shrink-0">
-                    <span
-                      className={`flex h-3 w-3 rounded-full ${inst.enabled ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.5)]' : 'bg-gray-400 dark:bg-gray-600'}`}
-                    />
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <p className="font-bold dark:text-gray-100 text-gray-900">{inst.name}</p>
-                      <span className="rounded dark:bg-gray-800 bg-gray-100 px-2 py-0.5 text-[10px] font-bold dark:text-gray-400 text-gray-500 uppercase tracking-wider border dark:border-gray-700 border-gray-200">
-                        {inst.type}
-                      </span>
-                    </div>
-                    <p className="mt-0.5 text-sm dark:text-gray-500 text-gray-600 font-medium">
-                      {inst.url}
-                    </p>
-                    {inst.skipSslVerify && (
-                      <span className="mt-1 inline-flex items-center rounded-full bg-yellow-500/10 px-2 py-0.5 text-[10px] font-semibold text-yellow-600 dark:text-yellow-500 border border-yellow-500/20 lowercase">
-                        ⚠️ insecure ssl
-                      </span>
-                    )}
-                    {(inst.remotePath || inst.localPath) && (
-                      <p className="mt-2 flex items-center gap-2 text-xs font-medium dark:text-gray-400 text-gray-500">
-                        <span className="rounded bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 font-mono">
-                          {inst.remotePath || 'None'}
-                        </span>
-                        <span className="opacity-40">➔</span>
-                        <span className="rounded bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 font-mono">
-                          {inst.localPath || 'None'}
-                        </span>
-                      </p>
-                    )}
-                  </div>
-                </div>
-                <div className="flex gap-2 flex-shrink-0">
-                  <button
-                    onClick={() => testMutation.mutate(inst.id)}
-                    disabled={testMutation.isPending}
-                    className="rounded-lg border dark:border-gray-700 border-gray-300 px-3 py-1.5 text-xs font-medium dark:text-gray-400 text-gray-700 dark:hover:bg-gray-800 hover:bg-gray-100 disabled:opacity-50"
-                  >
-                    {testMutation.isPending ? 'Testing...' : 'Test'}
-                  </button>
-                  <button
-                    onClick={() => setEditing(inst)}
-                    className="rounded-lg border dark:border-gray-700 border-gray-300 px-3 py-1.5 text-xs font-medium dark:text-gray-400 text-gray-700 dark:hover:bg-gray-800 hover:bg-gray-100"
-                  >
-                    Edit
-                  </button>
-                  <button
-                    onClick={() => setDeletingId(inst.id)}
-                    className="rounded-lg border dark:border-red-900 border-red-200 px-3 py-1.5 text-xs font-medium dark:text-red-400 text-red-600 dark:hover:bg-red-900/30 hover:bg-red-50"
-                  >
-                    Delete
-                  </button>
-                </div>
-              </div>
-            </div>
+              instance={inst}
+              darkMode={darkMode}
+              onTest={() => testMutation.mutate(inst.id)}
+              isTestPending={testMutation.isPending}
+              onEdit={() => setEditing(inst)}
+              onDelete={() => setDeletingId(inst.id)}
+            />
           ))}
         </div>
       ) : (

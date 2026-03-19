@@ -34,12 +34,38 @@ publicSystemRoutes.get('/health', (_req, res) => {
   res.json({ status: 'ok', version: getVersion() });
 });
 
+// Paths that should never be browseable for security reasons
+const BLOCKED_BROWSE_PATHS = ['/proc', '/sys', '/dev'];
+
+/**
+ * Validate and sanitize a browseable path.
+ * Returns the resolved absolute path or null if the path is disallowed.
+ */
+function sanitizeBrowsePath(requestedPath: string): string | null {
+  // Require absolute paths to prevent CWD-relative traversal
+  if (!requestedPath.startsWith('/')) return null;
+
+  const resolved = path.resolve(requestedPath);
+
+  // Block sensitive system directories
+  for (const blocked of BLOCKED_BROWSE_PATHS) {
+    if (resolved === blocked || resolved.startsWith(blocked + '/')) return null;
+  }
+
+  return resolved;
+}
+
 // GET /api/v1/system/browse?path=/some/dir
 // Returns subdirectories at the given path for the filesystem picker UI
 protectedSystemRoutes.get('/browse', (req, res) => {
   try {
     const requestedPath = (req.query['path'] as string) || '/';
-    const resolved = path.resolve(requestedPath);
+    const resolved = sanitizeBrowsePath(requestedPath);
+
+    if (!resolved) {
+      res.status(403).json({ error: 'Access to this path is not allowed' });
+      return;
+    }
 
     if (!fs.existsSync(resolved)) {
       res.status(404).json({ error: 'Path does not exist' });

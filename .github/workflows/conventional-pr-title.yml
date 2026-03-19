@@ -26,4 +26,6 @@ jobs:
           node-version: 22
 
       - name: Validate pull request title
-        run: node scripts/validate-conventional-pr-title.mjs "${{ github.event.pull_request.title }}"
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: node scripts/validate-conventional-pr-title.mjs "$PR_TITLE"

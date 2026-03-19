@@ -10,7 +10,7 @@ import passport from 'passport';
 import { Strategy as LocalStrategy } from 'passport-local';
 import bcrypt from 'bcrypt';
 import crypto from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type Database from 'better-sqlite3';
 import type { AuthConfig, AuthMode } from '../../config/auth.js';
@@ -139,8 +139,11 @@ export function getOrCreateSessionSecret(config: AuthConfig): string {
   if (config.forms?.sessionSecret) return config.forms.sessionSecret;
 
   const secretPath = join(getConfig().dataDir, '.session-secret');
-  if (existsSync(secretPath)) {
+
+  try {
     return readFileSync(secretPath, 'utf-8').trim();
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
   }
 
   const secret = crypto.randomBytes(48).toString('hex');

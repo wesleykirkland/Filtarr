@@ -8,7 +8,7 @@
  */
 
 import { Agent } from 'undici';
-import { validateArrInstanceUrl } from '../security.js';
+import { validateArrInstanceUrl, stripTrailingSlashes } from '../security.js';
 
 import {
   type ArrClientOptions,
@@ -43,7 +43,7 @@ export class ArrClient {
     });
 
     // Normalize URL: remove trailing slash
-    this.baseUrl = normalizedBaseUrl.replace(/\/+$/, '');
+    this.baseUrl = stripTrailingSlashes(normalizedBaseUrl);
     this.apiKey = options.apiKey;
     this.timeout = options.timeout ?? DEFAULT_TIMEOUT;
     this.maxRetries = options.maxRetries ?? DEFAULT_MAX_RETRIES;

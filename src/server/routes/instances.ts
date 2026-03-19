@@ -45,6 +45,33 @@ function validateInstanceUrl(url: string, skipSslVerify?: boolean): string {
   });
 }
 
+function validateRequiredString(value: unknown, fieldName: string): string | null {
+  if (!value || typeof value !== 'string') return `${fieldName} is required and must be a string`;
+  return null;
+}
+
+function validateCreateFields(
+  name: unknown,
+  type: unknown,
+  url: unknown,
+  apiKey: unknown,
+): string | null {
+  return (
+    validateRequiredString(name, 'name') ??
+    (!type || !VALID_ARR_TYPES.includes(type as ArrType)
+      ? `type must be one of: ${VALID_ARR_TYPES.join(', ')}`
+      : null) ??
+    validateRequiredString(url, 'url') ??
+    validateRequiredString(apiKey, 'apiKey')
+  );
+}
+
+function parseInstanceId(raw: string | string[] | undefined): number | null {
+  if (typeof raw !== 'string') return null;
+  const id = parseInt(raw, 10);
+  return isNaN(id) ? null : id;
+}
+
 /**
  * Create a typed Arr client for the given instance type.
  */
@@ -64,6 +91,21 @@ export function createArrClient(
     case 'lidarr':
       return new LidarrClient(options);
   }
+}
+
+const UPDATE_INSTANCE_FIELDS = [
+  'name', 'type', 'url', 'apiKey', 'timeout',
+  'enabled', 'skipSslVerify', 'remotePath', 'localPath',
+] as const;
+
+function buildUpdateInput(body: Record<string, unknown>): UpdateInstanceInput {
+  const input: UpdateInstanceInput = {};
+  for (const field of UPDATE_INSTANCE_FIELDS) {
+    if (body[field] !== undefined) {
+      (input as Record<string, unknown>)[field] = body[field];
+    }
+  }
+  return input;
 }
 
 /**
@@ -87,8 +129,8 @@ export function createInstancesRouter(db: Database): Router {
   // GET /api/v1/instances/:id — Get instance by ID
   router.get('/:id', (req: Request, res: Response) => {
     try {
-      const id = parseInt(req.params['id'] as string, 10);
-      if (isNaN(id)) {
+      const id = parseInstanceId(req.params['id']);
+      if (id === null) {
         res.status(400).json({ error: 'Invalid instance ID' });
         return;
       }
@@ -111,21 +153,9 @@ export function createInstancesRouter(db: Database): Router {
     try {
       const { name, type, url, apiKey, timeout, enabled } = req.body as CreateInstanceInput;
 
-      // Validate required fields
-      if (!name || typeof name !== 'string') {
-        res.status(400).json({ error: 'name is required and must be a string' });
-        return;
-      }
-      if (!type || !VALID_ARR_TYPES.includes(type)) {
-        res.status(400).json({ error: `type must be one of: ${VALID_ARR_TYPES.join(', ')}` });
-        return;
-      }
-      if (!url || typeof url !== 'string') {
-        res.status(400).json({ error: 'url is required and must be a string' });
-        return;
-      }
-      if (!apiKey || typeof apiKey !== 'string') {
-        res.status(400).json({ error: 'apiKey is required and must be a string' });
+      const validationError = validateCreateFields(name, type, url, apiKey);
+      if (validationError) {
+        res.status(400).json({ error: validationError });
         return;
       }
 
@@ -173,38 +203,25 @@ export function createInstancesRouter(db: Database): Router {
   // PUT /api/v1/instances/:id — Update instance
   router.put('/:id', (req: Request, res: Response) => {
     try {
-      const id = parseInt(req.params['id'] as string, 10);
-      if (isNaN(id)) {
+      const id = parseInstanceId(req.params['id']);
+      if (id === null) {
         res.status(400).json({ error: 'Invalid instance ID' });
         return;
       }
 
-      const input: UpdateInstanceInput = {};
-      const body = req.body;
       const current = getInstanceConfigById(db, id);
-
       if (!current) {
         res.status(404).json({ error: 'Instance not found' });
         return;
       }
 
-      if (body.name !== undefined) input.name = body.name;
-      if (body.type !== undefined) {
-        if (!VALID_ARR_TYPES.includes(body.type)) {
-          res.status(400).json({ error: `type must be one of: ${VALID_ARR_TYPES.join(', ')}` });
-          return;
-        }
-        input.type = body.type;
+      const body = req.body;
+      if (body.type !== undefined && !VALID_ARR_TYPES.includes(body.type)) {
+        res.status(400).json({ error: `type must be one of: ${VALID_ARR_TYPES.join(', ')}` });
+        return;
       }
-      if (body.url !== undefined) {
-        input.url = body.url;
-      }
-      if (body.apiKey !== undefined) input.apiKey = body.apiKey;
-      if (body.timeout !== undefined) input.timeout = body.timeout;
-      if (body.enabled !== undefined) input.enabled = body.enabled;
-      if (body.skipSslVerify !== undefined) input.skipSslVerify = body.skipSslVerify;
-      if (body.remotePath !== undefined) input.remotePath = body.remotePath;
-      if (body.localPath !== undefined) input.localPath = body.localPath;
+
+      const input = buildUpdateInput(body);
 
       const normalizedUrl = validateInstanceUrl(
         input.url ?? current.url,
@@ -245,8 +262,8 @@ export function createInstancesRouter(db: Database): Router {
   // DELETE /api/v1/instances/:id — Delete instance
   router.delete('/:id', (req: Request, res: Response) => {
     try {
-      const id = parseInt(req.params['id'] as string, 10);
-      if (isNaN(id)) {
+      const id = parseInstanceId(req.params['id']);
+      if (id === null) {
         res.status(400).json({ error: 'Invalid instance ID' });
         return;
       }
@@ -279,17 +296,9 @@ export function createInstancesRouter(db: Database): Router {
     try {
       const { type, url, apiKey, timeout, skipSslVerify } = req.body;
 
-      // Basic validation for required fields
-      if (!type || !VALID_ARR_TYPES.includes(type)) {
-        res.status(400).json({ error: `type must be one of: ${VALID_ARR_TYPES.join(', ')}` });
-        return;
-      }
-      if (!url || typeof url !== 'string') {
-        res.status(400).json({ error: 'url is required and must be a string' });
-        return;
-      }
-      if (!apiKey || typeof apiKey !== 'string') {
-        res.status(400).json({ error: 'apiKey is required and must be a string' });
+      const validationError = validateCreateFields('test', type, url, apiKey);
+      if (validationError) {
+        res.status(400).json({ error: validationError });
         return;
       }
 
@@ -335,8 +344,8 @@ export function createInstancesRouter(db: Database): Router {
   // GET /api/v1/instances/:id/test — Test instance connection
   router.get('/:id/test', async (req: Request, res: Response) => {
     try {
-      const id = parseInt(req.params['id'] as string, 10);
-      if (isNaN(id)) {
+      const id = parseInstanceId(req.params['id']);
+      if (id === null) {
         res.status(400).json({ error: 'Invalid instance ID' });
         return;
       }

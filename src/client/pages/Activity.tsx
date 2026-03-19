@@ -72,11 +72,11 @@ export default function Activity() {
   });
 
   const sourceOptions = useMemo(
-    () => Array.from(new Set(events.map((event) => event.source))).sort(),
+    () => Array.from(new Set(events.map((event) => event.source))).sort((a, b) => a.localeCompare(b)),
     [events],
   );
   const typeOptions = useMemo(
-    () => Array.from(new Set(events.map((event) => event.type))).sort(),
+    () => Array.from(new Set(events.map((event) => event.type))).sort((a, b) => a.localeCompare(b)),
     [events],
   );
 
@@ -240,7 +240,7 @@ export default function Activity() {
             </h4>
             <p className="mt-2 text-sm text-gray-600 dark:text-gray-500">{activityErrorMessage}</p>
             <div className="mt-4">
-              <Button onClick={() => void refetch()} variant="secondary">
+              <Button onClick={() => { refetch(); }} variant="secondary">
                 Retry timeline
               </Button>
             </div>

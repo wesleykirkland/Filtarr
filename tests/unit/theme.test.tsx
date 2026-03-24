@@ -7,7 +7,7 @@ import { click, render } from '../support/render';
 function installLocalStorageMock() {
   const store = new Map<string, string>();
 
-  Object.defineProperty(window, 'localStorage', {
+  Object.defineProperty(globalThis, 'localStorage', {
     configurable: true,
     value: {
       getItem: (key: string) => store.get(key) ?? null,
@@ -53,13 +53,13 @@ describe('ThemeProvider', () => {
     );
 
     const button = view.container.querySelector('button');
-    expect(button?.getAttribute('data-mode')).toBe('dark');
+    expect(button?.dataset['mode']).toBe('dark');
     expect(document.documentElement.classList.contains('dark')).toBe(true);
     expect(localStorage.getItem('darkMode')).toBe('true');
 
     await click(button);
 
-    expect(button?.getAttribute('data-mode')).toBe('light');
+    expect(button?.dataset['mode']).toBe('light');
     expect(document.documentElement.classList.contains('light')).toBe(true);
     expect(localStorage.getItem('darkMode')).toBe('false');
 
@@ -75,7 +75,7 @@ describe('ThemeProvider', () => {
       </ThemeProvider>,
     );
 
-    expect(view.container.querySelector('button')?.getAttribute('data-mode')).toBe('light');
+    expect(view.container.querySelector('button')?.dataset['mode']).toBe('light');
     expect(document.documentElement.classList.contains('light')).toBe(true);
 
     await view.unmount();

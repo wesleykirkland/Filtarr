@@ -7,7 +7,7 @@ export function createEventsRoutes(db: Database.Database): Router {
 
   router.get('/', (req: Request, res: Response, next: NextFunction): void => {
     try {
-      const limit = req.query['limit'] ? parseInt(String(req.query['limit']), 10) : undefined;
+      const limit = req.query['limit'] ? Number.parseInt(String(req.query['limit']), 10) : undefined;
       const type = typeof req.query['type'] === 'string' ? req.query['type'] : undefined;
       const source = typeof req.query['source'] === 'string' ? req.query['source'] : undefined;
 

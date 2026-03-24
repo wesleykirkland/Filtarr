@@ -68,7 +68,7 @@ function validateCreateFields(
 
 function parseInstanceId(raw: string | string[] | undefined): number | null {
   if (typeof raw !== 'string') return null;
-  const id = parseInt(raw, 10);
+  const id = Number.parseInt(raw, 10);
   return isNaN(id) ? null : id;
 }
 

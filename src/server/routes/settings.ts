@@ -235,7 +235,7 @@ export function createSettingsRoutes(
           { value: string }
         >(`SELECT value FROM settings WHERE key = 'validation_interval_minutes'`)
         .get();
-      const interval = parseInt(result?.value || '15', 10);
+      const interval = Number.parseInt(result?.value || '15', 10);
       res.json({
         validationIntervalMinutes: isNaN(interval) ? 15 : interval,
       });

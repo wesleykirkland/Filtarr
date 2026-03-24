@@ -83,7 +83,7 @@ function InstanceForm({
         type,
         url,
         apiKey: apiKey || (initial ? initial.api_key_masked : ''),
-        timeout: parseInt(timeout, 10) || undefined,
+        timeout: Number.parseInt(timeout, 10) || undefined,
         skipSslVerify,
         remotePath: remotePath || null,
         localPath: localPath || null,
@@ -106,7 +106,7 @@ function InstanceForm({
       type,
       url,
       apiKey: apiKey || (initial ? '' : apiKey), // empty = don't update
-      timeout: parseInt(timeout, 10) || undefined,
+      timeout: Number.parseInt(timeout, 10) || undefined,
       skipSslVerify,
       remotePath: remotePath || null,
       localPath: localPath || null,

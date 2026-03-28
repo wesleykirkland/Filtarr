@@ -313,7 +313,7 @@ export class SettingsBackupService {
 
   private redactExportRow(table: (typeof EXPORT_TABLES)[number], row: Record<string, unknown>) {
     if (table === 'settings') {
-      const key = String(row['key'] ?? '');
+      const key = typeof row['key'] === 'string' ? row['key'] : '';
       if (key === 'auth_mode') {
         return { ...row, value: 'none' };
       }
@@ -342,7 +342,7 @@ export class SettingsBackupService {
 
   private normalizeImportedRow(table: (typeof EXPORT_TABLES)[number], row: Record<string, unknown>) {
     if (table === 'settings') {
-      const key = String(row['key'] ?? '');
+      const key = typeof row['key'] === 'string' ? row['key'] : '';
 
       if (key === 'auth_mode') {
         return { ...row, value: 'none' };

@@ -15,14 +15,16 @@ import { ConfirmModal } from '../components/ConfirmModal';
 
 const ARR_TYPES = ['sonarr', 'radarr', 'lidarr'] as const;
 
-function getTestButtonLabel(isPending: boolean, status: 'idle' | 'success' | 'error'): string {
+type TestStatus = 'idle' | 'success' | 'error';
+
+function getTestButtonLabel(isPending: boolean, status: TestStatus): string {
   if (isPending) return 'Testing...';
   if (status === 'error') return 'Test Failed';
   if (status === 'success') return 'Test Passed';
   return 'Test Connection';
 }
 
-function getTestButtonColor(status: 'idle' | 'success' | 'error'): string {
+function getTestButtonColor(status: TestStatus): string {
   if (status === 'error') return 'bg-red-600 hover:bg-red-700';
   if (status === 'success') return 'bg-green-600 hover:bg-green-700';
   return 'bg-gray-700 hover:bg-gray-600';
@@ -45,7 +47,7 @@ function InstanceForm({
   const [skipSslVerify, setSkipSslVerify] = useState(initial?.skipSslVerify ?? false);
   const [remotePath, setRemotePath] = useState(initial?.remotePath ?? '');
   const [localPath, setLocalPath] = useState(initial?.localPath ?? '');
-  const [testStatus, setTestStatus] = useState<'idle' | 'success' | 'error'>('idle');
+  const [testStatus, setTestStatus] = useState<TestStatus>('idle');
   const [testError, setTestError] = useState<string | null>(null);
 
   const testUnsavedMutation = useTestUnsavedInstance();
@@ -117,8 +119,9 @@ function InstanceForm({
     <form onSubmit={handleSubmit} className="space-y-4">
       <div className="grid gap-4 sm:grid-cols-2">
         <div>
-          <label className="block text-sm font-medium dark:text-gray-400 text-gray-700">Name</label>
+          <label htmlFor="instance-name" className="block text-sm font-medium dark:text-gray-400 text-gray-700">Name</label>
           <input
+            id="instance-name"
             value={name}
             onChange={(e) => setName(e.target.value)}
             required
@@ -126,7 +129,7 @@ function InstanceForm({
           />
         </div>
         <div>
-          <label className="block text-sm font-medium dark:text-gray-400 text-gray-700">Type</label>
+          <label htmlFor="instance-type" className="block text-sm font-medium dark:text-gray-400 text-gray-700">Type</label>
           {initial ? (
             <div className="mt-1 flex items-center gap-2">
               <span className="inline-flex items-center rounded-lg border dark:border-gray-700 border-gray-300 dark:bg-gray-800 bg-gray-100 px-3 py-2 text-sm font-medium dark:text-gray-300 text-gray-700 capitalize">
@@ -138,6 +141,7 @@ function InstanceForm({
             </div>
           ) : (
             <select
+              id="instance-type"
               value={type}
               onChange={(e) => {
                 setType(e.target.value);
@@ -154,8 +158,9 @@ function InstanceForm({
           )}
         </div>
         <div>
-          <label className="block text-sm font-medium dark:text-gray-400 text-gray-700">URL</label>
+          <label htmlFor="instance-url" className="block text-sm font-medium dark:text-gray-400 text-gray-700">URL</label>
           <input
+            id="instance-url"
             value={url}
             onChange={handleUrlChange}
             required
@@ -164,10 +169,11 @@ function InstanceForm({
           />
         </div>
         <div>
-          <label className="block text-sm font-medium dark:text-gray-400 text-gray-700">
+          <label htmlFor="instance-api-key" className="block text-sm font-medium dark:text-gray-400 text-gray-700">
             API Key {initial && '(leave blank to keep, but must re-enter to test)'}
           </label>
           <input
+            id="instance-api-key"
             value={apiKey}
             onChange={handleApiKeyChange}
             required={!initial}
@@ -176,10 +182,11 @@ function InstanceForm({
           />
         </div>
         <div>
-          <label className="block text-sm font-medium dark:text-gray-400 text-gray-700">
+          <label htmlFor="instance-timeout" className="block text-sm font-medium dark:text-gray-400 text-gray-700">
             Timeout (seconds)
           </label>
           <input
+            id="instance-timeout"
             type="number"
             value={timeout}
             onChange={(e) => {
@@ -217,10 +224,11 @@ function InstanceForm({
           </p>
           <div className="grid gap-4 sm:grid-cols-2">
             <div>
-              <label className="block text-sm font-medium dark:text-gray-400 text-gray-700">
+              <label htmlFor="instance-remote-path" className="block text-sm font-medium dark:text-gray-400 text-gray-700">
                 Remote Path (Arr's view)
               </label>
               <input
+                id="instance-remote-path"
                 value={remotePath}
                 onChange={(e) => setRemotePath(e.target.value)}
                 placeholder="/downloads"
@@ -228,10 +236,11 @@ function InstanceForm({
               />
             </div>
             <div>
-              <label className="block text-sm font-medium dark:text-gray-400 text-gray-700">
+              <label htmlFor="instance-local-path" className="block text-sm font-medium dark:text-gray-400 text-gray-700">
                 Local Path (Filtarr's view)
               </label>
               <input
+                id="instance-local-path"
                 value={localPath}
                 onChange={(e) => setLocalPath(e.target.value)}
                 placeholder="/mnt/downloads"
@@ -253,7 +262,7 @@ function InstanceForm({
         <button
           type="submit"
           disabled={testStatus !== 'success'}
-          title={testStatus !== 'success' ? 'Must successfully test connection before saving' : ''}
+          title={testStatus === 'success' ? '' : 'Must successfully test connection before saving'}
           className="rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed hidden sm:block"
         >
           {initial ? 'Update Connection' : 'Create Connection'}
@@ -262,7 +271,7 @@ function InstanceForm({
         <button
           type="submit"
           disabled={testStatus !== 'success'}
-          title={testStatus !== 'success' ? 'Must successfully test connection before saving' : ''}
+          title={testStatus === 'success' ? '' : 'Must successfully test connection before saving'}
           className="rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed sm:hidden"
         >
           {initial ? 'Update' : 'Create'}
@@ -290,14 +299,14 @@ function InstanceCard({
   isTestPending,
   onEdit,
   onDelete,
-}: {
+}: Readonly<{
   instance: Instance;
   darkMode: boolean;
   onTest: () => void;
   isTestPending: boolean;
   onEdit: () => void;
   onDelete: () => void;
-}) {
+}>) {
   return (
     <div
       className={`group relative overflow-hidden rounded-2xl border p-5 transition-all hover:shadow-xl ${darkMode

@@ -46,8 +46,8 @@ function createWrapper(node: React.ReactNode, client?: QueryClient) {
 async function setInputValue(input: HTMLInputElement | HTMLTextAreaElement, value: string) {
   await act(async () => {
     const prototype = input instanceof HTMLTextAreaElement
-      ? window.HTMLTextAreaElement.prototype
-      : window.HTMLInputElement.prototype;
+      ? globalThis.HTMLTextAreaElement.prototype
+      : globalThis.HTMLInputElement.prototype;
     const valueSetter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;
     valueSetter?.call(input, value);
     input.dispatchEvent(new Event('input', { bubbles: true }));

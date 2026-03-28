@@ -25,7 +25,7 @@ function wrap(node: React.ReactNode, path = '/') {
 
 async function setInputValue(input: HTMLInputElement, value: string) {
   await act(async () => {
-    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set?.call(input, value);
+    Object.getOwnPropertyDescriptor(globalThis.HTMLInputElement.prototype, 'value')?.set?.call(input, value);
     input.dispatchEvent(new Event('input', { bubbles: true }));
     input.dispatchEvent(new Event('change', { bubbles: true }));
   });
@@ -97,8 +97,8 @@ describe('client page smoke coverage', () => {
 
     const noneView = await render(wrap(<Setup />, '/setup'));
     await click(Array.from(document.body.querySelectorAll('button')).find((node) => node.textContent?.includes('Get Started')) ?? null);
-    const noneRadio = Array.from(document.body.querySelectorAll('input')).find((node) => (node as HTMLInputElement).value === 'none') as HTMLInputElement;
-    act(() => noneRadio.click());
+    const noneRadio = Array.from(document.body.querySelectorAll('input')).find((node) => node.value === 'none');
+    act(() => noneRadio!.click());
     await click(Array.from(document.body.querySelectorAll('button')).find((node) => node.textContent === 'Continue') ?? null);
     await waitFor(() => {
       expect(document.body.querySelector('[aria-label="Copy API key"]')).toBeTruthy();
@@ -109,13 +109,13 @@ describe('client page smoke coverage', () => {
 
     const formsView = await render(wrap(<Setup />, '/setup'));
     await click(Array.from(document.body.querySelectorAll('button')).find((node) => node.textContent?.includes('Get Started')) ?? null);
-    const radio = Array.from(document.body.querySelectorAll('input')).find((node) => (node as HTMLInputElement).value === 'forms') as HTMLInputElement;
-    act(() => radio.click());
+    const radio = Array.from(document.body.querySelectorAll('input')).find((node) => node.value === 'forms');
+    act(() => radio!.click());
     await click(Array.from(document.body.querySelectorAll('button')).find((node) => node.textContent === 'Continue') ?? null);
     await waitFor(() => {
       expect(Array.from(document.body.querySelectorAll('input')).length).toBeGreaterThanOrEqual(3);
     });
-    const formInputs = Array.from(document.body.querySelectorAll('input')).slice(-3) as HTMLInputElement[];
+    const formInputs = Array.from(document.body.querySelectorAll('input')).slice(-3);
     await setInputValue(formInputs[0]!, 'admin');
     await setInputValue(formInputs[1]!, 'password123');
     await setInputValue(formInputs[2]!, 'password123');

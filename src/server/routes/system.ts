@@ -90,7 +90,7 @@ protectedSystemRoutes.get('/browse', (req, res) => {
 
     res.json({
       current: resolved,
-      parent: resolved !== '/' ? path.dirname(resolved) : null,
+      parent: resolved === '/' ? null : path.dirname(resolved),
       entries: dirs,
     });
   } catch (err) {

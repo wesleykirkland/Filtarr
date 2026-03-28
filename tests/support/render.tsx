@@ -37,7 +37,7 @@ export async function render(ui: ReactElement): Promise<RenderResult> {
 
 export async function click(element: Element | null): Promise<void> {
   if (!(element instanceof HTMLElement)) {
-    throw new Error('Expected an HTMLElement to click');
+    throw new TypeError('Expected an HTMLElement to click');
   }
 
   await act(async () => {

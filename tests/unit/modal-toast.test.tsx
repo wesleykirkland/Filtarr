@@ -62,7 +62,7 @@ describe('modal, toast, and dialog components', () => {
     );
 
     const dialog = document.body.querySelector('[role="dialog"]') as HTMLElement;
-    const [closeButton, first, last] = Array.from(dialog.querySelectorAll('button')) as HTMLButtonElement[];
+    const [closeButton, , last] = Array.from(dialog.querySelectorAll('button')) as HTMLButtonElement[];
     expect(document.activeElement).toBe(closeButton);
 
     last.focus();

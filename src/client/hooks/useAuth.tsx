@@ -1,4 +1,4 @@
-import { createContext, useContext, useCallback, useEffect } from 'react';
+import { createContext, useContext, useCallback, useEffect, useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
 
@@ -20,7 +20,7 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-export function AuthProvider({ children }: { children: React.ReactNode }) {
+export function AuthProvider({ children }: Readonly<{ children: React.ReactNode }>) {
   const queryClient = useQueryClient();
 
   useEffect(() => {
@@ -29,8 +29,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // Optional: force a reload or redirect, but clearing cache will make the protected route component do the redirect eventually when the session query fails.
     };
 
-    window.addEventListener('auth:401', handleAuthError);
-    return () => window.removeEventListener('auth:401', handleAuthError);
+    globalThis.addEventListener('auth:401', handleAuthError);
+    return () => globalThis.removeEventListener('auth:401', handleAuthError);
   }, [queryClient]);
 
   const { data: session, isLoading, error, refetch } = useQuery({
@@ -57,8 +57,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await queryClient.invalidateQueries({ queryKey: ['auth', 'session'] });
   }, [queryClient]);
 
+  const value = useMemo(
+    () => ({ session, isLoading, error, login, logout, retrySession }),
+    [session, isLoading, error, login, logout, retrySession],
+  );
+
   return (
-    <AuthContext.Provider value={{ session, isLoading, error, login, logout, retrySession }}>
+    <AuthContext.Provider value={value}>
       {children}
     </AuthContext.Provider>
   );

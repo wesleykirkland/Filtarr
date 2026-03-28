@@ -142,13 +142,13 @@ export function Field({
   description,
   children,
   className,
-}: {
+}: Readonly<{
   label: string;
   htmlFor?: string;
   description?: string;
   children: ReactNode;
   className?: string;
-}) {
+}>) {
   return (
     <div className={cn('space-y-1.5', className)}>
       <label htmlFor={htmlFor} className="block text-sm font-medium text-gray-700 dark:text-gray-300">
@@ -167,14 +167,14 @@ export function CheckboxField({
   checked,
   onChange,
   className,
-}: {
+}: Readonly<{
   id: string;
   label: string;
   description?: string;
   checked: boolean;
   onChange: (checked: boolean) => void;
   className?: string;
-}) {
+}>) {
   return (
     <label className={cn('flex items-start gap-3 rounded-lg', className)} htmlFor={id}>
       <input
@@ -196,11 +196,11 @@ export function Toggle({
   checked,
   onChange,
   label,
-}: {
+}: Readonly<{
   checked: boolean;
   onChange: (checked: boolean) => void;
   label: string;
-}) {
+}>) {
   return (
     <button
       type="button"
@@ -227,10 +227,10 @@ export function Toggle({
 export function Card({
   children,
   className,
-}: {
+}: Readonly<{
   children: ReactNode;
   className?: string;
-}) {
+}>) {
   return <section className={cn('rounded-2xl p-6', baseSurface, className)}>{children}</section>;
 }
 
@@ -238,11 +238,11 @@ export function CardHeader({
   title,
   description,
   action,
-}: {
+}: Readonly<{
   title: string;
   description?: string;
   action?: ReactNode;
-}) {
+}>) {
   return (
     <div className="flex items-start justify-between gap-4">
       <div>
@@ -258,11 +258,11 @@ export function Badge({
   children,
   variant = 'default',
   className,
-}: {
+}: Readonly<{
   children: ReactNode;
   variant?: 'default' | 'info' | 'success' | 'warning' | 'danger';
   className?: string;
-}) {
+}>) {
   return <span className={badgeStyles(variant, className)}>{children}</span>;
 }
 
@@ -270,11 +270,11 @@ export function PageHeader({
   title,
   description,
   actions,
-}: {
+}: Readonly<{
   title: string;
   description?: string;
   actions?: ReactNode;
-}) {
+}>) {
   return (
     <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
       <div>
@@ -291,12 +291,12 @@ export function EmptyState({
   title,
   description,
   action,
-}: {
+}: Readonly<{
   icon?: ReactNode;
   title: string;
   description: string;
   action?: ReactNode;
-}) {
+}>) {
   return (
     <div className="flex flex-col items-center justify-center rounded-3xl border border-dashed border-gray-300 bg-gray-50/80 p-12 text-center dark:border-gray-800 dark:bg-gray-900/30">
       {icon ? (
@@ -315,11 +315,11 @@ export function Tabs<T extends string>({
   items,
   value,
   onChange,
-}: {
+}: Readonly<{
   items: Array<{ value: T; label: string; description?: string }>;
   value: T;
   onChange: (value: T) => void;
-}) {
+}>) {
   return (
     <div className="rounded-2xl border border-gray-200 bg-white p-2 shadow-sm dark:border-gray-800 dark:bg-gray-900">
       <div role="tablist" aria-label="Sections" className="grid gap-2 md:grid-cols-4">

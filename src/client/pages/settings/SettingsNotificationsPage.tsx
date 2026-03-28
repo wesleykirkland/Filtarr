@@ -154,10 +154,11 @@ export default function SettingsNotificationsPage() {
 
           <div className="mt-4 grid gap-4 md:grid-cols-2">
             <div>
-              <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">
+              <label htmlFor="settings-default-slack-token" className="block text-xs font-medium text-gray-700 dark:text-gray-300">
                 Default Slack Bot Token
               </label>
               <input
+                id="settings-default-slack-token"
                 value={defaultSlackToken}
                 onChange={(e) => setDefaultSlackToken(e.target.value)}
                 placeholder="xoxb-..."
@@ -165,10 +166,11 @@ export default function SettingsNotificationsPage() {
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">
+              <label htmlFor="settings-default-slack-channel" className="block text-xs font-medium text-gray-700 dark:text-gray-300">
                 Default Slack Channel
               </label>
               <input
+                id="settings-default-slack-channel"
                 value={defaultSlackChannel}
                 onChange={(e) => setDefaultSlackChannel(e.target.value)}
                 placeholder="#alerts"
@@ -212,10 +214,11 @@ export default function SettingsNotificationsPage() {
           </div>
 
           <div className="mt-4">
-            <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">
+            <label htmlFor="settings-default-webhook-url" className="block text-xs font-medium text-gray-700 dark:text-gray-300">
               Default Webhook URL
             </label>
             <input
+              id="settings-default-webhook-url"
               type="url"
               value={defaultWebhookUrl}
               onChange={(e) => setDefaultWebhookUrl(e.target.value)}

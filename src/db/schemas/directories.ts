@@ -38,7 +38,7 @@ export function createDirectory(db: Database.Database, input: CreateDirectoryInp
       `INSERT INTO directories (path, recursive, enabled, created_at, updated_at) 
        VALUES (?, ?, ?, datetime('now'), datetime('now'))`,
     )
-    .run(input.path, input.recursive ? 1 : 0, input.enabled !== false ? 1 : 0);
+    .run(input.path, input.recursive ? 1 : 0, input.enabled === false ? 0 : 1);
 
   const newRow = getDirectoryById(db, result.lastInsertRowid as number);
   if (!newRow) throw new Error('Failed to retrieve created directory');
@@ -54,8 +54,8 @@ export function updateDirectory(
   if (!current) throw new Error(`Directory with id ${id} not found`);
 
   const path = input.path ?? current.path;
-  const recursive = input.recursive !== undefined ? (input.recursive ? 1 : 0) : current.recursive;
-  const enabled = input.enabled !== undefined ? (input.enabled ? 1 : 0) : current.enabled;
+  const recursive = input.recursive === undefined ? current.recursive : (input.recursive ? 1 : 0);
+  const enabled = input.enabled === undefined ? current.enabled : (input.enabled ? 1 : 0);
 
   db.prepare<[string, number, number, number]>(
     `UPDATE directories 

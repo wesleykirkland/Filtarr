@@ -16,7 +16,7 @@ describe('filterUi helpers', () => {
   it('detects whether a filter has a usable target path', () => {
     expect(hasConfiguredPath('/downloads')).toBe(true);
     expect(hasConfiguredPath('   ')).toBe(false);
-    expect(hasConfiguredPath(undefined)).toBe(false);
+    expect(hasConfiguredPath()).toBe(false);
   });
 
   it('keeps filter cards dark-mode-safe', () => {

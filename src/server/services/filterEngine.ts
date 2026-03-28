@@ -11,7 +11,7 @@ import { normalizeScriptRuntime, runConfiguredScript } from './scriptRunner.js';
 
 function didScriptRuleMatch(output: unknown, runtime: 'javascript' | 'shell'): boolean {
   if (runtime === 'shell') {
-    const normalized = String(output ?? '').trim().toLowerCase();
+    const normalized = (typeof output === 'string' ? output : '').trim().toLowerCase();
     return ['1', 'true', 'yes', 'match'].includes(normalized);
   }
 
@@ -32,8 +32,8 @@ interface ProcessFileOptions {
 }
 
 export class FilterEngine {
-  private db: Database.Database;
-  private notificationService: NotificationService;
+  private readonly db: Database.Database;
+  private readonly notificationService: NotificationService;
 
   constructor(db: Database.Database) {
     this.db = db;
@@ -150,7 +150,7 @@ export class FilterEngine {
 
   private evaluateSizeRule(payload: string, fileSize: number): boolean {
     // e.g. >100MB, <1KB, =500B
-    const match = payload.match(/^([><=])?\s*(\d+(?:\.\d+)?)\s*([KMGT]B|B)?$/i);
+    const match = /^([><=])?\s*(\d+(?:\.\d+)?)\s*([KMGT]B|B)?$/i.exec(payload);
     if (!match) return false;
 
     const operator = match[1] || '=';

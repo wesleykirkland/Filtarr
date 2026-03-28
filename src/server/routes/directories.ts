@@ -41,7 +41,7 @@ export function createDirectoriesRoutes(db: Database.Database): Router {
   router.get('/:id', (req: Request, res: Response, next: NextFunction): void => {
     try {
       const id = Number.parseInt((req.params['id'] as string) || '', 10);
-      if (isNaN(id)) {
+      if (Number.isNaN(id)) {
         res.status(400).json({ error: 'Invalid ID' });
         return;
       }
@@ -92,7 +92,7 @@ export function createDirectoriesRoutes(db: Database.Database): Router {
   router.put('/:id', (req: Request, res: Response, next: NextFunction): void => {
     try {
       const id = Number.parseInt((req.params['id'] as string) || '', 10);
-      if (isNaN(id)) {
+      if (Number.isNaN(id)) {
         res.status(400).json({ error: 'Invalid ID' });
         return;
       }
@@ -136,7 +136,7 @@ export function createDirectoriesRoutes(db: Database.Database): Router {
   router.delete('/:id', (req: Request, res: Response, next: NextFunction): void => {
     try {
       const id = Number.parseInt((req.params['id'] as string) || '', 10);
-      if (isNaN(id)) {
+      if (Number.isNaN(id)) {
         res.status(400).json({ error: 'Invalid ID' });
         return;
       }
@@ -147,10 +147,11 @@ export function createDirectoriesRoutes(db: Database.Database): Router {
         return;
       }
       logger.info({ dirId: id }, 'Directory deleted');
+      const dirLabel = current?.path || `#${id}`;
       recordActivityEvent(db, {
         type: 'deleted',
         source: 'directories',
-        message: `Removed watched directory ${current?.path || `#${id}`}`,
+        message: `Removed watched directory ${dirLabel}`,
         details: current
           ? { directoryId: current.id, path: current.path, recursive: current.recursive }
           : { directoryId: id },

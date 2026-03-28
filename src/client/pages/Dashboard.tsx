@@ -87,7 +87,7 @@ export default function Dashboard() {
           )}
         </Card>
 
-        {isAutomationSummaryLoading ? (
+        {isAutomationSummaryLoading && (
           <Card className="sm:col-span-1 xl:col-span-3">
             <h3 className="text-sm font-medium text-gray-500">Automation summary</h3>
             <p className="mt-2 text-lg font-semibold text-gray-900 dark:text-gray-100">
@@ -97,7 +97,8 @@ export default function Dashboard() {
               Pulling the latest instances, filters, and schedules before showing recommendations.
             </p>
           </Card>
-        ) : automationSummaryError ? (
+        )}
+        {!isAutomationSummaryLoading && automationSummaryError && (
           <Card className="sm:col-span-1 xl:col-span-3">
             <h3 className="text-sm font-medium text-gray-500">Automation summary</h3>
             <p className="mt-2 text-lg font-semibold text-gray-900 dark:text-gray-100">
@@ -105,7 +106,8 @@ export default function Dashboard() {
             </p>
             <p className="mt-1 text-sm text-gray-500">{automationSummaryErrorMessage}</p>
           </Card>
-        ) : (
+        )}
+        {!isAutomationSummaryLoading && !automationSummaryError && (
           <>
             <Card>
               <h3 className="text-sm font-medium text-gray-500">Connected instances</h3>

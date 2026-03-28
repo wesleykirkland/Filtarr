@@ -176,6 +176,7 @@ export default function SettingsAuthenticationPage() {
             {(['none', 'basic', 'forms', 'oidc'] as const).map((mode) => (
               <label
                 key={mode}
+                htmlFor={`auth-mode-${mode}`}
                 className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 ${
                   selectedAuthMode === mode
                     ? 'border-blue-500 bg-blue-50 dark:bg-blue-500/10'
@@ -183,6 +184,7 @@ export default function SettingsAuthenticationPage() {
                 }`}
               >
                 <input
+                  id={`auth-mode-${mode}`}
                   type="radio"
                   name="authMode"
                   value={mode}
@@ -214,10 +216,11 @@ export default function SettingsAuthenticationPage() {
           {selectedAuthMode === 'oidc' && (
             <div className="space-y-4 rounded-lg border border-gray-300 bg-gray-50 p-4 dark:border-gray-700 dark:bg-gray-800/50">
               <div>
-                <label className="block text-xs font-medium text-gray-700 dark:text-gray-400">
+                <label htmlFor="auth-oidc-issuer-url" className="block text-xs font-medium text-gray-700 dark:text-gray-400">
                   Issuer URL
                 </label>
                 <input
+                  id="auth-oidc-issuer-url"
                   type="url"
                   value={oidcIssuerUrl}
                   onChange={(e) => setOidcIssuerUrl(e.target.value)}
@@ -228,10 +231,11 @@ export default function SettingsAuthenticationPage() {
 
               <div className="grid gap-4 md:grid-cols-2">
                 <div>
-                  <label className="block text-xs font-medium text-gray-700 dark:text-gray-400">
+                  <label htmlFor="auth-oidc-client-id" className="block text-xs font-medium text-gray-700 dark:text-gray-400">
                     Client ID
                   </label>
                   <input
+                    id="auth-oidc-client-id"
                     type="text"
                     value={oidcClientId}
                     onChange={(e) => setOidcClientId(e.target.value)}
@@ -239,10 +243,11 @@ export default function SettingsAuthenticationPage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-700 dark:text-gray-400">
+                  <label htmlFor="auth-oidc-client-secret" className="block text-xs font-medium text-gray-700 dark:text-gray-400">
                     Client Secret
                   </label>
                   <input
+                    id="auth-oidc-client-secret"
                     type="password"
                     value={oidcClientSecret}
                     onChange={(e) => setOidcClientSecret(e.target.value)}
@@ -252,10 +257,11 @@ export default function SettingsAuthenticationPage() {
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-gray-700 dark:text-gray-400">
+                <label htmlFor="auth-oidc-callback-url" className="block text-xs font-medium text-gray-700 dark:text-gray-400">
                   Callback URL
                 </label>
                 <input
+                  id="auth-oidc-callback-url"
                   type="url"
                   value={oidcCallbackUrl}
                   onChange={(e) => setOidcCallbackUrl(e.target.value)}
@@ -265,10 +271,11 @@ export default function SettingsAuthenticationPage() {
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-gray-700 dark:text-gray-400">
+                <label htmlFor="auth-oidc-scopes" className="block text-xs font-medium text-gray-700 dark:text-gray-400">
                   Scopes
                 </label>
                 <input
+                  id="auth-oidc-scopes"
                   type="text"
                   value={oidcScopes}
                   onChange={(e) => setOidcScopes(e.target.value)}
@@ -286,10 +293,11 @@ export default function SettingsAuthenticationPage() {
             <div className="space-y-3 rounded-lg border border-gray-300 bg-gray-50 p-4 dark:border-gray-700 dark:bg-gray-800/50">
               <p className="text-sm text-yellow-600 dark:text-yellow-400">Create admin account:</p>
               <div>
-                <label className="block text-xs font-medium text-gray-700 dark:text-gray-400">
+                <label htmlFor="auth-admin-username" className="block text-xs font-medium text-gray-700 dark:text-gray-400">
                   Username
                 </label>
                 <input
+                  id="auth-admin-username"
                   type="text"
                   value={authUsername}
                   onChange={(e) => setAuthUsername(e.target.value)}
@@ -297,10 +305,11 @@ export default function SettingsAuthenticationPage() {
                 />
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-700 dark:text-gray-400">
+                <label htmlFor="auth-admin-password" className="block text-xs font-medium text-gray-700 dark:text-gray-400">
                   Password
                 </label>
                 <input
+                  id="auth-admin-password"
                   type="password"
                   value={authPassword}
                   onChange={(e) => setAuthPassword(e.target.value)}

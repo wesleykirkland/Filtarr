@@ -144,7 +144,7 @@ describe('Filter notification overrides', () => {
           name: 'Test Update Slack Filter',
           triggerSource: 'watcher',
           ruleType: 'regex',
-          rulePayload: '.*\\.sample$',
+          rulePayload: String.raw`.*\.sample$`,
           actionType: 'delete',
         });
       expect(createRes.status).toBe(201);

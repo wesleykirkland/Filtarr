@@ -16,7 +16,7 @@ function getIntervalMs(db: Database.Database): number {
       >(`SELECT value FROM settings WHERE key = 'validation_interval_minutes'`)
       .get();
     const minutes = Number.parseInt(result?.value || '15', 10);
-    return (isNaN(minutes) ? 15 : minutes) * 60 * 1000;
+    return (Number.isNaN(minutes) ? 15 : minutes) * 60 * 1000;
   } catch {
     return 15 * 60 * 1000;
   }

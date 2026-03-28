@@ -57,7 +57,7 @@ export function createJob(db: Database.Database, input: CreateJobInput): JobRow 
       input.schedule,
       input.type,
       input.payload || null,
-      input.enabled !== false ? 1 : 0,
+      input.enabled === false ? 0 : 1,
     );
 
   const newRow = getJobById(db, result.lastInsertRowid as number);

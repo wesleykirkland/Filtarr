@@ -76,7 +76,7 @@ export function createFiltersRoutes(db: Database.Database): Router {
   router.get('/:id', (req: Request, res: Response, next: NextFunction): void => {
     try {
       const id = Number.parseInt((req.params['id'] as string) || '', 10);
-      if (isNaN(id)) {
+      if (Number.isNaN(id)) {
         res.status(400).json({ error: 'Invalid ID' });
         return;
       }
@@ -114,7 +114,7 @@ export function createFiltersRoutes(db: Database.Database): Router {
   router.put('/:id', (req: Request, res: Response, next: NextFunction): void => {
     try {
       const id = Number.parseInt((req.params['id'] as string) || '', 10);
-      if (isNaN(id)) {
+      if (Number.isNaN(id)) {
         res.status(400).json({ error: 'Invalid ID' });
         return;
       }
@@ -145,7 +145,7 @@ export function createFiltersRoutes(db: Database.Database): Router {
   router.delete('/:id', (req: Request, res: Response, next: NextFunction): void => {
     try {
       const id = Number.parseInt((req.params['id'] as string) || '', 10);
-      if (isNaN(id)) {
+      if (Number.isNaN(id)) {
         res.status(400).json({ error: 'Invalid ID' });
         return;
       }

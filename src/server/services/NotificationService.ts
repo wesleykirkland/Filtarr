@@ -29,6 +29,8 @@ interface SlackApiResponse {
   ok?: boolean;
 }
 
+type ArrInstanceSummary = ArrInstanceSummary;
+
 export class NotificationService {
   constructor(private readonly db: Database.Database) {}
 
@@ -118,7 +120,7 @@ export class NotificationService {
   }
 
   public async notifyInstanceHealthcheckFailure(
-    instance: Pick<ArrInstanceConfig, 'id' | 'name' | 'type' | 'url'>,
+    instance: ArrInstanceSummary,
     error: string,
   ) {
     const settings = this.getNotificationSettings();
@@ -263,7 +265,7 @@ export class NotificationService {
   }
 
   private buildInstanceHealthcheckPayload(
-    instance: Pick<ArrInstanceConfig, 'id' | 'name' | 'type' | 'url'>,
+    instance: ArrInstanceSummary,
     error: string,
   ) {
     return {
@@ -298,7 +300,7 @@ export class NotificationService {
   }
 
   private buildInstanceHealthcheckSlackText(
-    instance: Pick<ArrInstanceConfig, 'id' | 'name' | 'type' | 'url'>,
+    instance: ArrInstanceSummary,
     error: string,
   ): string {
     return [

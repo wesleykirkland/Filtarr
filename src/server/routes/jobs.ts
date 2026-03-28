@@ -44,7 +44,7 @@ export function createJobsRoutes(db: Database.Database): Router {
   router.get('/:id', (req: Request, res: Response, next: NextFunction): void => {
     try {
       const id = Number.parseInt((req.params['id'] as string) || '', 10);
-      if (isNaN(id)) {
+      if (Number.isNaN(id)) {
         res.status(400).json({ error: 'Invalid ID' });
         return;
       }
@@ -93,7 +93,7 @@ export function createJobsRoutes(db: Database.Database): Router {
   router.put('/:id', (req: Request, res: Response, next: NextFunction): void => {
     try {
       const id = Number.parseInt((req.params['id'] as string) || '', 10);
-      if (isNaN(id)) {
+      if (Number.isNaN(id)) {
         res.status(400).json({ error: 'Invalid ID' });
         return;
       }
@@ -141,7 +141,7 @@ export function createJobsRoutes(db: Database.Database): Router {
   router.delete('/:id', (req: Request, res: Response, next: NextFunction): void => {
     try {
       const id = Number.parseInt((req.params['id'] as string) || '', 10);
-      if (isNaN(id)) {
+      if (Number.isNaN(id)) {
         res.status(400).json({ error: 'Invalid ID' });
         return;
       }
@@ -152,10 +152,11 @@ export function createJobsRoutes(db: Database.Database): Router {
         return;
       }
       logger.info({ jobId: id }, 'Job deleted');
+      const jobLabel = current?.name || `#${id}`;
       recordActivityEvent(db, {
         type: 'deleted',
         source: 'jobs',
-        message: `Deleted job "${current?.name || `#${id}`}"`,
+        message: `Deleted job "${jobLabel}"`,
         details: current
           ? { jobId: current.id, schedule: current.schedule, jobType: current.type }
           : { jobId: id },

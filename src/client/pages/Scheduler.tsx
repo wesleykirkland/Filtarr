@@ -61,12 +61,12 @@ function getFilterId(job: Job): number | null {
 }
 
 interface JobFormProps {
-  initialJob?: Job;
-  initialWatcherFilter?: Filter;
-  filters: Filter[];
-  jobs: Job[];
-  onClose: () => void;
-  onSaved: () => void;
+  readonly initialJob?: Job;
+  readonly initialWatcherFilter?: Filter;
+  readonly filters: Filter[];
+  readonly jobs: Job[];
+  readonly onClose: () => void;
+  readonly onSaved: () => void;
 }
 
 async function saveWatcherAutomation(
@@ -137,9 +137,9 @@ function getInitialEnabled(
 
 function buildSuccessMessage(mode: AutomationMode, deletedJobs: number, isEditing: boolean): string {
   if (mode === 'watcher') {
-    return deletedJobs > 0
-      ? `Watcher automation saved and ${deletedJobs} scheduled job${deletedJobs === 1 ? '' : 's'} removed`
-      : 'Watcher automation saved';
+    if (deletedJobs === 0) return 'Watcher automation saved';
+    const plural = deletedJobs === 1 ? '' : 's';
+    return `Watcher automation saved and ${deletedJobs} scheduled job${plural} removed`;
   }
   return isEditing ? 'Automation updated' : 'Job created';
 }
@@ -162,6 +162,11 @@ function JobForm({ initialJob, initialWatcherFilter, filters, jobs, onClose, onS
   const [promptedFilterIds, setPromptedFilterIds] = useState<number[]>([]);
 
   const selectedFilter = filters.find((f) => f.id === filterId);
+  const submitLabel = automationMode === 'watcher'
+    ? 'Save Watcher'
+    : isEditing
+      ? 'Update Automation'
+      : 'Schedule Job';
   const watcherPromptOpen =
     watcherPromptFilterId === selectedFilter?.id &&
     automationMode === 'cron' &&
@@ -238,7 +243,7 @@ function JobForm({ initialJob, initialWatcherFilter, filters, jobs, onClose, onS
 
       {/* Filter selection */}
       <div>
-        <label className="block text-sm font-medium dark:text-gray-400 text-gray-700">
+        <label htmlFor="scheduler-filter" className="block text-sm font-medium dark:text-gray-400 text-gray-700">
           Filter to Run *
         </label>
         <p className="text-xs dark:text-gray-500 text-gray-600 mb-1">
@@ -296,7 +301,7 @@ function JobForm({ initialJob, initialWatcherFilter, filters, jobs, onClose, onS
       </div>
 
       <div>
-        <label className="block text-sm font-medium dark:text-gray-400 text-gray-700">
+        <label htmlFor="scheduler-automation-mode-cron" className="block text-sm font-medium dark:text-gray-400 text-gray-700">
           Automation Mode
         </label>
         <div className="mt-1 space-y-2">
@@ -304,6 +309,7 @@ function JobForm({ initialJob, initialWatcherFilter, filters, jobs, onClose, onS
             className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 ${automationMode === 'cron' ? 'border-blue-500 dark:bg-blue-500/10 bg-blue-50' : 'dark:border-gray-700 border-gray-300 dark:hover:bg-gray-800/50 hover:bg-gray-50'}`}
           >
             <input
+              id="scheduler-automation-mode-cron"
               type="radio"
               name="automationMode"
               checked={automationMode === 'cron'}
@@ -320,9 +326,11 @@ function JobForm({ initialJob, initialWatcherFilter, filters, jobs, onClose, onS
             </div>
           </label>
           <label
+            htmlFor="scheduler-automation-mode-watcher"
             className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 ${automationMode === 'watcher' ? 'border-blue-500 dark:bg-blue-500/10 bg-blue-50' : 'dark:border-gray-700 border-gray-300 dark:hover:bg-gray-800/50 hover:bg-gray-50'}`}
           >
             <input
+              id="scheduler-automation-mode-watcher"
               type="radio"
               name="automationMode"
               checked={automationMode === 'watcher'}
@@ -343,10 +351,11 @@ function JobForm({ initialJob, initialWatcherFilter, filters, jobs, onClose, onS
 
       {selectedFilter && automationMode === 'cron' && (
         <div>
-          <label className="block text-sm font-medium dark:text-gray-400 text-gray-700">
+          <label htmlFor="scheduler-job-name" className="block text-sm font-medium dark:text-gray-400 text-gray-700">
             Job Name
           </label>
           <input
+            id="scheduler-job-name"
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder={`Run: ${selectedFilter.name}`}
@@ -357,10 +366,11 @@ function JobForm({ initialJob, initialWatcherFilter, filters, jobs, onClose, onS
 
       {automationMode === 'cron' && (
         <div>
-          <label className="block text-sm font-medium dark:text-gray-400 text-gray-700">
+          <label htmlFor="scheduler-description" className="block text-sm font-medium dark:text-gray-400 text-gray-700">
             Description
           </label>
           <input
+            id="scheduler-description"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             className="mt-1 block w-full rounded-lg border dark:border-gray-700 border-gray-300 dark:bg-gray-800 bg-white px-3 py-2 dark:text-gray-100 text-gray-900 focus:border-blue-500 focus:outline-none"
@@ -370,11 +380,12 @@ function JobForm({ initialJob, initialWatcherFilter, filters, jobs, onClose, onS
 
       {automationMode === 'cron' ? (
         <div>
-          <label className="block text-sm font-medium dark:text-gray-400 text-gray-700">
+          <label htmlFor="scheduler-cron" className="block text-sm font-medium dark:text-gray-400 text-gray-700">
             Cron Schedule *
           </label>
           <div className="mt-1 flex gap-2">
             <input
+              id="scheduler-cron"
               value={schedule}
               onChange={(e) => setSchedule(e.target.value)}
               required={automationMode === 'cron'}
@@ -441,13 +452,7 @@ function JobForm({ initialJob, initialWatcherFilter, filters, jobs, onClose, onS
           disabled={mutation.isPending || !filterId}
           className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
         >
-          {mutation.isPending
-            ? 'Saving...'
-            : automationMode === 'watcher'
-              ? 'Save Watcher'
-              : isEditing
-                ? 'Update Automation'
-                : 'Schedule Job'}
+          {mutation.isPending ? 'Saving...' : submitLabel}
         </button>
         <button
           type="button"

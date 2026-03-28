@@ -127,7 +127,7 @@ function NotificationOverrideFields({
   setNotifySlackToken,
   notifySlackChannel,
   setNotifySlackChannel,
-}: {
+}: Readonly<{
   overrideNotifications: boolean;
   notifyOnMatch: boolean;
   setNotifyOnMatch: (v: boolean) => void;
@@ -139,7 +139,7 @@ function NotificationOverrideFields({
   setNotifySlackToken: (v: string) => void;
   notifySlackChannel: string;
   setNotifySlackChannel: (v: string) => void;
-}) {
+}>) {
   if (!overrideNotifications) {
     return (
       <div className="rounded-lg border border-blue-200 bg-blue-50/80 px-3 py-3 text-xs text-blue-900 dark:border-blue-900/50 dark:bg-blue-950/30 dark:text-blue-100">
@@ -174,10 +174,11 @@ function NotificationOverrideFields({
         </div>
         {notifyOnMatch && (
           <div>
-            <label className="mb-1 block text-xs font-medium dark:text-gray-400 text-gray-700">
+            <label htmlFor="filter-webhook-url" className="mb-1 block text-xs font-medium dark:text-gray-400 text-gray-700">
               Webhook URL *
             </label>
             <input
+              id="filter-webhook-url"
               type="url"
               value={notifyWebhookUrl}
               onChange={(e) => setNotifyWebhookUrl(e.target.value)}
@@ -213,10 +214,11 @@ function NotificationOverrideFields({
         {notifySlack && (
           <div className="grid gap-3 sm:grid-cols-2">
             <div>
-              <label className="mb-1 block text-xs font-medium dark:text-gray-400 text-gray-700">
+              <label htmlFor="filter-slack-bot-token" className="mb-1 block text-xs font-medium dark:text-gray-400 text-gray-700">
                 Slack Bot Token *
               </label>
               <input
+                id="filter-slack-bot-token"
                 value={notifySlackToken}
                 onChange={(e) => setNotifySlackToken(e.target.value)}
                 placeholder="xoxb-..."
@@ -225,10 +227,11 @@ function NotificationOverrideFields({
               />
             </div>
             <div>
-              <label className="mb-1 block text-xs font-medium dark:text-gray-400 text-gray-700">
+              <label htmlFor="filter-slack-channel" className="mb-1 block text-xs font-medium dark:text-gray-400 text-gray-700">
                 Slack Channel *
               </label>
               <input
+                id="filter-slack-channel"
                 value={notifySlackChannel}
                 onChange={(e) => setNotifySlackChannel(e.target.value)}
                 placeholder="#alerts"
@@ -244,10 +247,10 @@ function NotificationOverrideFields({
 }
 
 interface FilterFormProps {
-  initial?: Filter;
-  instances: Instance[];
-  onClose: () => void;
-  onSaved: () => void;
+  readonly initial?: Filter;
+  readonly instances: Instance[];
+  readonly onClose: () => void;
+  readonly onSaved: () => void;
 }
 
 function FilterForm({ initial, instances, onClose, onSaved }: FilterFormProps) {
@@ -372,6 +375,7 @@ function FilterForm({ initial, instances, onClose, onSaved }: FilterFormProps) {
 
   const isScript = ruleType === 'script';
   const usesScriptRuntime = isScript || actionType === 'script';
+  const submitLabel = initial ? 'Update Filter' : 'Create Filter';
   const scriptRuntimeHelpText =
     scriptRuntime === 'shell'
       ? 'Shell scripts execute through bash. Use FILTARR_FILE_* plus FILTARR_CONTEXT_JSON; rule scripts should print true to match.'
@@ -437,10 +441,11 @@ function FilterForm({ initial, instances, onClose, onSaved }: FilterFormProps) {
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
-                <label className="block text-sm font-medium dark:text-gray-400 text-gray-700">
+                <label htmlFor="filter-name" className="block text-sm font-medium dark:text-gray-400 text-gray-700">
                   Filter Name *
                 </label>
                 <input
+                  id="filter-name"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   required
@@ -448,10 +453,11 @@ function FilterForm({ initial, instances, onClose, onSaved }: FilterFormProps) {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium dark:text-gray-400 text-gray-700">
+                <label htmlFor="filter-description" className="block text-sm font-medium dark:text-gray-400 text-gray-700">
                   Description
                 </label>
                 <input
+                  id="filter-description"
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   className="mt-1 block w-full rounded-lg border dark:border-gray-700 border-gray-300 dark:bg-gray-800 bg-white px-3 py-2 dark:text-gray-100 text-gray-900 focus:border-blue-500 focus:outline-none"
@@ -460,7 +466,7 @@ function FilterForm({ initial, instances, onClose, onSaved }: FilterFormProps) {
             </div>
 
             <div>
-              <label className="block text-sm font-medium dark:text-gray-400 text-gray-700">
+              <label htmlFor="filter-watched-directory" className="block text-sm font-medium dark:text-gray-400 text-gray-700">
                 Watched Directory *
               </label>
               <p className="mb-1 text-xs dark:text-gray-500 text-gray-600">
@@ -468,6 +474,7 @@ function FilterForm({ initial, instances, onClose, onSaved }: FilterFormProps) {
               </p>
               <div className="flex gap-2">
                 <input
+                  id="filter-watched-directory"
                   value={targetPath}
                   onChange={(e) => setTargetPath(e.target.value)}
                   placeholder="/downloads/complete"
@@ -488,10 +495,11 @@ function FilterForm({ initial, instances, onClose, onSaved }: FilterFormProps) {
           <div className="space-y-4 rounded-2xl border border-gray-200 bg-gray-50/80 p-4 dark:border-gray-800 dark:bg-gray-900/40">
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
-                <label className="block text-sm font-medium dark:text-gray-400 text-gray-700">
+                <label htmlFor="filter-rule-type" className="block text-sm font-medium dark:text-gray-400 text-gray-700">
                   Rule Type
                 </label>
                 <select
+                  id="filter-rule-type"
                   value={ruleType}
                   onChange={(e) => setRuleType(e.target.value as Filter['rule_type'])}
                   className="mt-1 block w-full rounded-lg border dark:border-gray-700 border-gray-300 dark:bg-gray-800 bg-white px-3 py-2 dark:text-gray-100 text-gray-900 focus:border-blue-500 focus:outline-none"
@@ -504,10 +512,11 @@ function FilterForm({ initial, instances, onClose, onSaved }: FilterFormProps) {
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium dark:text-gray-400 text-gray-700">
+                <label htmlFor="filter-action-type" className="block text-sm font-medium dark:text-gray-400 text-gray-700">
                   Action on Match
                 </label>
                 <select
+                  id="filter-action-type"
                   value={actionType}
                   onChange={(e) => setActionType(e.target.value as Filter['action_type'])}
                   className="mt-1 block w-full rounded-lg border dark:border-gray-700 border-gray-300 dark:bg-gray-800 bg-white px-3 py-2 dark:text-gray-100 text-gray-900 focus:border-blue-500 focus:outline-none"
@@ -544,10 +553,11 @@ function FilterForm({ initial, instances, onClose, onSaved }: FilterFormProps) {
               </div>
               {usesScriptRuntime && (
                 <div className="sm:col-span-2">
-                  <label className="block text-sm font-medium dark:text-gray-400 text-gray-700">
+                  <label htmlFor="filter-script-runtime" className="block text-sm font-medium dark:text-gray-400 text-gray-700">
                     Script Runtime
                   </label>
                   <select
+                    id="filter-script-runtime"
                     value={scriptRuntime}
                     onChange={(e) => setScriptRuntime(e.target.value as Filter['script_runtime'])}
                     className="mt-1 block w-full rounded-lg border dark:border-gray-700 border-gray-300 dark:bg-gray-800 bg-white px-3 py-2 dark:text-gray-100 text-gray-900 focus:border-blue-500 focus:outline-none"
@@ -601,7 +611,7 @@ function FilterForm({ initial, instances, onClose, onSaved }: FilterFormProps) {
             </div>
 
             <div>
-              <label className="block text-sm font-medium dark:text-gray-400 text-gray-700">
+              <label htmlFor="filter-arr-instance" className="block text-sm font-medium dark:text-gray-400 text-gray-700">
                 Arr Instance *
               </label>
               <p className="mb-2 text-xs dark:text-gray-500 text-gray-600">
@@ -613,6 +623,7 @@ function FilterForm({ initial, instances, onClose, onSaved }: FilterFormProps) {
                 </p>
               ) : (
                 <select
+                  id="filter-arr-instance"
                   value={instanceId || ''}
                   onChange={(e) => setInstanceId(Number(e.target.value) || undefined)}
                   required
@@ -691,7 +702,7 @@ function FilterForm({ initial, instances, onClose, onSaved }: FilterFormProps) {
               disabled={mutation.isPending}
               className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
             >
-              {mutation.isPending ? 'Saving...' : initial ? 'Update Filter' : 'Create Filter'}
+              {mutation.isPending ? 'Saving...' : submitLabel}
             </button>
             <button
               type="button"
@@ -708,12 +719,12 @@ function FilterForm({ initial, instances, onClose, onSaved }: FilterFormProps) {
 }
 
 interface FilterCardProps {
-  filter: Filter;
-  instances: Instance[];
-  notificationSettings?: NotificationSettingsResponse;
-  onEdit: () => void;
-  onToggle: () => void;
-  onDelete: (() => void) | null;
+  readonly filter: Filter;
+  readonly instances: Instance[];
+  readonly notificationSettings?: NotificationSettingsResponse;
+  readonly onEdit: () => void;
+  readonly onToggle: () => void;
+  readonly onDelete: (() => void) | null;
 }
 
 function FilterCard({

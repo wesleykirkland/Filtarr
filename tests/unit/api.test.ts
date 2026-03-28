@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { api, ApiError } from '../../src/client/lib/api';
 
 const mockFetch = vi.fn();
-global.fetch = mockFetch as typeof fetch;
+globalThis.fetch = mockFetch as typeof fetch;
 
 function createResponse(options: {
   ok?: boolean;

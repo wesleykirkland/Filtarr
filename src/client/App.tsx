@@ -45,7 +45,7 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
           <p className="mt-2 text-sm text-gray-500">{routeState.description}</p>
           <div className="mt-5 flex flex-wrap gap-2">
             <Button onClick={() => retrySession()}>Retry session check</Button>
-            <Button variant="secondary" onClick={() => window.location.reload()}>
+            <Button variant="secondary" onClick={() => globalThis.location.reload()}>
               Reload page
             </Button>
           </div>

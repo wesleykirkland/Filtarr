@@ -146,8 +146,9 @@ export default function SettingsBackupPage() {
         <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 dark:border-gray-800 dark:bg-gray-800/40">
           <h4 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Automation</h4>
           <div className="mt-4 space-y-4">
-            <label className="flex items-start gap-3">
+            <label htmlFor="backup-enabled" className="flex items-start gap-3">
               <input
+                id="backup-enabled"
                 type="checkbox"
                 checked={enabled}
                 onChange={(event) => setEnabled(event.target.checked)}
@@ -164,10 +165,11 @@ export default function SettingsBackupPage() {
             </label>
 
             <div>
-              <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">
+              <label htmlFor="backup-directory" className="block text-xs font-medium text-gray-700 dark:text-gray-300">
                 Backup directory
               </label>
               <input
+                id="backup-directory"
                 type="text"
                 value={directory}
                 onChange={(event) => setDirectory(event.target.value)}
@@ -177,10 +179,11 @@ export default function SettingsBackupPage() {
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">
+              <label htmlFor="backup-retention-count" className="block text-xs font-medium text-gray-700 dark:text-gray-300">
                 Retention count
               </label>
               <input
+                id="backup-retention-count"
                 type="number"
                 min="1"
                 value={retentionCount}

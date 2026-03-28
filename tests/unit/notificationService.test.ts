@@ -4,7 +4,7 @@ import type { FilterRow } from '../../src/db/schemas/filters.js';
 import { NotificationService } from '../../src/server/services/NotificationService.js';
 
 const mockFetch = vi.fn();
-global.fetch = mockFetch;
+globalThis.fetch = mockFetch;
 
 function makeFilter(overrides: Partial<FilterRow> = {}): FilterRow {
   return {

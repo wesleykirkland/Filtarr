@@ -69,7 +69,7 @@ function validateCreateFields(
 function parseInstanceId(raw: string | string[] | undefined): number | null {
   if (typeof raw !== 'string') return null;
   const id = Number.parseInt(raw, 10);
-  return isNaN(id) ? null : id;
+  return Number.isNaN(id) ? null : id;
 }
 
 /**
@@ -276,10 +276,11 @@ export function createInstancesRouter(db: Database): Router {
       }
 
       logger.info({ instanceId: id }, 'Deleted Arr instance');
+      const instanceLabel = current?.name || `#${id}`;
       recordActivityEvent(db, {
         type: 'deleted',
         source: 'instances',
-        message: `Deleted instance "${current?.name || `#${id}`}"`,
+        message: `Deleted instance "${instanceLabel}"`,
         details: current
           ? { instanceId: current.id, instanceType: current.type, enabled: current.enabled }
           : { instanceId: id },

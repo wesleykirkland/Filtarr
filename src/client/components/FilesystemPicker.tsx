@@ -18,11 +18,11 @@ interface BrowseResponse {
 
 interface FilesystemPickerProps {
   /** Currently selected path */
-  value: string;
+  readonly value: string;
   /** Called when user confirms a selection */
-  onSelect: (path: string) => void;
+  readonly onSelect: (path: string) => void;
   /** Called when user cancels */
-  onClose: () => void;
+  readonly onClose: () => void;
 }
 
 export function FilesystemPicker({ value, onSelect, onClose }: FilesystemPickerProps) {
@@ -76,7 +76,7 @@ export function FilesystemPicker({ value, onSelect, onClose }: FilesystemPickerP
             <>
               {data?.parent ? (
                 <button
-                  onClick={() => navigate(data.parent!)}
+                  onClick={() => navigate(data.parent)}
                   className={buttonStyles({
                     variant: 'ghost',
                     className: 'w-full justify-start rounded-xl px-3 py-2 text-left',

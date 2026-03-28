@@ -132,6 +132,7 @@ export default function Setup() {
             <p className="text-sm text-gray-700 dark:text-gray-300">Choose how you want to secure your Filtarr instance:</p>
             <div className="space-y-3">
               <label
+                htmlFor="setup-auth-mode-forms"
                 className={cn(`flex cursor-pointer items-start gap-3 rounded-xl border p-4 transition-colors ${
                   authMode === 'forms'
                     ? 'border-blue-500 dark:bg-blue-500/10 bg-blue-50'
@@ -139,6 +140,7 @@ export default function Setup() {
                 }`, 'focus-within:ring-2 focus-within:ring-blue-500 focus-within:ring-offset-2 focus-within:ring-offset-white dark:focus-within:ring-offset-gray-900')}
               >
                 <input
+                  id="setup-auth-mode-forms"
                   type="radio"
                   name="authMode"
                   value="forms"
@@ -153,6 +155,7 @@ export default function Setup() {
               </label>
 
               <label
+                htmlFor="setup-auth-mode-basic"
                 className={cn(`flex cursor-pointer items-start gap-3 rounded-xl border p-4 transition-colors ${
                   authMode === 'basic'
                     ? 'border-blue-500 dark:bg-blue-500/10 bg-blue-50'
@@ -160,6 +163,7 @@ export default function Setup() {
                 }`, 'focus-within:ring-2 focus-within:ring-blue-500 focus-within:ring-offset-2 focus-within:ring-offset-white dark:focus-within:ring-offset-gray-900')}
               >
                 <input
+                  id="setup-auth-mode-basic"
                   type="radio"
                   name="authMode"
                   value="basic"
@@ -174,6 +178,7 @@ export default function Setup() {
               </label>
 
               <label
+                htmlFor="setup-auth-mode-none"
                 className={cn(`flex cursor-pointer items-start gap-3 rounded-xl border p-4 transition-colors ${
                   authMode === 'none'
                     ? 'border-yellow-500 dark:bg-yellow-500/10 bg-yellow-50'
@@ -181,6 +186,7 @@ export default function Setup() {
                 }`, 'focus-within:ring-2 focus-within:ring-blue-500 focus-within:ring-offset-2 focus-within:ring-offset-white dark:focus-within:ring-offset-gray-900')}
               >
                 <input
+                  id="setup-auth-mode-none"
                   type="radio"
                   name="authMode"
                   value="none"

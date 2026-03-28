@@ -237,7 +237,7 @@ export function createSettingsRoutes(
         .get();
       const interval = Number.parseInt(result?.value || '15', 10);
       res.json({
-        validationIntervalMinutes: isNaN(interval) ? 15 : interval,
+        validationIntervalMinutes: Number.isNaN(interval) ? 15 : interval,
       });
     } catch {
       res.status(500).json({ error: 'Failed to fetch app settings' });

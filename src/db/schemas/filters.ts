@@ -119,7 +119,7 @@ export function createFilter(db: Database.Database, input: CreateFilterInput): F
       input.notifySlackChannel || null,
       input.overrideNotifications ? 1 : 0,
       input.instanceId || null,
-      input.enabled !== false ? 1 : 0,
+      input.enabled === false ? 0 : 1,
       input.sortOrder || 0,
     );
 
@@ -130,12 +130,13 @@ export function createFilter(db: Database.Database, input: CreateFilterInput): F
 
 /** Resolve an optional input field, falling back to the current value. */
 function resolve<T>(inputValue: T | undefined, currentValue: T): T {
-  return inputValue !== undefined ? inputValue : currentValue;
+  return inputValue ?? currentValue;
 }
 
 /** Resolve an optional boolean input to a 0/1 integer for SQLite. */
 function resolveBool(inputValue: boolean | undefined, currentValue: number): number {
-  return inputValue !== undefined ? (inputValue ? 1 : 0) : currentValue;
+  if (inputValue === undefined) return currentValue;
+  return inputValue ? 1 : 0;
 }
 
 function resolveInstanceId(

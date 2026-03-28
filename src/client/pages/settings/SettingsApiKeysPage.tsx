@@ -68,9 +68,10 @@ export default function SettingsApiKeysPage() {
       )}
 
       <div className="mt-4 space-y-3">
-        {loadingKeys ? (
+        {loadingKeys && (
           <p className="text-sm text-gray-500">Loading API keys...</p>
-        ) : apiKeys && apiKeys.length > 0 ? (
+        )}
+        {!loadingKeys && apiKeys && apiKeys.length > 0 &&
           apiKeys.map((key) => (
             <div
               key={key.id}
@@ -117,7 +118,8 @@ export default function SettingsApiKeysPage() {
               </div>
             </div>
           ))
-        ) : (
+        }
+        {!loadingKeys && (!apiKeys || apiKeys.length === 0) && (
           <p className="text-sm text-gray-500">No API keys configured.</p>
         )}
       </div>

@@ -29,7 +29,7 @@ interface SlackApiResponse {
   ok?: boolean;
 }
 
-type ArrInstanceSummary = ArrInstanceSummary;
+type ArrInstanceSummary = Pick<ArrInstanceConfig, 'id' | 'name' | 'type' | 'url'>;
 
 export class NotificationService {
   constructor(private readonly db: Database.Database) {}

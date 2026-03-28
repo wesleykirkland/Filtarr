@@ -254,8 +254,8 @@ function JobForm({ initialJob, initialWatcherFilter, filters, jobs, onClose, onS
             No filters configured yet.{' '}
             <a href="/filters" className="underline">
               Create a filter first
-            </a>
-            .
+            </a>{'.'}
+
           </div>
         ) : (
           <div className="mt-1 space-y-2">
@@ -655,9 +655,10 @@ export default function Scheduler() {
         )}
       </div>
 
-      {isLoading ? (
+      {isLoading && (
         <p className="dark:text-gray-400 text-gray-500">Loading jobs...</p>
-      ) : jobs.length > 0 ? (
+      )}
+      {!isLoading && jobs.length > 0 && (
         <div className="space-y-3">
           {jobs.map((job) => {
             const linkedFilter = filterForJob(job);
@@ -727,7 +728,8 @@ export default function Scheduler() {
             );
           })}
         </div>
-      ) : (
+      )}
+      {!isLoading && jobs.length === 0 && (
         <div className="rounded-xl border dark:border-gray-800 border-gray-200 dark:bg-gray-900 bg-white shadow-sm p-12 text-center">
           <span className="text-5xl">⏰</span>
           <h3 className="mt-4 text-lg font-semibold dark:text-gray-300 text-gray-700">

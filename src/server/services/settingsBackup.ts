@@ -444,12 +444,12 @@ export class SettingsBackupService {
       .filter((value) => !Number.isNaN(Date.parse(value)));
 
     if (valid.length === 0) return null;
-    return valid.sort((left, right) => Date.parse(right) - Date.parse(left))[0] ?? null;
+    return valid.toSorted((left, right) => Date.parse(right) - Date.parse(left))[0] ?? null;
   }
 
   private getNullableSetting(key: string): string | null {
     const value = this.getSettingValue(key)?.trim();
-    return value ? value : null;
+    return value ?? null;
   }
 
   private getDirectorySetting(): string {
@@ -491,14 +491,15 @@ export class SettingsBackupService {
     if (value === null || value === undefined) return 'NULL';
     if (typeof value === 'number') return Number.isFinite(value) ? String(value) : 'NULL';
     if (typeof value === 'bigint') return value.toString();
-    return `'${String(value).replace(/'/g, "''")}'`;
+    if (typeof value === 'object') return `'${JSON.stringify(value).replaceAll("'", "''")}'`;
+    return `'${String(value).replaceAll("'", "''")}'`;
   }
 
   private quoteIdentifier(value: string): string {
-    return `"${value.replace(/"/g, '""')}"`;
+    return `"${value.replaceAll('"', '""')}"`;
   }
 
   private formatFileTimestamp(isoString: string): string {
-    return isoString.replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z').replace('T', '-').replace('Z', '');
+    return isoString.replaceAll(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z').replace('T', '-').replace('Z', '');
   }
 }

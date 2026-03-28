@@ -14,7 +14,7 @@ const focusableSelector =
   'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 export function Modal({ title, isOpen, onClose, children, size = 'md' }: ModalProps) {
-  const dialogRef = useRef<HTMLDivElement>(null);
+  const dialogRef = useRef<HTMLDialogElement>(null);
   const lastFocusedRef = useRef<HTMLElement | null>(null);
   const titleId = useId();
 
@@ -55,7 +55,7 @@ export function Modal({ title, isOpen, onClose, children, size = 'md' }: ModalPr
       }
 
       const first = focusableElements[0];
-      const last = focusableElements[focusableElements.length - 1];
+      const last = focusableElements.at(-1);
       const activeElement = document.activeElement;
 
       if (event.shiftKey && activeElement === first) {
@@ -84,15 +84,15 @@ export function Modal({ title, isOpen, onClose, children, size = 'md' }: ModalPr
 
   return createPortal(
     <div
+      role="presentation"
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm sm:p-6"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) onClose();
       }}
     >
-      <div
+      <dialog
         ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
+        open
         aria-labelledby={titleId}
         tabIndex={-1}
         className={cn(

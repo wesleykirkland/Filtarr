@@ -7,6 +7,12 @@ export interface ToastMessage {
   message: string;
 }
 
+const TOAST_COLORS: Record<ToastMessage['type'], string> = {
+  success: 'bg-green-600 text-white',
+  error: 'bg-red-600 text-white',
+  info: 'bg-blue-600 text-white',
+};
+
 let addToastFn: ((msg: Omit<ToastMessage, 'id'>) => void) | null = null;
 
 export function toast(type: ToastMessage['type'], message: string) {
@@ -54,13 +60,8 @@ export function ToastContainer() {
         <div
           key={t.id}
           role={t.type === 'error' ? 'alert' : 'status'}
-          className={`flex min-w-72 items-start justify-between gap-3 rounded-xl px-4 py-3 text-sm font-medium shadow-lg ${
-            t.type === 'success'
-              ? 'bg-green-600 text-white'
-              : t.type === 'error'
-                ? 'bg-red-600 text-white'
-                : 'bg-blue-600 text-white'
-          }`}
+          aria-label={t.message}
+          className={`flex min-w-72 items-start justify-between gap-3 rounded-xl px-4 py-3 text-sm font-medium shadow-lg ${TOAST_COLORS[t.type]}`}
         >
           <span>{t.message}</span>
           <button

@@ -79,7 +79,7 @@ const ACTION_TYPE_LABELS: Record<Filter['action_type'], string> = {
 };
 
 const RULE_PLACEHOLDERS: Record<Filter['rule_type'], string> = {
-  regex: 'e.g. .*\\.exe$',
+  regex: String.raw`e.g. .*\.exe$`,
   extension: 'e.g. exe,bat,sh',
   size: 'e.g. >100MB or <1KB',
   script: '// JS — return true to match\nreturn file.name.endsWith(".exe");',
@@ -376,6 +376,9 @@ function FilterForm({ initial, instances, onClose, onSaved }: FilterFormProps) {
   const isScript = ruleType === 'script';
   const usesScriptRuntime = isScript || actionType === 'script';
   const submitLabel = initial ? 'Update Filter' : 'Create Filter';
+  const showActionPayload = actionType === 'move' || actionType === 'script';
+  const actionPayloadLabel = actionType === 'move' ? 'Destination Path' : 'Script Payload';
+  const rulePlaceholder = isScript ? SCRIPT_RULE_PLACEHOLDERS[scriptRuntime] : RULE_PLACEHOLDERS[ruleType];
   const scriptRuntimeHelpText =
     scriptRuntime === 'shell'
       ? 'Shell scripts execute through bash. Use FILTARR_FILE_* plus FILTARR_CONTEXT_JSON; rule scripts should print true to match.'
@@ -538,7 +541,7 @@ function FilterForm({ initial, instances, onClose, onSaved }: FilterFormProps) {
                     onChange={(e) => setRulePayload(e.target.value)}
                     required
                     rows={5}
-                    placeholder={SCRIPT_RULE_PLACEHOLDERS[scriptRuntime]}
+                    placeholder={rulePlaceholder}
                     className="mt-1 block w-full rounded-lg border dark:border-gray-700 border-gray-300 dark:bg-gray-800 bg-white px-3 py-2 font-mono text-sm dark:text-gray-100 text-gray-900 focus:border-blue-500 focus:outline-none"
                   />
                 ) : (
@@ -546,7 +549,7 @@ function FilterForm({ initial, instances, onClose, onSaved }: FilterFormProps) {
                     value={rulePayload}
                     onChange={(e) => setRulePayload(e.target.value)}
                     required
-                    placeholder={RULE_PLACEHOLDERS[ruleType]}
+                    placeholder={rulePlaceholder}
                     className="mt-1 block w-full rounded-lg border dark:border-gray-700 border-gray-300 dark:bg-gray-800 bg-white px-3 py-2 dark:text-gray-100 text-gray-900 focus:border-blue-500 focus:outline-none"
                   />
                 )}
@@ -573,10 +576,10 @@ function FilterForm({ initial, instances, onClose, onSaved }: FilterFormProps) {
                   </p>
                 </div>
               )}
-              {(actionType === 'move' || actionType === 'script') && (
+              {showActionPayload && (
                 <div className="sm:col-span-2">
                   <label className="block text-sm font-medium dark:text-gray-400 text-gray-700">
-                    {actionType === 'move' ? 'Destination Path' : 'Script Payload'}
+                    {actionPayloadLabel}
                   </label>
                   {actionType === 'script' ? (
                     <textarea
@@ -944,9 +947,9 @@ export default function Filters() {
           <p
             className={`text-sm font-medium leading-relaxed ${darkMode ? 'text-blue-100' : 'text-blue-900'}`}
           >
-            Each filter owns its <strong>watched directory</strong> and linked <strong>Arr
-            instance</strong>. Notifications inherit the <strong>Settings</strong> defaults unless
-            you enable a per-filter override.
+            Each filter owns its <strong>watched directory</strong> and linked{' '}
+            <strong>Arr instance</strong>. Notifications inherit the{' '}
+            <strong>Settings</strong> defaults unless you enable a per-filter override.
           </p>
         </div>
       </div>

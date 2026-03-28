@@ -70,13 +70,14 @@ export function updateJob(db: Database.Database, id: number, input: UpdateJobInp
   if (!current) throw new Error(`Job with id ${id} not found`);
 
   const name = input.name ?? current.name;
-  const description = input.description !== undefined ? input.description : current.description;
+  const description = input.description ?? current.description;
   const schedule = input.schedule ?? current.schedule;
   const type = input.type ?? current.type;
-  const payload = input.payload !== undefined ? input.payload : current.payload;
-  const enabled = input.enabled !== undefined ? (input.enabled ? 1 : 0) : current.enabled;
-  const lastRun = input.lastRun !== undefined ? input.lastRun : current.last_run;
-  const nextRun = input.nextRun !== undefined ? input.nextRun : current.next_run;
+  const payload = input.payload ?? current.payload;
+  const enabledValue = input.enabled ? 1 : 0;
+  const enabled = input.enabled !== undefined ? enabledValue : current.enabled;
+  const lastRun = input.lastRun ?? current.last_run;
+  const nextRun = input.nextRun ?? current.next_run;
 
   db.prepare<
     [

@@ -30,7 +30,7 @@ const DEFAULT_MAX_RETRIES = 3;
 const RETRY_BASE_DELAY = 1000; // 1 second
 const RETRYABLE_STATUS_CODES = new Set([408, 429, 500, 502, 503, 504]);
 
-type QueryParams = QueryParams;
+type QueryParams = Record<string, string | number | boolean>;
 
 export class ArrClient {
   protected readonly baseUrl: string;

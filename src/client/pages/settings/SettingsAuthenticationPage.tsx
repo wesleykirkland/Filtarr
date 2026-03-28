@@ -11,6 +11,13 @@ import type {
   OidcSettingsResponse,
 } from './types';
 
+const AUTH_MODE_LABELS: Record<AuthMode, string> = {
+  none: 'No Authentication',
+  basic: 'Basic (Browser Prompt)',
+  forms: 'Forms (Login Page)',
+  oidc: 'OIDC / OpenID Connect',
+};
+
 export default function SettingsAuthenticationPage() {
   const { session } = useAuth();
   const navigate = useNavigate();
@@ -121,54 +128,7 @@ export default function SettingsAuthenticationPage() {
         )}
       </div>
 
-      {!showAuthModeChange ? (
-        <div className="mt-4 space-y-3">
-          <div className="flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 dark:border-transparent dark:bg-gray-800/50">
-            <span className="text-sm text-gray-600 dark:text-gray-400">Auth Mode</span>
-            <span className="rounded bg-gray-200 px-2 py-0.5 text-sm font-medium uppercase text-gray-700 dark:bg-gray-700 dark:text-gray-300">
-              {authModeData?.authMode ?? session?.mode ?? 'unknown'}
-            </span>
-          </div>
-
-          {session?.user && (
-            <div className="flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 dark:border-transparent dark:bg-gray-800/50">
-              <span className="text-sm text-gray-600 dark:text-gray-400">Logged in as</span>
-              <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
-                {session.user.displayName || session.user.username}
-              </span>
-            </div>
-          )}
-
-          {authModeData?.authMode === 'oidc' && (
-            <>
-              <div className="flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 dark:border-transparent dark:bg-gray-800/50">
-                <span className="text-sm text-gray-600 dark:text-gray-400">Issuer URL</span>
-                <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
-                  {authModeData.oidc.issuerUrl || 'Not configured'}
-                </span>
-              </div>
-              <div className="flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 dark:border-transparent dark:bg-gray-800/50">
-                <span className="text-sm text-gray-600 dark:text-gray-400">Client ID</span>
-                <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
-                  {authModeData.oidc.clientId || 'Not configured'}
-                </span>
-              </div>
-              <div className="flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 dark:border-transparent dark:bg-gray-800/50">
-                <span className="text-sm text-gray-600 dark:text-gray-400">Callback URL</span>
-                <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
-                  {authModeData.oidc.callbackUrl || 'Not configured'}
-                </span>
-              </div>
-              <div className="flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 dark:border-transparent dark:bg-gray-800/50">
-                <span className="text-sm text-gray-600 dark:text-gray-400">Scopes</span>
-                <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
-                  {authModeData.oidc.scopes.join(', ') || 'Not configured'}
-                </span>
-              </div>
-            </>
-          )}
-        </div>
-      ) : (
+      {showAuthModeChange ? (
         <div className="mt-4 space-y-4">
           <p className="text-sm text-gray-600 dark:text-gray-400">Select a new authentication mode:</p>
 
@@ -194,13 +154,7 @@ export default function SettingsAuthenticationPage() {
                 />
                 <div>
                   <div className="font-medium capitalize text-gray-900 dark:text-gray-100">
-                    {mode === 'none'
-                      ? 'No Authentication'
-                      : mode === 'forms'
-                        ? 'Forms (Login Page)'
-                        : mode === 'oidc'
-                          ? 'OIDC / OpenID Connect'
-                          : 'Basic (Browser Prompt)'}
+                    {AUTH_MODE_LABELS[mode]}
                   </div>
                   <div className="text-xs text-gray-600 dark:text-gray-500">
                     {mode === 'none' && '⚠️ Anyone can access Filtarr'}
@@ -358,6 +312,53 @@ export default function SettingsAuthenticationPage() {
                 Cancel
               </button>
             </div>
+          )}
+        </div>
+      ) : (
+        <div className="mt-4 space-y-3">
+          <div className="flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 dark:border-transparent dark:bg-gray-800/50">
+            <span className="text-sm text-gray-600 dark:text-gray-400">Auth Mode</span>
+            <span className="rounded bg-gray-200 px-2 py-0.5 text-sm font-medium uppercase text-gray-700 dark:bg-gray-700 dark:text-gray-300">
+              {authModeData?.authMode ?? session?.mode ?? 'unknown'}
+            </span>
+          </div>
+
+          {session?.user && (
+            <div className="flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 dark:border-transparent dark:bg-gray-800/50">
+              <span className="text-sm text-gray-600 dark:text-gray-400">Logged in as</span>
+              <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                {session.user.displayName || session.user.username}
+              </span>
+            </div>
+          )}
+
+          {authModeData?.authMode === 'oidc' && (
+            <>
+              <div className="flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 dark:border-transparent dark:bg-gray-800/50">
+                <span className="text-sm text-gray-600 dark:text-gray-400">Issuer URL</span>
+                <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                  {authModeData.oidc.issuerUrl || 'Not configured'}
+                </span>
+              </div>
+              <div className="flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 dark:border-transparent dark:bg-gray-800/50">
+                <span className="text-sm text-gray-600 dark:text-gray-400">Client ID</span>
+                <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                  {authModeData.oidc.clientId || 'Not configured'}
+                </span>
+              </div>
+              <div className="flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 dark:border-transparent dark:bg-gray-800/50">
+                <span className="text-sm text-gray-600 dark:text-gray-400">Callback URL</span>
+                <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                  {authModeData.oidc.callbackUrl || 'Not configured'}
+                </span>
+              </div>
+              <div className="flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 dark:border-transparent dark:bg-gray-800/50">
+                <span className="text-sm text-gray-600 dark:text-gray-400">Scopes</span>
+                <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                  {authModeData.oidc.scopes.join(', ') || 'Not configured'}
+                </span>
+              </div>
+            </>
           )}
         </div>
       )}

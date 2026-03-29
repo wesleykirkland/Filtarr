@@ -41,20 +41,25 @@ describe('system routes', () => {
     fs.mkdirSync(path.join(tempDir, '.hidden'));
     fs.writeFileSync(path.join(tempDir, 'file.txt'), 'hello');
 
+    // Set browse root to the temp dir so sanitizeBrowsePath allows access
+    const realTempDir = fs.realpathSync(tempDir);
+    process.env['FILTARR_BROWSE_ROOT'] = realTempDir;
+
     const app = express();
     app.use(protectedSystemRoutes);
 
-    const success = await request(app).get('/browse').query({ path: tempDir });
+    const success = await request(app).get('/browse').query({ path: realTempDir });
     expect(success.status).toBe(200);
     expect(success.body.entries.map((entry: { name: string }) => entry.name)).toEqual(['a-dir', 'b-dir']);
 
-    expect((await request(app).get('/browse').query({ path: path.join(tempDir, 'missing') })).status).toBe(404);
-    expect((await request(app).get('/browse').query({ path: path.join(tempDir, 'file.txt') })).status).toBe(400);
+    // Non-existent paths fail realpathSync in sanitizeBrowsePath → 403
+    expect((await request(app).get('/browse').query({ path: path.join(realTempDir, 'missing') })).status).toBe(403);
+    expect((await request(app).get('/browse').query({ path: path.join(realTempDir, 'file.txt') })).status).toBe(400);
 
     vi.spyOn(fs, 'readdirSync').mockImplementationOnce(() => {
       throw new Error('boom');
     });
-    const failure = await request(app).get('/browse').query({ path: tempDir });
+    const failure = await request(app).get('/browse').query({ path: realTempDir });
     expect(failure.status).toBe(500);
     expect(failure.body.error).toContain('boom');
   });

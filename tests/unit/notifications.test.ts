@@ -24,7 +24,7 @@ describe('Filter notification overrides', () => {
       const res = await request(app)
         .post('/api/v1/filters')
         .send({
-          name: 'Test Slack Notification Filter',
+          name: `Test Slack Notification Filter ${Date.now()}`,
           triggerSource: 'watcher',
           ruleType: 'extension',
           rulePayload: 'exe',
@@ -141,7 +141,7 @@ describe('Filter notification overrides', () => {
       const createRes = await request(app)
         .post('/api/v1/filters')
         .send({
-          name: 'Test Update Slack Filter',
+          name: `Test Update Slack Filter ${Date.now()}`,
           triggerSource: 'watcher',
           ruleType: 'regex',
           rulePayload: String.raw`.*\.sample$`,

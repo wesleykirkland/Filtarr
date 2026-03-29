@@ -39,11 +39,14 @@ const BLOCKED_BROWSE_PATHS = ['/proc', '/sys', '/dev'];
 
 // Root directory that the filesystem browser is allowed to access.
 // This should be configured to a non-sensitive directory in production.
-const BROWSE_ROOT = process.env['FILTARR_BROWSE_ROOT'] || '/';
+function getBrowseRoot(): string {
+  return process.env['FILTARR_BROWSE_ROOT'] || '/';
+}
 
 function sanitizeBrowsePath(requestedPath: string): string | null {
+  const browseRoot = getBrowseRoot();
   // Resolve against the allowed root directory
-  const candidate = path.resolve(BROWSE_ROOT, requestedPath);
+  const candidate = path.resolve(browseRoot, requestedPath);
 
   let realPath: string;
   try {
@@ -54,7 +57,7 @@ function sanitizeBrowsePath(requestedPath: string): string | null {
   }
 
   // Ensure the real path is contained within the browse root
-  const normalizedRoot = fs.realpathSync(BROWSE_ROOT);
+  const normalizedRoot = fs.realpathSync(browseRoot);
   if (
     realPath !== normalizedRoot &&
     !realPath.startsWith(normalizedRoot + path.sep)

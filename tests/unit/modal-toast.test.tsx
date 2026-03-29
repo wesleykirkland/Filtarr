@@ -76,7 +76,8 @@ describe('modal, toast, and dialog components', () => {
     act(() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
     expect(onClose).toHaveBeenCalledTimes(1);
 
-    act(() => dialog.parentElement?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })));
+    const backdrop = document.body.querySelector('[aria-label="Close dialog"]:not(dialog [aria-label="Close dialog"])') as HTMLElement;
+    await click(backdrop);
     expect(onClose).toHaveBeenCalledTimes(2);
 
     await view.unmount();

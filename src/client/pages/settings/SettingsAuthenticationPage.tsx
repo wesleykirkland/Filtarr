@@ -137,6 +137,7 @@ export default function SettingsAuthenticationPage() {
               <label
                 key={mode}
                 htmlFor={`auth-mode-${mode}`}
+                aria-label={AUTH_MODE_LABELS[mode]}
                 className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 ${
                   selectedAuthMode === mode
                     ? 'border-blue-500 bg-blue-50 dark:bg-blue-500/10'

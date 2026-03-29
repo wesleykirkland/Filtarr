@@ -133,6 +133,7 @@ export default function Setup() {
             <div className="space-y-3">
               <label
                 htmlFor="setup-auth-mode-forms"
+                aria-label="Forms Authentication"
                 className={cn(`flex cursor-pointer items-start gap-3 rounded-xl border p-4 transition-colors ${
                   authMode === 'forms'
                     ? 'border-blue-500 dark:bg-blue-500/10 bg-blue-50'
@@ -156,6 +157,7 @@ export default function Setup() {
 
               <label
                 htmlFor="setup-auth-mode-basic"
+                aria-label="Basic Authentication"
                 className={cn(`flex cursor-pointer items-start gap-3 rounded-xl border p-4 transition-colors ${
                   authMode === 'basic'
                     ? 'border-blue-500 dark:bg-blue-500/10 bg-blue-50'
@@ -179,6 +181,7 @@ export default function Setup() {
 
               <label
                 htmlFor="setup-auth-mode-none"
+                aria-label="No Authentication"
                 className={cn(`flex cursor-pointer items-start gap-3 rounded-xl border p-4 transition-colors ${
                   authMode === 'none'
                     ? 'border-yellow-500 dark:bg-yellow-500/10 bg-yellow-50'

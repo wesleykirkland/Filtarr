@@ -154,7 +154,7 @@ export class FilterEngine {
     if (!match) return false;
 
     const operator = match[1] || '=';
-    const value = parseFloat(match[2] || '0');
+    const value = Number.parseFloat(match[2] || '0');
     const unit = (match[3] || 'B').toUpperCase();
 
     const units: Record<string, number> = {

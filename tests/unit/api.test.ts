@@ -24,7 +24,7 @@ function createResponse(options: {
 describe('API Client', () => {
   beforeEach(() => {
     mockFetch.mockReset();
-    vi.spyOn(window, 'dispatchEvent');
+    vi.spyOn(globalThis, 'dispatchEvent');
   });
 
   afterEach(() => {

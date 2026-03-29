@@ -7,7 +7,7 @@ import Activity from '../../src/client/pages/Activity';
 import Dashboard from '../../src/client/pages/Dashboard';
 import Settings from '../../src/client/pages/Settings';
 import SettingsNotificationsPage from '../../src/client/pages/settings/SettingsNotificationsPage';
-import { click, render, waitFor } from '../support/render';
+import { render, waitFor } from '../support/render';
 
 const { api, useInstances } = vi.hoisted(() => ({
   api: { get: vi.fn(), put: vi.fn(), post: vi.fn(), delete: vi.fn() },

@@ -55,9 +55,9 @@ export function updateDirectory(
 
   const path = input.path ?? current.path;
   const recursiveValue = input.recursive ? 1 : 0;
-  const recursive = input.recursive !== undefined ? recursiveValue : current.recursive;
+  const recursive = input.recursive === undefined ? current.recursive : recursiveValue;
   const enabledValue = input.enabled ? 1 : 0;
-  const enabled = input.enabled !== undefined ? enabledValue : current.enabled;
+  const enabled = input.enabled === undefined ? current.enabled : enabledValue;
 
   db.prepare<[string, number, number, number]>(
     `UPDATE directories 

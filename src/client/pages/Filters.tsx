@@ -246,6 +246,13 @@ function NotificationOverrideFields({
   );
 }
 
+function getScriptRuntimeHelpText(scriptRuntime: Filter['script_runtime']): string {
+  if (scriptRuntime === 'shell') {
+    return 'Shell scripts execute through bash. Use FILTARR_FILE_* plus FILTARR_CONTEXT_JSON; rule scripts should print true to match.';
+  }
+  return 'Legacy JavaScript filters run in the sandbox and should use context.file. Use this only when you specifically want the older JS path.';
+}
+
 interface FilterFormProps {
   readonly initial?: Filter;
   readonly instances: Instance[];
@@ -379,10 +386,7 @@ function FilterForm({ initial, instances, onClose, onSaved }: FilterFormProps) {
   const showActionPayload = actionType === 'move' || actionType === 'script';
   const actionPayloadLabel = actionType === 'move' ? 'Destination Path' : 'Script Payload';
   const rulePlaceholder = isScript ? SCRIPT_RULE_PLACEHOLDERS[scriptRuntime] : RULE_PLACEHOLDERS[ruleType];
-  const scriptRuntimeHelpText =
-    scriptRuntime === 'shell'
-      ? 'Shell scripts execute through bash. Use FILTARR_FILE_* plus FILTARR_CONTEXT_JSON; rule scripts should print true to match.'
-      : 'Legacy JavaScript filters run in the sandbox and should use context.file. Use this only when you specifically want the older JS path.';
+  const scriptRuntimeHelpText = getScriptRuntimeHelpText(scriptRuntime);
 
   return (
     <>
@@ -973,8 +977,7 @@ export default function Filters() {
             <div className="rounded-2xl border border-red-200 bg-red-50/70 p-4 dark:border-red-900/50 dark:bg-red-950/30">
               <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
                 Are you sure you want to delete{' '}
-                <span className="font-semibold text-red-600 dark:text-red-300">“{deleting.name}”</span>
-                ?
+                <span className="font-semibold text-red-600 dark:text-red-300">"{deleting.name}"</span>{' '}?
               </p>
               <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
                 This will permanently remove the filter configuration and cannot be undone.

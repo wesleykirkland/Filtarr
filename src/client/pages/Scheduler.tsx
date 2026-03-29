@@ -162,11 +162,8 @@ function JobForm({ initialJob, initialWatcherFilter, filters, jobs, onClose, onS
   const [promptedFilterIds, setPromptedFilterIds] = useState<number[]>([]);
 
   const selectedFilter = filters.find((f) => f.id === filterId);
-  const submitLabel = automationMode === 'watcher'
-    ? 'Save Watcher'
-    : isEditing
-      ? 'Update Automation'
-      : 'Schedule Job';
+  const editOrScheduleLabel = isEditing ? 'Update Automation' : 'Schedule Job';
+  const submitLabel = automationMode === 'watcher' ? 'Save Watcher' : editOrScheduleLabel;
   const watcherPromptOpen =
     watcherPromptFilterId === selectedFilter?.id &&
     automationMode === 'cron' &&
@@ -306,6 +303,8 @@ function JobForm({ initialJob, initialWatcherFilter, filters, jobs, onClose, onS
         </label>
         <div className="mt-1 space-y-2">
           <label
+            htmlFor="scheduler-automation-mode-cron"
+            aria-label="Cron schedule"
             className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 ${automationMode === 'cron' ? 'border-blue-500 dark:bg-blue-500/10 bg-blue-50' : 'dark:border-gray-700 border-gray-300 dark:hover:bg-gray-800/50 hover:bg-gray-50'}`}
           >
             <input
@@ -327,6 +326,7 @@ function JobForm({ initialJob, initialWatcherFilter, filters, jobs, onClose, onS
           </label>
           <label
             htmlFor="scheduler-automation-mode-watcher"
+            aria-label="Watcher"
             className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 ${automationMode === 'watcher' ? 'border-blue-500 dark:bg-blue-500/10 bg-blue-50' : 'dark:border-gray-700 border-gray-300 dark:hover:bg-gray-800/50 hover:bg-gray-50'}`}
           >
             <input

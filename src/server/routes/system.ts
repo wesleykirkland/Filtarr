@@ -37,22 +37,53 @@ publicSystemRoutes.get('/health', (_req, res) => {
 // Paths that should never be browseable for security reasons
 const BLOCKED_BROWSE_PATHS = ['/proc', '/sys', '/dev'];
 
+// Root directory that the filesystem browser is allowed to access.
+// This should be configured to a non-sensitive directory in production.
+const BROWSE_ROOT = process.env['FILTARR_BROWSE_ROOT'] || '/';
+
 /**
  * Validate and sanitize a browseable path.
- * Returns the resolved absolute path or null if the path is disallowed.
+ * Returns the resolved absolute path (within BROWSE_ROOT) or null if disallowed.
  */
 function sanitizeBrowsePath(requestedPath: string): string | null {
-  // Require absolute paths to prevent CWD-relative traversal
-  if (!requestedPath.startsWith('/')) return null;
+  const trimmed = (requestedPath || '').trim();
 
-  const resolved = path.resolve(requestedPath);
+  // Treat empty or root request as the browse root
+  const relativePath =
+    trimmed === '' || trimmed === '/'
+      ? '.'
+      : trimmed.startsWith('/')
+      ? trimmed.slice(1)
+      : trimmed;
 
-  // Block sensitive system directories
-  for (const blocked of BLOCKED_BROWSE_PATHS) {
-    if (resolved === blocked || resolved.startsWith(blocked + '/')) return null;
+  // Resolve against the allowed root directory
+  const candidate = path.resolve(BROWSE_ROOT, relativePath);
+
+  let realPath: string;
+  try {
+    realPath = fs.realpathSync(candidate);
+  } catch {
+    // Path does not exist or cannot be resolved
+    return null;
   }
 
-  return resolved;
+  // Ensure the real path is contained within the browse root
+  const normalizedRoot = fs.realpathSync(BROWSE_ROOT);
+  if (
+    realPath !== normalizedRoot &&
+    !realPath.startsWith(normalizedRoot + path.sep)
+  ) {
+    return null;
+  }
+
+  // Block additional sensitive system directories, if they happen to be under the root
+  for (const blocked of BLOCKED_BROWSE_PATHS) {
+    if (realPath === blocked || realPath.startsWith(blocked + path.sep)) {
+      return null;
+    }
+  }
+
+  return realPath;
 }
 
 // GET /api/v1/system/browse?path=/some/dir

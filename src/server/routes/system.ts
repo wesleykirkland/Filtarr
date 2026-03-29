@@ -84,11 +84,6 @@ protectedSystemRoutes.get('/browse', (req, res) => {
       return;
     }
 
-    if (!fs.existsSync(resolved)) {
-      res.status(404).json({ error: 'Path does not exist' });
-      return;
-    }
-
     const stat = fs.statSync(resolved);
     if (!stat.isDirectory()) {
       res.status(400).json({ error: 'Path is not a directory' });

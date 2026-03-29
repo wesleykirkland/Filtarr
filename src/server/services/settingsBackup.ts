@@ -182,13 +182,15 @@ export class SettingsBackupService {
       throw new Error('Backup SQL is required');
     }
 
-    SettingsBackupService.validateBackupSql(sql);
+    const validatedStatements = SettingsBackupService.parseAndValidateBackupSql(sql);
 
     const tempDb = new SqliteDatabase(':memory:');
 
     try {
       tempDb.pragma('foreign_keys = OFF');
-      tempDb.exec(sql);
+      for (const stmt of validatedStatements) {
+        tempDb.exec(stmt);
+      }
       runMigrations(tempDb);
       this.restoreFromDatabase(tempDb);
 
@@ -209,23 +211,44 @@ export class SettingsBackupService {
   }
 
   /**
-   * Validate that the backup SQL only contains expected statement types.
-   * This prevents arbitrary SQL execution from user-provided input.
-   * Lines that don't start with a known SQL keyword are treated as
-   * continuations of multi-line CREATE TABLE / INSERT statements.
+   * Allowlist pattern for SQL statements permitted in backup imports.
+   * Only CREATE TABLE/INDEX/TRIGGER, INSERT INTO, PRAGMA, BEGIN, and
+   * COMMIT are accepted.  Every other statement type is rejected.
    */
-  private static validateBackupSql(sql: string): void {
-    const DANGEROUS_PATTERN = /^(DROP|DELETE|UPDATE|ALTER|ATTACH|DETACH)\s/;
+  private static readonly ALLOWED_STATEMENT =
+    /^(CREATE\s+(TABLE|INDEX|TRIGGER)\b|INSERT\s+INTO\b|PRAGMA\b|BEGIN\b|COMMIT\b)/i;
 
-    const lines = sql.split('\n');
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith('--')) continue;
+  /**
+   * Parse backup SQL into individual statements, strip comments, and
+   * validate each statement against the allowlist.  Returns the array of
+   * validated statements so the caller never passes raw user input to
+   * `exec()`.
+   */
+  private static parseAndValidateBackupSql(sql: string): string[] {
+    // Strip comment lines first
+    const stripped = sql
+      .split('\n')
+      .filter((line) => {
+        const trimmed = line.trim();
+        return trimmed.length > 0 && !trimmed.startsWith('--');
+      })
+      .join('\n');
 
-      if (DANGEROUS_PATTERN.test(trimmed.toUpperCase())) {
-        throw new Error('Backup SQL contains disallowed statement: ' + trimmed.slice(0, 80));
+    // Split on semicolons (respecting that values may contain escaped quotes,
+    // but our generated backups use single-quote escaping, not semicolons
+    // inside values).
+    const statements = stripped
+      .split(';')
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0);
+
+    for (const stmt of statements) {
+      if (!SettingsBackupService.ALLOWED_STATEMENT.test(stmt)) {
+        throw new Error('Backup SQL contains disallowed statement: ' + stmt.slice(0, 80));
       }
     }
+
+    return statements;
   }
 
   private restoreFromDatabase(sourceDb: Database.Database): void {

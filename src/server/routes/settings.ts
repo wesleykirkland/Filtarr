@@ -447,6 +447,7 @@ export function createSettingsRoutes(
       }
 
       const trimmedSql = sqlInput.trim();
+      // codeql[js/user-controlled-bypass] - intentional input validation, not a security gate; real SQL content validation occurs in importBackup → validateBackupSql
       if (trimmedSql.length === 0) {
         res.status(400).json({ error: 'Backup SQL is required' });
         return;

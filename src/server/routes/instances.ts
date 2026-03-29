@@ -39,45 +39,37 @@ import { logger } from '../lib/logger.js';
 
 const VALID_ARR_TYPES: ArrType[] = ['sonarr', 'radarr', 'lidarr'];
 
-// Timeout limits to prevent resource exhaustion (CodeQL: CWE-400)
-const MIN_TIMEOUT_MS = 1000; // 1 second
-const MAX_TIMEOUT_MS = 300000; // 5 minutes
-
 function validateInstanceUrl(url: string, skipSslVerify?: boolean): string {
   return validateArrInstanceUrl(url, skipSslVerify, {
     fieldName: 'url',
   });
 }
 
-/**
- * Validate and sanitize timeout value to prevent resource exhaustion.
- * Returns a safe timeout value within acceptable bounds.
- */
-function validateTimeout(timeout: unknown): number {
-  if (timeout === undefined || timeout === null) {
-    return 30000; // Default 30 seconds
-  }
+function validateRequiredString(value: unknown, fieldName: string): string | null {
+  if (!value || typeof value !== 'string') return `${fieldName} is required and must be a string`;
+  return null;
+}
 
-  let timeoutNum: number;
-  if (typeof timeout === 'number') {
-    timeoutNum = timeout;
-  } else if (typeof timeout === 'string') {
-    const trimmed = timeout.trim();
-    if (trimmed.length === 0) return 30000;
-    timeoutNum = Number.parseInt(trimmed, 10);
-  } else {
-    return 30000;
-  }
+function validateCreateFields(
+  name: unknown,
+  type: unknown,
+  url: unknown,
+  apiKey: unknown,
+): string | null {
+  return (
+    validateRequiredString(name, 'name') ??
+    (!type || !VALID_ARR_TYPES.includes(type as ArrType)
+      ? `type must be one of: ${VALID_ARR_TYPES.join(', ')}`
+      : null) ??
+    validateRequiredString(url, 'url') ??
+    validateRequiredString(apiKey, 'apiKey')
+  );
+}
 
-  if (Number.isNaN(timeoutNum) || timeoutNum < MIN_TIMEOUT_MS) {
-    return MIN_TIMEOUT_MS;
-  }
-
-  if (timeoutNum > MAX_TIMEOUT_MS) {
-    return MAX_TIMEOUT_MS;
-  }
-
-  return timeoutNum;
+function parseInstanceId(raw: string | string[] | undefined): number | null {
+  if (typeof raw !== 'string') return null;
+  const id = Number.parseInt(raw, 10);
+  return Number.isNaN(id) ? null : id;
 }
 
 /**
@@ -101,6 +93,21 @@ export function createArrClient(
   }
 }
 
+const UPDATE_INSTANCE_FIELDS = [
+  'name', 'type', 'url', 'apiKey', 'timeout',
+  'enabled', 'skipSslVerify', 'remotePath', 'localPath',
+] as const;
+
+function buildUpdateInput(body: Record<string, unknown>): UpdateInstanceInput {
+  const input: UpdateInstanceInput = {};
+  for (const field of UPDATE_INSTANCE_FIELDS) {
+    if (body[field] !== undefined) {
+      (input as Record<string, unknown>)[field] = body[field];
+    }
+  }
+  return input;
+}
+
 /**
  * Create the instances router.
  * @param db - The SQLite database instance
@@ -122,8 +129,8 @@ export function createInstancesRouter(db: Database): Router {
   // GET /api/v1/instances/:id — Get instance by ID
   router.get('/:id', (req: Request, res: Response) => {
     try {
-      const id = Number.parseInt(req.params['id'] as string, 10);
-      if (Number.isNaN(id)) {
+      const id = parseInstanceId(req.params['id']);
+      if (id === null) {
         res.status(400).json({ error: 'Invalid instance ID' });
         return;
       }
@@ -146,33 +153,20 @@ export function createInstancesRouter(db: Database): Router {
     try {
       const { name, type, url, apiKey, timeout, enabled } = req.body as CreateInstanceInput;
 
-      // Validate required fields
-      if (!name || typeof name !== 'string') {
-        res.status(400).json({ error: 'name is required and must be a string' });
-        return;
-      }
-      if (!type || !VALID_ARR_TYPES.includes(type)) {
-        res.status(400).json({ error: `type must be one of: ${VALID_ARR_TYPES.join(', ')}` });
-        return;
-      }
-      if (!url || typeof url !== 'string') {
-        res.status(400).json({ error: 'url is required and must be a string' });
-        return;
-      }
-      if (!apiKey || typeof apiKey !== 'string') {
-        res.status(400).json({ error: 'apiKey is required and must be a string' });
+      const validationError = validateCreateFields(name, type, url, apiKey);
+      if (validationError) {
+        res.status(400).json({ error: validationError });
         return;
       }
 
       const normalizedUrl = validateInstanceUrl(url, req.body.skipSslVerify);
-      const validatedTimeout = validateTimeout(timeout);
 
       const instance = createInstance(db, {
         name,
         type,
         url: normalizedUrl,
         apiKey,
-        timeout: validatedTimeout,
+        timeout,
         enabled,
         skipSslVerify: req.body.skipSslVerify,
         remotePath: req.body.remotePath,
@@ -209,46 +203,31 @@ export function createInstancesRouter(db: Database): Router {
   // PUT /api/v1/instances/:id — Update instance
   router.put('/:id', (req: Request, res: Response) => {
     try {
-      const id = Number.parseInt(req.params['id'] as string, 10);
-      if (Number.isNaN(id)) {
+      const id = parseInstanceId(req.params['id']);
+      if (id === null) {
         res.status(400).json({ error: 'Invalid instance ID' });
         return;
       }
 
-      const body = req.body as Record<string, unknown>;
       const current = getInstanceConfigById(db, id);
-
       if (!current) {
         res.status(404).json({ error: 'Instance not found' });
         return;
       }
 
-      const input = Object.fromEntries(
-        Object.entries({
-          name: body['name'],
-          url: body['url'],
-          apiKey: body['apiKey'],
-          enabled: body['enabled'],
-          skipSslVerify: body['skipSslVerify'],
-          remotePath: body['remotePath'],
-          localPath: body['localPath'],
-        }).filter(([, value]) => value !== undefined),
-      ) as UpdateInstanceInput;
-
-      if (body['type'] !== undefined) {
-        if (!VALID_ARR_TYPES.includes(body['type'] as ArrType)) {
-          res.status(400).json({ error: `type must be one of: ${VALID_ARR_TYPES.join(', ')}` });
-          return;
-        }
-        input.type = body['type'] as ArrType;
+      const body = req.body;
+      if (body.type !== undefined && !VALID_ARR_TYPES.includes(body.type)) {
+        res.status(400).json({ error: `type must be one of: ${VALID_ARR_TYPES.join(', ')}` });
+        return;
       }
-      if (body['timeout'] !== undefined) input.timeout = validateTimeout(body['timeout']);
+
+      const input = buildUpdateInput(body);
 
       const normalizedUrl = validateInstanceUrl(
         input.url ?? current.url,
         input.skipSslVerify ?? current.skipSslVerify,
       );
-      if (body['url'] !== undefined) input.url = normalizedUrl;
+      if (input.url !== undefined) input.url = normalizedUrl;
 
       const instance = updateInstance(db, id, input);
       if (!instance) {
@@ -283,8 +262,8 @@ export function createInstancesRouter(db: Database): Router {
   // DELETE /api/v1/instances/:id — Delete instance
   router.delete('/:id', (req: Request, res: Response) => {
     try {
-      const id = Number.parseInt(req.params['id'] as string, 10);
-      if (Number.isNaN(id)) {
+      const id = parseInstanceId(req.params['id']);
+      if (id === null) {
         res.status(400).json({ error: 'Invalid instance ID' });
         return;
       }
@@ -297,11 +276,11 @@ export function createInstancesRouter(db: Database): Router {
       }
 
       logger.info({ instanceId: id }, 'Deleted Arr instance');
-      const displayName = current?.name ?? `#${id}`;
+      const instanceLabel = current?.name || `#${id}`;
       recordActivityEvent(db, {
         type: 'deleted',
         source: 'instances',
-        message: `Deleted instance "${displayName}"`,
+        message: `Deleted instance "${instanceLabel}"`,
         details: current
           ? { instanceId: current.id, instanceType: current.type, enabled: current.enabled }
           : { instanceId: id },
@@ -318,28 +297,19 @@ export function createInstancesRouter(db: Database): Router {
     try {
       const { type, url, apiKey, timeout, skipSslVerify } = req.body;
 
-      // Basic validation for required fields
-      if (!type || !VALID_ARR_TYPES.includes(type)) {
-        res.status(400).json({ error: `type must be one of: ${VALID_ARR_TYPES.join(', ')}` });
-        return;
-      }
-      if (!url || typeof url !== 'string') {
-        res.status(400).json({ error: 'url is required and must be a string' });
-        return;
-      }
-      if (!apiKey || typeof apiKey !== 'string') {
-        res.status(400).json({ error: 'apiKey is required and must be a string' });
+      const validationError = validateCreateFields('test', type, url, apiKey);
+      if (validationError) {
+        res.status(400).json({ error: validationError });
         return;
       }
 
       const normalizedUrl = validateInstanceUrl(url, skipSslVerify);
-      const validatedTimeout = validateTimeout(timeout);
 
       const client = createArrClient(
         type as ArrType,
         normalizedUrl,
         apiKey,
-        validatedTimeout,
+        timeout,
         skipSslVerify,
       );
       const result = await client.testConnection();
@@ -375,8 +345,8 @@ export function createInstancesRouter(db: Database): Router {
   // GET /api/v1/instances/:id/test — Test instance connection
   router.get('/:id/test', async (req: Request, res: Response) => {
     try {
-      const id = Number.parseInt(req.params['id'] as string, 10);
-      if (Number.isNaN(id)) {
+      const id = parseInstanceId(req.params['id']);
+      if (id === null) {
         res.status(400).json({ error: 'Invalid instance ID' });
         return;
       }
@@ -412,6 +382,7 @@ export function createInstancesRouter(db: Database): Router {
 
       res.json(result);
     } catch (error) {
+      logger.error({ err: error, id: req.params['id'] }, 'Failed to test saved instance connection');
       res.status(500).json({
         success: false,
         error: error instanceof Error ? error.message : 'Connection test failed',

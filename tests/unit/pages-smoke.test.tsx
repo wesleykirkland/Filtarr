@@ -65,7 +65,7 @@ describe('client page smoke coverage', () => {
     await waitFor(() => {
       expect(document.body.querySelectorAll('select').length).toBeGreaterThanOrEqual(2);
     });
-    const selects = Array.from(document.body.querySelectorAll('select'));
+    const selects = Array.from(document.body.querySelectorAll('select')) as HTMLSelectElement[];
     act(() => {
       selects[0]!.value = 'validation';
       selects[0]!.dispatchEvent(new Event('change', { bubbles: true }));
@@ -88,7 +88,7 @@ describe('client page smoke coverage', () => {
     await waitFor(() => {
       expect(document.body.querySelectorAll('input').length).toBeGreaterThanOrEqual(2);
     });
-    const loginInputs = Array.from(document.body.querySelectorAll('input'));
+    const loginInputs = Array.from(document.body.querySelectorAll('input')) as HTMLInputElement[];
     await setInputValue(loginInputs[0]!, 'admin');
     await setInputValue(loginInputs[1]!, 'password123');
     await click(Array.from(document.body.querySelectorAll('button')).find((node) => node.textContent?.includes('Sign In')) ?? null);
@@ -97,8 +97,8 @@ describe('client page smoke coverage', () => {
 
     const noneView = await render(wrap(<Setup />, '/setup'));
     await click(Array.from(document.body.querySelectorAll('button')).find((node) => node.textContent?.includes('Get Started')) ?? null);
-    const noneRadio = Array.from(document.body.querySelectorAll('input')).find((node) => node.value === 'none')!;
-    act(() => noneRadio.click());
+    const noneRadio = Array.from(document.body.querySelectorAll('input')).find((node) => node.value === 'none');
+    act(() => noneRadio!.click());
     await click(Array.from(document.body.querySelectorAll('button')).find((node) => node.textContent === 'Continue') ?? null);
     await waitFor(() => {
       expect(document.body.querySelector('[aria-label="Copy API key"]')).toBeTruthy();
@@ -109,8 +109,8 @@ describe('client page smoke coverage', () => {
 
     const formsView = await render(wrap(<Setup />, '/setup'));
     await click(Array.from(document.body.querySelectorAll('button')).find((node) => node.textContent?.includes('Get Started')) ?? null);
-    const radio = Array.from(document.body.querySelectorAll('input')).find((node) => node.value === 'forms')!;
-    act(() => radio.click());
+    const radio = Array.from(document.body.querySelectorAll('input')).find((node) => node.value === 'forms');
+    act(() => radio!.click());
     await click(Array.from(document.body.querySelectorAll('button')).find((node) => node.textContent === 'Continue') ?? null);
     await waitFor(() => {
       expect(Array.from(document.body.querySelectorAll('input')).length).toBeGreaterThanOrEqual(3);

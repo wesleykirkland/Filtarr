@@ -112,7 +112,7 @@ describe('layout and filesystem picker', () => {
 
     await click(Array.from(document.body.querySelectorAll('button')).find((node) => node.textContent === 'movies') ?? null);
     await waitFor(() => {
-      expect(api.get).toHaveBeenCalledWith('/browse?path=%2Fmovies');
+      expect(api.get).toHaveBeenCalledWith('/system/browse?path=%2Fmovies');
       expect(document.body.textContent).toContain('No subdirectories here');
     });
 
@@ -123,7 +123,7 @@ describe('layout and filesystem picker', () => {
 
     await setInputValue(document.body.querySelector('#selected-path') as HTMLInputElement, '/manual');
     await waitFor(() => {
-      expect(api.get).toHaveBeenCalledWith('/browse?path=%2Fmanual');
+      expect(api.get).toHaveBeenCalledWith('/system/browse?path=%2Fmanual');
       expect(document.body.textContent).toContain('No subdirectories here');
     });
 

@@ -1,9 +1,11 @@
 name: Release main
 
 on:
-  release:
+  workflow_run:
+    workflows:
+      - CI validation
     types:
-      - published
+      - completed
   workflow_dispatch:
 
 permissions: {}
@@ -20,7 +22,12 @@ jobs:
     name: Publish GitHub Release and GHCR image
     if: >
       (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
-      (github.event_name == 'release' && github.event.release.target_commitish == 'main')
+      (
+        github.event_name == 'workflow_run' &&
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.event == 'push' &&
+        github.event.workflow_run.head_branch == 'main'
+      )
     runs-on: ubuntu-latest
     timeout-minutes: 40
     permissions:
@@ -33,20 +40,13 @@ jobs:
         id: context
         shell: bash
         env:
-          RELEASE_TAG_NAME: ${{ github.event.release.tag_name }}
+          WF_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          WF_HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
         run: |
-          # Security: Use environment variables to prevent script injection
-          # For release events, use the tag from the release
-          # For workflow_dispatch, use the current commit
-          if [ "${GITHUB_EVENT_NAME}" = "release" ]; then
-            # Validate tag format (v followed by semver)
-            if ! printf '%s' "${RELEASE_TAG_NAME}" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+'; then
-              echo "Error: Invalid release tag format (expected vX.Y.Z)" >&2
-              exit 1
-            fi
-            release_sha="${GITHUB_SHA}"
-            release_ref="${GITHUB_REF}"
-            release_ref_name="${RELEASE_TAG_NAME}"
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_run" ]; then
+            release_sha="${WF_HEAD_SHA}"
+            release_ref="refs/heads/${WF_HEAD_BRANCH}"
+            release_ref_name="${WF_HEAD_BRANCH}"
           else
             release_sha="${GITHUB_SHA}"
             release_ref="${GITHUB_REF}"
@@ -81,8 +81,10 @@ jobs:
       - name: Capture existing tag on release commit
         id: previous_release
         shell: bash
+        env:
+          RELEASE_SHA: ${{ steps.context.outputs.release_sha }}
         run: |
-          existing_tag="$(git tag --points-at "${{ steps.context.outputs.release_sha }}" 'v*' | sort -V | tail -n1)"
+          existing_tag="$(git tag --points-at "${RELEASE_SHA}" 'v*' | sort -V | tail -n1)"
           echo "tag=${existing_tag}" >> "${GITHUB_OUTPUT}"
 
       - name: Run semantic-release
@@ -97,10 +99,13 @@ jobs:
       - name: Determine release outcome
         id: release_version
         shell: bash
+        env:
+          RELEASE_SHA: ${{ steps.context.outputs.release_sha }}
+          PREVIOUS_TAG: ${{ steps.previous_release.outputs.tag }}
         run: |
-          current_tag="$(git tag --points-at "${{ steps.context.outputs.release_sha }}" 'v*' | sort -V | tail -n1)"
+          current_tag="$(git tag --points-at "${RELEASE_SHA}" 'v*' | sort -V | tail -n1)"
 
-          if [ -z "${current_tag}" ] || [ "${current_tag}" = "${{ steps.previous_release.outputs.tag }}" ]; then
+          if [ -z "${current_tag}" ] || [ "${current_tag}" = "${PREVIOUS_TAG}" ]; then
             echo "published=false" >> "${GITHUB_OUTPUT}"
             exit 0
           fi
@@ -134,7 +139,6 @@ jobs:
           file: Containerfile
           push: true
           provenance: false
-          sbom: false
           platforms: linux/amd64,linux/arm64
           tags: |
             ${{ steps.context.outputs.image }}:${{ steps.release_version.outputs.version }}
@@ -158,15 +162,21 @@ jobs:
       - name: Summarize release result
         if: always()
         shell: bash
+        env:
+          PUBLISHED: ${{ steps.release_version.outputs.published }}
+          GIT_TAG: ${{ steps.release_version.outputs.git_tag }}
+          VERSION: ${{ steps.release_version.outputs.version }}
+          IMAGE: ${{ steps.context.outputs.image }}
+          DIGEST: ${{ steps.build.outputs.digest }}
         run: |
-          if [ "${{ steps.release_version.outputs.published }}" = "true" ]; then
+          if [ "${PUBLISHED}" = "true" ]; then
             {
               echo "### Published release"
               echo
-              echo "- Git tag: \`${{ steps.release_version.outputs.git_tag }}\`"
-              echo "- Image: \`${{ steps.context.outputs.image }}:${{ steps.release_version.outputs.version }}\`"
-              echo "- Image: \`${{ steps.context.outputs.image }}:latest\`"
-              echo "- Digest: \`${{ steps.build.outputs.digest }}\`"
+              echo "- Git tag: \`${GIT_TAG}\`"
+              echo "- Image: \`${IMAGE}:${VERSION}\`"
+              echo "- Image: \`${IMAGE}:latest\`"
+              echo "- Digest: \`${DIGEST}\`"
             } >> "${GITHUB_STEP_SUMMARY}"
           else
             {

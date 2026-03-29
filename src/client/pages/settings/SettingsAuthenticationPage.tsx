@@ -11,6 +11,13 @@ import type {
   OidcSettingsResponse,
 } from './types';
 
+const AUTH_MODE_LABELS: Record<AuthMode, string> = {
+  none: 'No Authentication',
+  basic: 'Basic (Browser Prompt)',
+  forms: 'Forms (Login Page)',
+  oidc: 'OIDC / OpenID Connect',
+};
+
 export default function SettingsAuthenticationPage() {
   const { session } = useAuth();
   const navigate = useNavigate();
@@ -101,19 +108,6 @@ export default function SettingsAuthenticationPage() {
     });
   };
 
-  const authModeLabels: Record<AuthMode, string> = {
-    none: 'No Authentication',
-    basic: 'Basic (Browser Prompt)',
-    forms: 'Forms (Login Page)',
-    oidc: 'OIDC / OpenID Connect',
-  };
-  const authModeDescriptions: Record<AuthMode, string> = {
-    none: '⚠️ Anyone can access Filtarr',
-    basic: 'HTTP Basic auth (browser login prompt)',
-    forms: 'Username/password login form',
-    oidc: 'External identity provider sign-in via OpenID Connect',
-  };
-
   return (
     <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-900">
       <div className="flex items-center justify-between gap-4">
@@ -124,7 +118,7 @@ export default function SettingsAuthenticationPage() {
           </p>
         </div>
 
-        {showAuthModeChange ? null : (
+        {!showAuthModeChange && (
           <button
             onClick={openAuthModeChange}
             className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-100 dark:border-gray-700 dark:text-gray-400 dark:hover:bg-gray-800"
@@ -139,50 +133,49 @@ export default function SettingsAuthenticationPage() {
           <p className="text-sm text-gray-600 dark:text-gray-400">Select a new authentication mode:</p>
 
           <div className="space-y-2">
-            {(['none', 'basic', 'forms', 'oidc'] as const).map((mode) => {
-              const inputId = `auth-mode-${mode}`;
-              const selected = selectedAuthMode === mode;
-              return (
-                <label
-                  key={mode}
-                  aria-label={authModeLabels[mode]}
-                  htmlFor={inputId}
-                  className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 ${
-                    selected
-                      ? 'border-blue-500 bg-blue-50 dark:bg-blue-500/10'
-                      : 'border-gray-300 bg-white hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900/60 dark:hover:bg-gray-800/50'
-                  }`}
-                >
-                  <input
-                    id={inputId}
-                    type="radio"
-                    name="authMode"
-                    value={mode}
-                    checked={selected}
-                    onChange={() => setSelectedAuthMode(mode)}
-                    className="mt-0.5"
-                  />
-                  <span className="block">
-                    <span className="block font-medium capitalize text-gray-900 dark:text-gray-100">
-                      {authModeLabels[mode]}
-                    </span>
-                    <span className="block text-xs text-gray-600 dark:text-gray-500">
-                      {authModeDescriptions[mode]}
-                    </span>
-                  </span>
-                </label>
-              );
-            })}
+            {(['none', 'basic', 'forms', 'oidc'] as const).map((mode) => (
+              <label
+                key={mode}
+                htmlFor={`auth-mode-${mode}`}
+                className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 ${
+                  selectedAuthMode === mode
+                    ? 'border-blue-500 bg-blue-50 dark:bg-blue-500/10'
+                    : 'border-gray-300 bg-white hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900/60 dark:hover:bg-gray-800/50'
+                }`}
+              >
+                <input
+                  id={`auth-mode-${mode}`}
+                  type="radio"
+                  name="authMode"
+                  value={mode}
+                  checked={selectedAuthMode === mode}
+                  onChange={() => setSelectedAuthMode(mode)}
+                  className="mt-0.5"
+                  aria-label={AUTH_MODE_LABELS[mode]}
+                />
+                <div>
+                  <div className="font-medium capitalize text-gray-900 dark:text-gray-100">
+                    {AUTH_MODE_LABELS[mode]}
+                  </div>
+                  <div className="text-xs text-gray-600 dark:text-gray-500">
+                    {mode === 'none' && '⚠️ Anyone can access Filtarr'}
+                    {mode === 'basic' && 'HTTP Basic auth (browser login prompt)'}
+                    {mode === 'forms' && 'Username/password login form'}
+                    {mode === 'oidc' && 'External identity provider sign-in via OpenID Connect'}
+                  </div>
+                </div>
+              </label>
+            ))}
           </div>
 
           {selectedAuthMode === 'oidc' && (
             <div className="space-y-4 rounded-lg border border-gray-300 bg-gray-50 p-4 dark:border-gray-700 dark:bg-gray-800/50">
               <div>
-                <label htmlFor="oidc-issuer-url" className="block text-xs font-medium text-gray-700 dark:text-gray-400">
+                <label htmlFor="auth-oidc-issuer-url" className="block text-xs font-medium text-gray-700 dark:text-gray-400">
                   Issuer URL
                 </label>
                 <input
-                  id="oidc-issuer-url"
+                  id="auth-oidc-issuer-url"
                   type="url"
                   value={oidcIssuerUrl}
                   onChange={(e) => setOidcIssuerUrl(e.target.value)}
@@ -193,11 +186,11 @@ export default function SettingsAuthenticationPage() {
 
               <div className="grid gap-4 md:grid-cols-2">
                 <div>
-                  <label htmlFor="oidc-client-id" className="block text-xs font-medium text-gray-700 dark:text-gray-400">
+                  <label htmlFor="auth-oidc-client-id" className="block text-xs font-medium text-gray-700 dark:text-gray-400">
                     Client ID
                   </label>
                   <input
-                    id="oidc-client-id"
+                    id="auth-oidc-client-id"
                     type="text"
                     value={oidcClientId}
                     onChange={(e) => setOidcClientId(e.target.value)}
@@ -205,14 +198,11 @@ export default function SettingsAuthenticationPage() {
                   />
                 </div>
                 <div>
-                  <label
-                    htmlFor="oidc-client-secret"
-                    className="block text-xs font-medium text-gray-700 dark:text-gray-400"
-                  >
+                  <label htmlFor="auth-oidc-client-secret" className="block text-xs font-medium text-gray-700 dark:text-gray-400">
                     Client Secret
                   </label>
                   <input
-                    id="oidc-client-secret"
+                    id="auth-oidc-client-secret"
                     type="password"
                     value={oidcClientSecret}
                     onChange={(e) => setOidcClientSecret(e.target.value)}
@@ -222,14 +212,11 @@ export default function SettingsAuthenticationPage() {
               </div>
 
               <div>
-                <label
-                  htmlFor="oidc-callback-url"
-                  className="block text-xs font-medium text-gray-700 dark:text-gray-400"
-                >
+                <label htmlFor="auth-oidc-callback-url" className="block text-xs font-medium text-gray-700 dark:text-gray-400">
                   Callback URL
                 </label>
                 <input
-                  id="oidc-callback-url"
+                  id="auth-oidc-callback-url"
                   type="url"
                   value={oidcCallbackUrl}
                   onChange={(e) => setOidcCallbackUrl(e.target.value)}
@@ -239,11 +226,11 @@ export default function SettingsAuthenticationPage() {
               </div>
 
               <div>
-                <label htmlFor="oidc-scopes" className="block text-xs font-medium text-gray-700 dark:text-gray-400">
+                <label htmlFor="auth-oidc-scopes" className="block text-xs font-medium text-gray-700 dark:text-gray-400">
                   Scopes
                 </label>
                 <input
-                  id="oidc-scopes"
+                  id="auth-oidc-scopes"
                   type="text"
                   value={oidcScopes}
                   onChange={(e) => setOidcScopes(e.target.value)}
@@ -261,10 +248,7 @@ export default function SettingsAuthenticationPage() {
             <div className="space-y-3 rounded-lg border border-gray-300 bg-gray-50 p-4 dark:border-gray-700 dark:bg-gray-800/50">
               <p className="text-sm text-yellow-600 dark:text-yellow-400">Create admin account:</p>
               <div>
-                <label
-                  htmlFor="auth-admin-username"
-                  className="block text-xs font-medium text-gray-700 dark:text-gray-400"
-                >
+                <label htmlFor="auth-admin-username" className="block text-xs font-medium text-gray-700 dark:text-gray-400">
                   Username
                 </label>
                 <input
@@ -276,10 +260,7 @@ export default function SettingsAuthenticationPage() {
                 />
               </div>
               <div>
-                <label
-                  htmlFor="auth-admin-password"
-                  className="block text-xs font-medium text-gray-700 dark:text-gray-400"
-                >
+                <label htmlFor="auth-admin-password" className="block text-xs font-medium text-gray-700 dark:text-gray-400">
                   Password
                 </label>
                 <input

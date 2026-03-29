@@ -7,6 +7,8 @@ import { recordActivityEvent } from '../lib/activity.js';
 import { logger } from '../lib/logger.js';
 import { reloadScheduler } from '../cron/scheduler.js';
 
+const JOB_TYPES = ['custom_script', 'built_in', 'filter_run'] as const;
+
 const createJobSchema = z.object({
   name: z.string().min(1, 'Name is required'),
   description: z.string().optional(),
@@ -74,7 +76,7 @@ export function createJobsRoutes(db: Database.Database): Router {
       });
       reloadScheduler(db);
       res.status(201).json(job);
-    } catch (err) {
+    } catch (err: any) {
       if (err instanceof z.ZodError) {
         res.status(400).json({ error: err.issues[0]?.message || 'Invalid input' });
       } else if (err instanceof SecurityPolicyError) {
@@ -120,7 +122,7 @@ export function createJobsRoutes(db: Database.Database): Router {
       });
       reloadScheduler(db);
       res.json(job);
-    } catch (err) {
+    } catch (err: any) {
       if (err instanceof z.ZodError) {
         res.status(400).json({ error: err.issues[0]?.message || 'Invalid input' });
       } else if (err instanceof SecurityPolicyError) {
@@ -150,11 +152,11 @@ export function createJobsRoutes(db: Database.Database): Router {
         return;
       }
       logger.info({ jobId: id }, 'Job deleted');
-      const displayName = current?.name ?? `#${id}`;
+      const jobLabel = current?.name || `#${id}`;
       recordActivityEvent(db, {
         type: 'deleted',
         source: 'jobs',
-        message: `Deleted job "${displayName}"`,
+        message: `Deleted job "${jobLabel}"`,
         details: current
           ? { jobId: current.id, schedule: current.schedule, jobType: current.type }
           : { jobId: id },

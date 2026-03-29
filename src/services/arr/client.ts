@@ -8,19 +8,7 @@
  */
 
 import { Agent } from 'undici';
-import { validateArrInstanceUrl } from '../security.js';
-
-/**
- * Remove all trailing slashes from a URL safely (no ReDoS vulnerability).
- * Uses a simple loop instead of regex to avoid backtracking issues.
- */
-function removeTrailingSlashes(url: string): string {
-  let result = url;
-  while (result.endsWith('/')) {
-    result = result.slice(0, -1);
-  }
-  return result;
-}
+import { validateArrInstanceUrl, stripTrailingSlashes } from '../security.js';
 
 import {
   type ArrClientOptions,
@@ -41,7 +29,8 @@ const DEFAULT_TIMEOUT = 30_000; // 30 seconds
 const DEFAULT_MAX_RETRIES = 3;
 const RETRY_BASE_DELAY = 1000; // 1 second
 const RETRYABLE_STATUS_CODES = new Set([408, 429, 500, 502, 503, 504]);
-type QueryParamValue = string | number | boolean;
+
+type QueryParams = Record<string, string | number | boolean>;
 
 export class ArrClient {
   protected readonly baseUrl: string;
@@ -55,7 +44,8 @@ export class ArrClient {
       fieldName: 'Arr instance url',
     });
 
-    this.baseUrl = removeTrailingSlashes(normalizedBaseUrl);
+    // Normalize URL: remove trailing slash
+    this.baseUrl = stripTrailingSlashes(normalizedBaseUrl);
     this.apiKey = options.apiKey;
     this.timeout = options.timeout ?? DEFAULT_TIMEOUT;
     this.maxRetries = options.maxRetries ?? DEFAULT_MAX_RETRIES;
@@ -66,7 +56,7 @@ export class ArrClient {
 
   protected async get<T>(
     path: string,
-    params?: Record<string, QueryParamValue>,
+    params?: QueryParams,
   ): Promise<T> {
     const url = this.buildUrl(path, params);
     return this.requestWithRetry<T>('GET', url);
@@ -84,7 +74,7 @@ export class ArrClient {
 
   protected async delete<T = void>(
     path: string,
-    params?: Record<string, QueryParamValue>,
+    params?: QueryParams,
   ): Promise<T> {
     const url = this.buildUrl(path, params);
     return this.requestWithRetry<T>('DELETE', url);
@@ -129,7 +119,7 @@ export class ArrClient {
 
   /** DELETE /api/v3/queue/{id} with options */
   async deleteQueueItem(id: number, options: DeleteQueueOptions = {}): Promise<void> {
-    const params: Record<string, QueryParamValue> = {};
+    const params: QueryParams = {};
     if (options.removeFromClient !== undefined)
       params['removeFromClient'] = options.removeFromClient;
     if (options.blocklist !== undefined) params['blocklist'] = options.blocklist;
@@ -163,7 +153,7 @@ export class ArrClient {
 
   // ── Internal ────────────────────────────────────────────────────────────
 
-  private buildUrl(path: string, params?: Record<string, QueryParamValue>): string {
+  private buildUrl(path: string, params?: QueryParams): string {
     const url = new URL(path, this.baseUrl);
     if (params) {
       for (const [key, value] of Object.entries(params)) {

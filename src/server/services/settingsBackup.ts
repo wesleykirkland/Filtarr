@@ -182,11 +182,15 @@ export class SettingsBackupService {
       throw new Error('Backup SQL is required');
     }
 
+    const validatedStatements = SettingsBackupService.parseAndValidateBackupSql(sql);
+
     const tempDb = new SqliteDatabase(':memory:');
 
     try {
       tempDb.pragma('foreign_keys = OFF');
-      tempDb.exec(sql);
+      for (const stmt of validatedStatements) {
+        tempDb.exec(stmt);
+      }
       runMigrations(tempDb);
       this.restoreFromDatabase(tempDb);
 
@@ -196,7 +200,7 @@ export class SettingsBackupService {
       };
     } catch (error) {
       logger.warn({ err: error }, 'Failed to import settings backup');
-      throw new Error('Backup SQL could not be imported', { cause: error });
+      throw new Error('Backup SQL could not be imported');
     } finally {
       tempDb.close();
     }
@@ -204,6 +208,47 @@ export class SettingsBackupService {
 
   public static getRedactionNotes(): readonly string[] {
     return REDACTION_NOTES;
+  }
+
+  /**
+   * Allowlist pattern for SQL statements permitted in backup imports.
+   * Only CREATE TABLE/INDEX/TRIGGER, INSERT INTO, PRAGMA, BEGIN, and
+   * COMMIT are accepted.  Every other statement type is rejected.
+   */
+  private static readonly ALLOWED_STATEMENT =
+    /^(CREATE\s+(TABLE|INDEX|TRIGGER)\b|INSERT\s+INTO\b|PRAGMA\b|BEGIN\b|COMMIT\b)/i;
+
+  /**
+   * Parse backup SQL into individual statements, strip comments, and
+   * validate each statement against the allowlist.  Returns the array of
+   * validated statements so the caller never passes raw user input to
+   * `exec()`.
+   */
+  private static parseAndValidateBackupSql(sql: string): string[] {
+    // Strip comment lines first
+    const stripped = sql
+      .split('\n')
+      .filter((line) => {
+        const trimmed = line.trim();
+        return trimmed.length > 0 && !trimmed.startsWith('--');
+      })
+      .join('\n');
+
+    // Split on semicolons (respecting that values may contain escaped quotes,
+    // but our generated backups use single-quote escaping, not semicolons
+    // inside values).
+    const statements = stripped
+      .split(';')
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0);
+
+    for (const stmt of statements) {
+      if (!SettingsBackupService.ALLOWED_STATEMENT.test(stmt)) {
+        throw new Error('Backup SQL contains disallowed statement: ' + stmt.slice(0, 80));
+      }
+    }
+
+    return statements;
   }
 
   private restoreFromDatabase(sourceDb: Database.Database): void {
@@ -291,8 +336,7 @@ export class SettingsBackupService {
 
   private redactExportRow(table: (typeof EXPORT_TABLES)[number], row: Record<string, unknown>) {
     if (table === 'settings') {
-      const rawKey = row['key'];
-      const key = typeof rawKey === 'string' ? rawKey : '';
+      const key = typeof row['key'] === 'string' ? row['key'] : '';
       if (key === 'auth_mode') {
         return { ...row, value: 'none' };
       }
@@ -321,8 +365,7 @@ export class SettingsBackupService {
 
   private normalizeImportedRow(table: (typeof EXPORT_TABLES)[number], row: Record<string, unknown>) {
     if (table === 'settings') {
-      const rawKey = row['key'];
-      const key = typeof rawKey === 'string' ? rawKey : '';
+      const key = typeof row['key'] === 'string' ? row['key'] : '';
 
       if (key === 'auth_mode') {
         return { ...row, value: 'none' };
@@ -424,13 +467,12 @@ export class SettingsBackupService {
       .filter((value) => !Number.isNaN(Date.parse(value)));
 
     if (valid.length === 0) return null;
-    valid.sort((left, right) => Date.parse(right) - Date.parse(left));
-    return valid[0] ?? null;
+    return valid.toSorted((left, right) => Date.parse(right) - Date.parse(left))[0] ?? null;
   }
 
   private getNullableSetting(key: string): string | null {
     const value = this.getSettingValue(key)?.trim();
-    return value || null;
+    return value ?? null;
   }
 
   private getDirectorySetting(): string {
@@ -472,18 +514,9 @@ export class SettingsBackupService {
     if (value === null || value === undefined) return 'NULL';
     if (typeof value === 'number') return Number.isFinite(value) ? String(value) : 'NULL';
     if (typeof value === 'bigint') return value.toString();
-    if (typeof value === 'boolean') return value ? '1' : '0';
-
-    let stringValue: string;
-    if (typeof value === 'string') {
-      stringValue = value;
-    } else if (value instanceof Date) {
-      stringValue = value.toISOString();
-    } else {
-      stringValue = JSON.stringify(value) ?? '';
-    }
-
-    return `'${stringValue.replaceAll("'", "''")}'`;
+    if (typeof value === 'object') return `'${JSON.stringify(value).replaceAll("'", "''")}'`;
+    const stringified = String(value as string | boolean | symbol);
+    return `'${stringified.replaceAll("'", "''")}'`;
   }
 
   private quoteIdentifier(value: string): string {

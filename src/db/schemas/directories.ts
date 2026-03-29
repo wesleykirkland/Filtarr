@@ -54,14 +54,8 @@ export function updateDirectory(
   if (!current) throw new Error(`Directory with id ${id} not found`);
 
   const path = input.path ?? current.path;
-  let recursive = current.recursive;
-  if (input.recursive !== undefined) {
-    recursive = input.recursive ? 1 : 0;
-  }
-  let enabled = current.enabled;
-  if (input.enabled !== undefined) {
-    enabled = input.enabled ? 1 : 0;
-  }
+  const recursive = input.recursive == null ? current.recursive : Number(input.recursive);
+  const enabled = input.enabled == null ? current.enabled : Number(input.enabled);
 
   db.prepare<[string, number, number, number]>(
     `UPDATE directories 

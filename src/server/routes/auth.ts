@@ -2,42 +2,9 @@ import { Router, type Request, type Response, type NextFunction } from 'express'
 import passport from 'passport';
 import type Database from 'better-sqlite3';
 import type { AuthConfig, AuthMode } from '../../config/auth.js';
-import { authRateLimiter, csrfMiddleware } from '../middleware/security.js';
-import { getOrCreateSessionSecret } from '../middleware/auth.js';
+import { authRateLimiter } from '../middleware/security.js';
 import { generateApiKey, hashApiKey, getKeyIdentifiers } from '../middleware/apiKey.js';
 import { type ApiKey, toApiKeyResponse } from '../../db/schemas/users.js';
-
-function parseCookieHeader(headerValue: string | undefined): Record<string, string> {
-  // Use Object.create(null) to prevent prototype pollution
-  const cookies: Record<string, string> = Object.create(null);
-  if (!headerValue) return cookies;
-
-  for (const part of headerValue.split(';')) {
-    const index = part.indexOf('=');
-    if (index === -1) continue;
-    const key = decodeURIComponent(part.slice(0, index).trim());
-    const value = decodeURIComponent(part.slice(index + 1).trim());
-
-    // Prevent prototype pollution by rejecting dangerous property names
-    if (key === '__proto__' || key === 'constructor' || key === 'prototype') {
-      continue;
-    }
-
-    // Additional safety: only allow alphanumeric keys with underscores, hyphens, and dots
-    if (!/^[a-zA-Z0-9_.-]+$/.test(key)) {
-      continue;
-    }
-
-    cookies[key] = value;
-  }
-
-  return cookies;
-}
-
-function ensureCookies(req: Request): void {
-  const anyReq = req as unknown as { cookies?: Record<string, string> };
-  anyReq.cookies ??= parseCookieHeader(req.headers.cookie);
-}
 
 /**
  * Get the current auth mode from the database settings.
@@ -63,7 +30,7 @@ function requireAuthenticatedRequest(db: Database.Database) {
       return;
     }
 
-    if (req.apiKey || req.isAuthenticated?.() || (authMode === 'basic' && req._basicAuthValid)) {
+    if (req.apiKey || req.isAuthenticated?.() || (authMode === 'basic' && (req as any)._basicAuthValid)) {
       next();
       return;
     }
@@ -76,34 +43,34 @@ function requireAuthenticatedRequest(db: Database.Database) {
   };
 }
 
+function hasOidcStrategy(): boolean {
+  const passportWithStrategy = passport as unknown as { _strategy?: (name: string) => unknown };
+
+  return typeof passportWithStrategy._strategy === 'function'
+    ? Boolean(passportWithStrategy._strategy('openidconnect'))
+    : false;
+}
+
 /**
  * Create auth routes for login, logout, session, and API key management.
  * Rate limiting is applied to auth endpoints (5 attempts/min).
  */
 export function createAuthRoutes(db: Database.Database, config: AuthConfig): Router {
   const router = Router();
-  const sessionSecret = getOrCreateSessionSecret(config);
-  const { generateCsrfToken } = csrfMiddleware(sessionSecret);
 
   // Rate limit all auth endpoints
   router.use(authRateLimiter(config.rateLimitAuth));
 
-  // --- CSRF token (double-submit cookie) ---
-  // Only meaningful for cookie-based auth modes (forms/oidc). For other modes we return null.
-  router.get('/csrf', (req: Request, res: Response): void => {
-    const authMode = getCurrentAuthMode(db);
-    if (authMode !== 'forms' && authMode !== 'oidc') {
-      res.json({ csrfToken: null });
+  const handleOidcLogin = (req: Request, res: Response, next: NextFunction): void => {
+    if (!hasOidcStrategy()) {
+      res.status(503).json({ error: 'OIDC strategy is not configured in this build' });
       return;
     }
 
-    ensureCookies(req);
+    passport.authenticate('openidconnect')(req, res, next);
+  };
 
-    res.json({ csrfToken: generateCsrfToken(req, res) });
-  });
-
-  // --- Login ---
-  router.post('/login', (req: Request, res: Response, next: NextFunction): void => {
+  const handleLogin = (req: Request, res: Response, next: NextFunction): void => {
     // Get current auth mode dynamically from database
     const authMode = getCurrentAuthMode(db);
 
@@ -142,12 +109,16 @@ export function createAuthRoutes(db: Database.Database, config: AuthConfig): Rou
 
     if (authMode === 'oidc') {
       // OIDC login redirects to the identity provider
-      passport.authenticate('openidconnect')(req, res, next);
+      handleOidcLogin(req, res, next);
       return;
     }
 
     res.status(400).json({ error: 'Unknown auth mode' });
-  });
+  };
+
+  // --- Login ---
+  router.get('/login', handleLogin);
+  router.post('/login', handleLogin);
 
   // --- Logout ---
   router.post('/logout', (req: Request, res: Response, next: NextFunction): void => {
@@ -182,7 +153,7 @@ export function createAuthRoutes(db: Database.Database, config: AuthConfig): Rou
     }
 
     // Check basic auth
-    if (authMode === 'basic' && req._basicAuthValid) {
+    if (authMode === 'basic' && (req as any)._basicAuthValid) {
       res.json({
         authenticated: true,
         mode: 'basic',
@@ -203,15 +174,21 @@ export function createAuthRoutes(db: Database.Database, config: AuthConfig): Rou
   });
 
   // --- OIDC callback ---
-  if (config.mode === 'oidc') {
-    router.get(
-      '/oidc/callback',
-      passport.authenticate('openidconnect', { failureRedirect: '/login' }),
-      (_req: Request, res: Response) => {
-        res.redirect('/');
-      },
-    );
-  }
+  router.get('/oidc/callback', (req: Request, res: Response, next: NextFunction): void => {
+    if (getCurrentAuthMode(db) !== 'oidc') {
+      res.status(404).json({ error: 'OIDC authentication is not enabled' });
+      return;
+    }
+
+    if (!hasOidcStrategy()) {
+      res.status(503).json({ error: 'OIDC strategy is not configured in this build' });
+      return;
+    }
+
+    passport.authenticate('openidconnect', { failureRedirect: '/login' })(req, res, () => {
+      res.redirect('/');
+    });
+  });
 
   // --- API Key Management ---
   router.use('/api-keys', requireAuthenticatedRequest(db));

@@ -6,18 +6,7 @@
 import type { Database } from 'better-sqlite3';
 import type { ArrType, ArrInstanceConfig, ArrInstanceResponse } from '../../services/arr/types.js';
 import { encrypt, decrypt, maskApiKey } from '../../services/encryption.js';
-
-/**
- * Remove all trailing slashes from a URL safely (no ReDoS vulnerability).
- * Uses a simple loop instead of regex to avoid backtracking issues.
- */
-function removeTrailingSlashes(url: string): string {
-  let result = url;
-  while (result.endsWith('/')) {
-    result = result.slice(0, -1);
-  }
-  return result;
-}
+import { stripTrailingSlashes } from '../../services/security.js';
 
 // ── Row type matching SQLite schema ─────────────────────────────────────────
 
@@ -140,7 +129,7 @@ export function createInstance(db: Database, input: CreateInstanceInput): ArrIns
   const result = stmt.run(
     input.name,
     input.type,
-    removeTrailingSlashes(input.url),
+    stripTrailingSlashes(input.url), // normalize URL
     encryptedKey,
     input.timeout ?? 30000,
     input.enabled !== false ? 1 : 0,
@@ -176,7 +165,7 @@ export function updateInstance(
   }
   if (input.url !== undefined) {
     updates.push('url = ?');
-    values.push(removeTrailingSlashes(input.url));
+    values.push(stripTrailingSlashes(input.url));
   }
   if (input.apiKey !== undefined) {
     updates.push('api_key_encrypted = ?');

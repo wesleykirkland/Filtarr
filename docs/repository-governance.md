@@ -5,6 +5,8 @@ This runbook captures the repository settings that must be applied in GitHub and
 ## In-repo controls
 
 - `.github/CODEOWNERS` assigns repository-wide ownership to `@wesleykirkland`.
+- `.github/dependabot.yml` opens weekly npm and GitHub Actions update PRs.
+- Dependabot PR titles are prefixed with `chore(deps):` and `chore(ci):` so they satisfy the conventional-PR-title check.
 - `.github/workflows/ci-validation.yml` provides the blocking and advisory CI signals referenced below.
 - `.github/workflows/conventional-pr-title.yml` validates squash-merge-safe PR titles.
 - `.github/workflows/release-main.yml` publishes stable releases from `main` only.

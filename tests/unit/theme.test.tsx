@@ -52,14 +52,14 @@ describe('ThemeProvider', () => {
       </ThemeProvider>,
     );
 
-    const button = view.container.querySelector<HTMLButtonElement>('button');
-    expect(button?.dataset.mode).toBe('dark');
+    const button = view.container.querySelector('button');
+    expect(button?.dataset['mode']).toBe('dark');
     expect(document.documentElement.classList.contains('dark')).toBe(true);
     expect(localStorage.getItem('darkMode')).toBe('true');
 
     await click(button);
 
-    expect(button?.dataset.mode).toBe('light');
+    expect(button?.dataset['mode']).toBe('light');
     expect(document.documentElement.classList.contains('light')).toBe(true);
     expect(localStorage.getItem('darkMode')).toBe('false');
 
@@ -75,8 +75,7 @@ describe('ThemeProvider', () => {
       </ThemeProvider>,
     );
 
-    const button = view.container.querySelector<HTMLButtonElement>('button');
-    expect(button?.dataset.mode).toBe('light');
+    expect(view.container.querySelector('button')?.dataset['mode']).toBe('light');
     expect(document.documentElement.classList.contains('light')).toBe(true);
 
     await view.unmount();

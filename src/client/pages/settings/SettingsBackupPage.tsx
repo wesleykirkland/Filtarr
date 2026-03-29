@@ -146,22 +146,23 @@ export default function SettingsBackupPage() {
         <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 dark:border-gray-800 dark:bg-gray-800/40">
           <h4 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Automation</h4>
           <div className="mt-4 space-y-4">
-            <label aria-label="Enable automated daily backups" htmlFor="backup-enabled" className="flex items-start gap-3">
+            <label htmlFor="backup-enabled" className="flex items-start gap-3">
               <input
                 id="backup-enabled"
                 type="checkbox"
                 checked={enabled}
                 onChange={(event) => setEnabled(event.target.checked)}
                 className="mt-1 h-4 w-4 rounded border-gray-300 bg-white text-blue-600 dark:border-gray-700 dark:bg-gray-950"
+                aria-label="Enable automated daily backups"
               />
-              <span className="block">
-                <span className="block text-sm font-medium text-gray-900 dark:text-gray-100">
+              <div>
+                <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
                   Enable automated daily backups
-                </span>
-                <span className="block text-xs text-gray-600 dark:text-gray-400">
+                </div>
+                <p className="text-xs text-gray-600 dark:text-gray-400">
                   When enabled, Filtarr writes one redacted SQL backup per day by default.
-                </span>
-              </span>
+                </p>
+              </div>
             </label>
 
             <div>

@@ -107,7 +107,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                 <div className="hidden rounded-full bg-gray-100 px-3 py-1.5 text-sm text-gray-600 dark:bg-gray-800 dark:text-gray-300 sm:block">
                   {userName}
                 </div>
-                {session.mode === 'none' ? null : (
+                {session.mode !== 'none' && (
                   <Button variant="ghost" size="sm" onClick={() => logout()}>
                     Logout
                   </Button>

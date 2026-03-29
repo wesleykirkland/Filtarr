@@ -12,77 +12,11 @@ import bcrypt from 'bcrypt';
 import crypto from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { inspect } from 'node:util';
 import type Database from 'better-sqlite3';
 import type { AuthConfig, AuthMode } from '../../config/auth.js';
 import { getConfig } from '../../config/index.js';
 import type { User } from '../../db/schemas/users.js';
 import { apiKeyMiddleware } from './apiKey.js';
-import { csrfMiddleware } from './security.js';
-
-function parseCookieHeader(headerValue: string | undefined): Record<string, string> {
-  // Use Object.create(null) to prevent prototype pollution
-  const cookies: Record<string, string> = Object.create(null);
-  if (!headerValue) return cookies;
-
-  for (const part of headerValue.split(';')) {
-    const index = part.indexOf('=');
-    if (index === -1) continue;
-    const key = decodeURIComponent(part.slice(0, index).trim());
-    const value = decodeURIComponent(part.slice(index + 1).trim());
-
-    // Prevent prototype pollution by rejecting dangerous property names
-    if (key === '__proto__' || key === 'constructor' || key === 'prototype') {
-      continue;
-    }
-
-    // Additional safety: only allow alphanumeric keys with underscores, hyphens, and dots
-    if (!/^[a-zA-Z0-9_.-]+$/.test(key)) {
-      continue;
-    }
-
-    cookies[key] = value;
-  }
-
-  return cookies;
-}
-
-function ensureCookies(req: Request): void {
-  const anyReq = req as unknown as { cookies?: Record<string, string> };
-  if (anyReq.cookies) return;
-  anyReq.cookies = parseCookieHeader(req.headers.cookie);
-}
-
-function unknownToError(err: unknown): Error {
-  if (err instanceof Error) return err;
-
-  if (typeof err === 'string') return new Error(err);
-  if (typeof err === 'number' || typeof err === 'boolean' || typeof err === 'bigint') {
-    return new Error(String(err));
-  }
-  if (typeof err === 'symbol') return new Error(err.toString());
-  if (err === null) return new Error('null');
-  if (err === undefined) return new Error('undefined');
-
-  // Avoid "[object Object]" by using Node's inspection formatting. Also handles functions safely.
-  try {
-    return new Error(inspect(err, { depth: 5 }));
-  } catch {
-    return new Error('Unknown error');
-  }
-}
-
-function runMiddleware(req: Request, res: Response, middleware: RequestHandler): Promise<void> {
-  return new Promise((resolve, reject) => {
-    middleware(req, res, (err?: unknown) => {
-      if (err) {
-        reject(unknownToError(err));
-      } else {
-        resolve();
-      }
-    });
-  });
-}
 
 /**
  * Get the current auth mode from the database settings.
@@ -99,8 +33,6 @@ function getCurrentAuthMode(db: Database.Database): AuthMode {
   }
 }
 
-// Extend Express types for Passport and Basic Auth
-/* eslint-disable @typescript-eslint/no-namespace */
 declare global {
   namespace Express {
     interface User {
@@ -108,12 +40,8 @@ declare global {
       username: string;
       displayName: string | null;
     }
-    interface Request {
-      _basicAuthValid?: boolean;
-    }
   }
 }
-/* eslint-enable @typescript-eslint/no-namespace */
 
 /**
  * Check if the request is authenticated via any method:
@@ -149,7 +77,7 @@ function requireAuth(db: Database.Database) {
 
     // Basic auth
     if (authMode === 'basic') {
-      if (req._basicAuthValid) {
+      if ((req as any)._basicAuthValid) {
         next();
         return;
       }
@@ -195,7 +123,7 @@ function basicAuthMiddleware(db: Database.Database) {
         .get(providedUser);
 
       if (user && (await bcrypt.compare(providedPass, user.password_hash))) {
-        req._basicAuthValid = true;
+        (req as any)._basicAuthValid = true;
       }
     } catch {
       // Invalid base64 or other error — just continue
@@ -206,49 +134,27 @@ function basicAuthMiddleware(db: Database.Database) {
 
 /**
  * Configure session middleware for forms-based auth.
- *
- * Security: Uses try/catch to avoid TOCTOU (Time-of-Check-Time-of-Use) race condition
- * instead of checking file existence before reading.
  */
 export function getOrCreateSessionSecret(config: AuthConfig): string {
   if (config.forms?.sessionSecret) return config.forms.sessionSecret;
 
   const secretPath = join(getConfig().dataDir, '.session-secret');
 
-  // Try to read existing secret first (avoids race condition)
   try {
     return readFileSync(secretPath, 'utf-8').trim();
-  } catch (err) {
-    // File doesn't exist or can't be read, create new secret
-    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
-      throw err; // Re-throw if it's not a "file not found" error
-    }
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
   }
 
-  // Create new secret
   const secret = crypto.randomBytes(48).toString('hex');
   mkdirSync(dirname(secretPath), { recursive: true });
   writeFileSync(secretPath, secret, { mode: 0o600 });
   return secret;
 }
 
-/**
- * Session middleware configuration.
- *
- * CSRF Protection Strategy:
- * - sameSite: 'strict' prevents CSRF attacks in modern browsers
- * - httpOnly: true prevents XSS access to session cookie
- * - secure: true in production enforces HTTPS-only cookies
- *
- * Note: CodeQL may flag this as missing CSRF middleware, but this is a false positive.
- * CSRF protection is applied in createAuthMiddleware() at line 357 via csrfProtection
- * middleware for all authenticated state-changing requests. The sameSite: 'strict'
- * cookie attribute provides additional defense-in-depth protection.
- *
- * lgtm[js/missing-token-validation]
- * codeql[js/missing-token-validation]
- */
-function sessionMiddleware(config: AuthConfig, secret: string): RequestHandler {
+function sessionMiddleware(config: AuthConfig): RequestHandler {
+  const secret = getOrCreateSessionSecret(config);
+
   return session({
     name: config.forms?.cookieName || 'filtarr.sid',
     secret,
@@ -257,7 +163,7 @@ function sessionMiddleware(config: AuthConfig, secret: string): RequestHandler {
     cookie: {
       httpOnly: true,
       secure: process.env['NODE_ENV'] === 'production',
-      sameSite: 'strict', // Primary CSRF protection
+      sameSite: 'strict',
       maxAge: config.forms?.sessionMaxAge || 86400000,
     },
   });
@@ -344,53 +250,12 @@ export function createAuthMiddleware(
   // Always apply basic auth middleware (validates if Authorization header present)
   router.use(basicAuthMiddleware(db));
 
-  const sessionSecret = getOrCreateSessionSecret(config);
-  const sessionHandler = sessionMiddleware(config, sessionSecret);
-  const passportInit = passport.initialize();
-  const passportSession = passport.session();
-  const { csrfProtection } = csrfMiddleware(sessionSecret);
-
+  // Always apply session middleware for forms/oidc auth support
+  // This is needed so that sessions work after setup completion with forms mode
+  router.use(sessionMiddleware(config));
   configurePassportLocal(db);
-
-  // Only enable session + CSRF when the current auth mode uses cookie-based auth.
-  // This preserves dynamic auth mode switching after setup completion without restart.
-  router.use(async (req, res, next) => {
-    try {
-      // API key requests are header-authenticated and don't use cookie sessions.
-      if (req.apiKey) {
-        next();
-        return;
-      }
-
-      const authMode = getCurrentAuthMode(db);
-      if (authMode !== 'forms' && authMode !== 'oidc') {
-        next();
-        return;
-      }
-
-      await runMiddleware(req, res, sessionHandler);
-      await runMiddleware(req, res, passportInit);
-      await runMiddleware(req, res, passportSession);
-
-      const method = req.method.toUpperCase();
-      const stateChanging = method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS';
-      if (!stateChanging) {
-        next();
-        return;
-      }
-
-      // Only enforce CSRF once the request is using a session-authenticated user.
-      // This preserves the expected 401 flow for unauthenticated requests.
-      if (req.isAuthenticated?.()) {
-        ensureCookies(req);
-        await runMiddleware(req, res, csrfProtection);
-      }
-
-      next();
-    } catch (err) {
-      next(err);
-    }
-  });
+  router.use(passport.initialize());
+  router.use(passport.session());
 
   // The requireAuth middleware checks if the request is authenticated
   // It dynamically reads auth mode from DB to support setup completion without restart

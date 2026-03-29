@@ -120,3 +120,15 @@ export function assertCustomScriptsEnabled(feature = 'Custom script execution'):
     `${feature} is disabled unless FILTARR_ENABLE_CUSTOM_SCRIPTS=true`,
   );
 }
+
+/**
+ * Remove trailing slashes from a URL string without using a regex
+ * susceptible to polynomial backtracking (ReDoS).
+ */
+export function stripTrailingSlashes(url: string): string {
+  let end = url.length;
+  while (end > 0 && url[end - 1] === '/') {
+    end--;
+  }
+  return end === url.length ? url : url.slice(0, end);
+}

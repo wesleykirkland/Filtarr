@@ -108,101 +108,6 @@ export default function Activity() {
       ? error.message
       : 'Try refreshing the timeline to load the latest activity.';
 
-  let timelineContent: React.ReactNode;
-  if (isLoading) {
-    timelineContent = (
-      <div className="mt-6 rounded-2xl border border-dashed border-gray-300 px-6 py-12 text-center text-sm text-gray-500 dark:border-gray-700">
-        Loading activity…
-      </div>
-    );
-  } else if (error) {
-    timelineContent = (
-      <div className="mt-6 rounded-3xl border border-dashed border-gray-300 px-6 py-12 text-center dark:border-gray-700">
-        <h4 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Unable to load activity</h4>
-        <p className="mt-2 text-sm text-gray-600 dark:text-gray-500">{activityErrorMessage}</p>
-        <div className="mt-4">
-          <Button onClick={() => refetch()} variant="secondary">
-            Retry timeline
-          </Button>
-        </div>
-      </div>
-    );
-  } else if (filteredEvents.length > 0) {
-    timelineContent = (
-      <div className="mt-6 space-y-4">
-        {filteredEvents.map((event) => {
-          const typeMeta = TYPE_META[event.type] || {
-            label: prettifyKey(event.type),
-            className: 'bg-gray-500/15 text-gray-700 dark:text-gray-300',
-          };
-          const detailEntries = Object.entries(event.details || {}).filter(
-            ([, value]) => value !== undefined && value !== null && value !== '',
-          );
-
-          return (
-            <div
-              key={event.id}
-              className="rounded-2xl border border-gray-200 bg-gray-50/60 p-5 dark:border-gray-800 dark:bg-gray-950/30"
-            >
-              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                <div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span
-                      className={`rounded-full px-2.5 py-1 text-xs font-semibold uppercase tracking-wide ${typeMeta.className}`}
-                    >
-                      {typeMeta.label}
-                    </span>
-                    <span className="rounded-full bg-gray-200 px-2.5 py-1 text-xs font-semibold uppercase tracking-wide text-gray-700 dark:bg-gray-800 dark:text-gray-300">
-                      {SOURCE_LABELS[event.source] || event.source}
-                    </span>
-                  </div>
-                  <p className="mt-3 text-sm font-medium text-gray-900 dark:text-gray-100">{event.message}</p>
-                </div>
-                <p className="text-xs text-gray-500">{timestampFormatter.format(new Date(event.createdAt))}</p>
-              </div>
-
-              {detailEntries.length > 0 && (
-                <dl className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                  {detailEntries.map(([key, value]) => (
-                    <div
-                      key={`${event.id}-${key}`}
-                      className="rounded-xl border border-gray-200 bg-white px-3 py-2 dark:border-gray-800 dark:bg-gray-900"
-                    >
-                      <dt className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
-                        {prettifyKey(key)}
-                      </dt>
-                      <dd className="mt-1 break-all text-sm text-gray-700 dark:text-gray-300">
-                        {formatDetailValue(value)}
-                      </dd>
-                    </div>
-                  ))}
-                </dl>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    );
-  } else if (events.length === 0) {
-    timelineContent = (
-      <div className="mt-6 rounded-3xl border border-dashed border-gray-300 px-6 py-12 text-center dark:border-gray-700">
-        <h4 className="text-lg font-semibold text-gray-900 dark:text-gray-100">No activity yet</h4>
-        <p className="mt-2 text-sm text-gray-600 dark:text-gray-500">
-          Activity will appear here after filters run, jobs execute, instance checks happen, or settings are changed.
-        </p>
-      </div>
-    );
-  } else {
-    timelineContent = (
-      <div className="mt-6 rounded-3xl border border-dashed border-gray-300 px-6 py-12 text-center dark:border-gray-700">
-        <h4 className="text-lg font-semibold text-gray-900 dark:text-gray-100">No events match the current filters</h4>
-        <p className="mt-2 text-sm text-gray-600 dark:text-gray-500">
-          Reset the filters above to see the full timeline again.
-        </p>
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -324,7 +229,112 @@ export default function Activity() {
           Showing {filteredEvents.length} of {events.length} events.
         </p>
 
-        {timelineContent}
+        {(() => {
+          if (isLoading) {
+            return (
+              <div className="mt-6 rounded-2xl border border-dashed border-gray-300 px-6 py-12 text-center text-sm text-gray-500 dark:border-gray-700">
+                Loading activity…
+              </div>
+            );
+          }
+
+          if (error) {
+            return (
+              <div className="mt-6 rounded-3xl border border-dashed border-gray-300 px-6 py-12 text-center dark:border-gray-700">
+                <h4 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+                  Unable to load activity
+                </h4>
+                <p className="mt-2 text-sm text-gray-600 dark:text-gray-500">{activityErrorMessage}</p>
+                <div className="mt-4">
+                  <Button onClick={() => { refetch(); }} variant="secondary">
+                    Retry timeline
+                  </Button>
+                </div>
+              </div>
+            );
+          }
+
+          if (filteredEvents.length > 0) {
+            return (
+              <div className="mt-6 space-y-4">
+                {filteredEvents.map((event) => {
+                  const typeMeta = TYPE_META[event.type] || {
+                    label: prettifyKey(event.type),
+                    className: 'bg-gray-500/15 text-gray-700 dark:text-gray-300',
+                  };
+                  const detailEntries = Object.entries(event.details || {}).filter(
+                    ([, value]) => value !== undefined && value !== null && value !== '',
+                  );
+
+                  return (
+                    <div
+                      key={event.id}
+                      className="rounded-2xl border border-gray-200 bg-gray-50/60 p-5 dark:border-gray-800 dark:bg-gray-950/30"
+                    >
+                      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                        <div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className={`rounded-full px-2.5 py-1 text-xs font-semibold uppercase tracking-wide ${typeMeta.className}`}>
+                              {typeMeta.label}
+                            </span>
+                            <span className="rounded-full bg-gray-200 px-2.5 py-1 text-xs font-semibold uppercase tracking-wide text-gray-700 dark:bg-gray-800 dark:text-gray-300">
+                              {SOURCE_LABELS[event.source] || event.source}
+                            </span>
+                          </div>
+                          <p className="mt-3 text-sm font-medium text-gray-900 dark:text-gray-100">
+                            {event.message}
+                          </p>
+                        </div>
+                        <p className="text-xs text-gray-500">{timestampFormatter.format(new Date(event.createdAt))}</p>
+                      </div>
+
+                      {detailEntries.length > 0 && (
+                        <dl className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                          {detailEntries.map(([key, value]) => (
+                            <div
+                              key={`${event.id}-${key}`}
+                              className="rounded-xl border border-gray-200 bg-white px-3 py-2 dark:border-gray-800 dark:bg-gray-900"
+                            >
+                              <dt className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+                                {prettifyKey(key)}
+                              </dt>
+                              <dd className="mt-1 break-all text-sm text-gray-700 dark:text-gray-300">
+                                {formatDetailValue(value)}
+                              </dd>
+                            </div>
+                          ))}
+                        </dl>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          }
+
+          if (events.length === 0) {
+            return (
+              <div className="mt-6 rounded-3xl border border-dashed border-gray-300 px-6 py-12 text-center dark:border-gray-700">
+                <h4 className="text-lg font-semibold text-gray-900 dark:text-gray-100">No activity yet</h4>
+                <p className="mt-2 text-sm text-gray-600 dark:text-gray-500">
+                  Activity will appear here after filters run, jobs execute, instance checks happen, or
+                  settings are changed.
+                </p>
+              </div>
+            );
+          }
+
+          return (
+            <div className="mt-6 rounded-3xl border border-dashed border-gray-300 px-6 py-12 text-center dark:border-gray-700">
+              <h4 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+                No events match the current filters
+              </h4>
+              <p className="mt-2 text-sm text-gray-600 dark:text-gray-500">
+                Reset the filters above to see the full timeline again.
+              </p>
+            </div>
+          );
+        })()}
       </div>
     </div>
   );

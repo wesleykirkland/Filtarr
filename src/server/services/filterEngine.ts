@@ -4,10 +4,19 @@ import type Database from 'better-sqlite3';
 import { logger } from '../lib/logger.js';
 import { getAllFilters, type FilterRow } from '../../db/schemas/filters.js';
 import { getInstanceConfigById } from '../../db/schemas/instances.js';
-import { recordActivityEvent } from '../lib/activity.js';
-import { SecurityPolicyError, validateWebhookUrl } from '../../services/security.js';
 import { createArrClient } from '../routes/instances.js';
-import { runSandboxedScript } from './scriptRunner.js';
+import { isPathWithinTarget, normalizeFilterTargetPath } from './filterPaths.js';
+import { NotificationService } from './NotificationService.js';
+import { normalizeScriptRuntime, runConfiguredScript } from './scriptRunner.js';
+
+function didScriptRuleMatch(output: unknown, runtime: 'javascript' | 'shell'): boolean {
+  if (runtime === 'shell') {
+    const normalized = (typeof output === 'string' ? output : '').trim().toLowerCase();
+    return ['1', 'true', 'yes', 'match'].includes(normalized);
+  }
+
+  return Boolean(output);
+}
 
 export interface FileEvent {
   path: string;
@@ -16,17 +25,29 @@ export interface FileEvent {
   extension: string;
 }
 
+export type FilterEventType = 'watcher' | 'cron' | 'manual';
+
+interface ProcessFileOptions {
+  filterIds?: number[];
+}
+
 export class FilterEngine {
   private readonly db: Database.Database;
+  private readonly notificationService: NotificationService;
 
   constructor(db: Database.Database) {
     this.db = db;
+    this.notificationService = new NotificationService(db);
   }
 
   /**
    * Process a file through all applicable filters.
    */
-  public async processFile(filePath: string, eventType: 'watcher' | 'cron' | 'manual' = 'watcher') {
+  public async processFile(
+    filePath: string,
+    eventType: FilterEventType = 'watcher',
+    options: ProcessFileOptions = {},
+  ) {
     const fileName = path.basename(filePath);
     const extension = path.extname(filePath).toLowerCase().replace('.', '');
     let stats: fs.Stats;
@@ -48,50 +69,57 @@ export class FilterEngine {
       extension,
     };
 
-    const filters = getAllFilters(this.db).filter((f) => f.enabled === 1);
+    const allowedFilterIds = options.filterIds ? new Set(options.filterIds) : null;
+
+    const filters = getAllFilters(this.db).filter((filter) =>
+      this.shouldEvaluateFilter(filter, eventType, allowedFilterIds),
+    );
 
     for (const filter of filters) {
       try {
-        if (await this.matches(filter, fileEvent)) {
+        if (await this.matches(filter, fileEvent, eventType)) {
           logger.info(
             { filterId: filter.id, filterName: filter.name, file: fileName },
             'Filter match detected',
           );
-          recordActivityEvent(this.db, {
-            type: 'matched',
-            source: 'filters',
-            message: `Filter "${filter.name}" matched ${fileName}`,
-            details: {
-              filterId: filter.id,
-              filterName: filter.name,
-              trigger: eventType,
-              ruleType: filter.rule_type,
-              actionType: filter.action_type,
-              filePath: fileEvent.path,
-              fileName: fileEvent.name,
-            },
-          });
           await this.executeAction(filter, fileEvent);
-
-          if (filter.notify_on_match && filter.notify_webhook_url) {
-            await this.sendNotification(filter, fileEvent);
-          }
+          await this.notificationService.notifyFilterMatch(filter, fileEvent);
         }
-      } catch (err) {
-        const errorMessage = err instanceof Error ? err.message : String(err);
-        logger.error({ filterId: filter.id, err: errorMessage }, 'Error processing filter');
+      } catch (err: any) {
+        logger.error({ filterId: filter.id, err: err.message }, 'Error processing filter');
       }
     }
   }
 
-  private async matches(filter: FilterRow, file: FileEvent): Promise<boolean> {
+  private shouldEvaluateFilter(
+    filter: FilterRow,
+    eventType: FilterEventType,
+    allowedFilterIds: Set<number> | null,
+  ): boolean {
+    if (filter.enabled !== 1) return false;
+    if (allowedFilterIds && !allowedFilterIds.has(filter.id)) return false;
+    if (filter.trigger_source !== eventType) return false;
+
+    if (eventType === 'watcher') {
+      return normalizeFilterTargetPath(filter.target_path) !== null;
+    }
+
+    return true;
+  }
+
+  private async matches(
+    filter: FilterRow,
+    file: FileEvent,
+    eventType: FilterEventType,
+  ): Promise<boolean> {
     // 1. Check target path if specified
-    if (filter.target_path) {
-      const absoluteTarget = path.resolve(filter.target_path);
-      const absoluteFile = path.resolve(file.path);
-      if (!absoluteFile.startsWith(absoluteTarget)) {
+    const hasConfiguredTargetPath = typeof filter.target_path === 'string' && filter.target_path.trim().length > 0;
+    if (hasConfiguredTargetPath) {
+      if (!isPathWithinTarget(file.path, filter.target_path as string)) {
         return false;
       }
+    } else if (eventType === 'watcher') {
+      return false;
     }
 
     // 2. Evaluate rule
@@ -111,8 +139,9 @@ export class FilterEngine {
         return this.evaluateSizeRule(filter.rule_payload, file.size);
       }
       case 'script': {
-        const result = await runSandboxedScript(filter.rule_payload, { file });
-        return !!result.success && !!result.output;
+        const runtime = normalizeScriptRuntime(filter.script_runtime);
+        const result = await runConfiguredScript(filter.rule_payload, { file }, runtime);
+        return result.success && didScriptRuleMatch(result.output, runtime);
       }
       default:
         return false;
@@ -121,8 +150,7 @@ export class FilterEngine {
 
   private evaluateSizeRule(payload: string, fileSize: number): boolean {
     // e.g. >100MB, <1KB, =500B
-    const regex = /^([><=])?\s*(\d+(?:\.\d+)?)\s*([KMGT]B|B)?$/i;
-    const match = regex.exec(payload);
+    const match = /^([><=])?\s*(\d+(?:\.\d+)?)\s*([KMGT]B|B)?$/i.exec(payload);
     if (!match) return false;
 
     const operator = match[1] || '=';
@@ -153,12 +181,6 @@ export class FilterEngine {
         if (fs.existsSync(file.path)) {
           fs.unlinkSync(file.path);
           logger.info({ file: file.path }, 'Deleted file per filter action');
-          recordActivityEvent(this.db, {
-            type: 'action',
-            source: 'filters',
-            message: `Deleted ${file.name} via filter "${filter.name}"`,
-            details: { filterId: filter.id, actionType: 'delete', filePath: file.path, fileName: file.name },
-          });
         }
         break;
 
@@ -170,18 +192,6 @@ export class FilterEngine {
           }
           fs.renameSync(file.path, dest);
           logger.info({ from: file.path, to: dest }, 'Moved file per filter action');
-          recordActivityEvent(this.db, {
-            type: 'action',
-            source: 'filters',
-            message: `Moved ${file.name} via filter "${filter.name}"`,
-            details: {
-              filterId: filter.id,
-              actionType: 'move',
-              filePath: file.path,
-              destinationPath: dest,
-              fileName: file.name,
-            },
-          });
         }
         break;
 
@@ -191,13 +201,11 @@ export class FilterEngine {
 
       case 'script':
         if (actionPayload) {
-          await runSandboxedScript(actionPayload, { file, filter });
-          recordActivityEvent(this.db, {
-            type: 'action',
-            source: 'filters',
-            message: `Ran custom action for ${file.name} via filter "${filter.name}"`,
-            details: { filterId: filter.id, actionType: 'script', filePath: file.path, fileName: file.name },
-          });
+          await runConfiguredScript(
+            actionPayload,
+            { file, filter },
+            normalizeScriptRuntime(filter.script_runtime),
+          );
         }
         break;
 
@@ -211,12 +219,6 @@ export class FilterEngine {
   private async handleBlocklist(filter: FilterRow, file: FileEvent) {
     if (!filter.instance_id) {
       logger.warn({ filterId: filter.id }, 'Blocklist action triggered but no instance linked');
-      recordActivityEvent(this.db, {
-        type: 'action',
-        source: 'filters',
-        message: `Blocklist action skipped for filter "${filter.name}" because no instance is linked`,
-        details: { filterId: filter.id, actionType: 'blocklist', status: 'skipped', filePath: file.path },
-      });
       return;
     }
 
@@ -226,23 +228,11 @@ export class FilterEngine {
         { filterId: filter.id, instanceId: filter.instance_id },
         'Linked instance config not found',
       );
-      recordActivityEvent(this.db, {
-        type: 'action',
-        source: 'filters',
-        message: `Blocklist action failed for filter "${filter.name}" because the linked instance no longer exists`,
-        details: {
-          filterId: filter.id,
-          actionType: 'blocklist',
-          status: 'failure',
-          instanceId: filter.instance_id,
-          filePath: file.path,
-        },
-      });
       return;
     }
 
     const client = createArrClient(
-      config.type,
+      config.type as any,
       config.url,
       config.apiKey,
       config.timeout,
@@ -285,143 +275,17 @@ export class FilterEngine {
           { instance: config.name, title: matchingItem.title },
           'Successfully blocklisted release',
         );
-        recordActivityEvent(this.db, {
-          type: 'action',
-          source: 'filters',
-          message: `Blocklisted "${matchingItem.title}" via filter "${filter.name}"`,
-          details: {
-            filterId: filter.id,
-            actionType: 'blocklist',
-            status: 'success',
-            instanceId: config.id,
-            queueItemId: matchingItem.id,
-            filePath: file.path,
-          },
-        });
       } else {
         logger.debug(
           { instance: config.name, file: file.name },
           'Could not find matching release in queue for blocklisting',
         );
-        recordActivityEvent(this.db, {
-          type: 'action',
-          source: 'filters',
-          message: `No matching queue item was found to blocklist for ${file.name}`,
-          details: {
-            filterId: filter.id,
-            actionType: 'blocklist',
-            status: 'skipped',
-            instanceId: config.id,
-            filePath: file.path,
-          },
-        });
       }
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : String(err);
+    } catch (err: any) {
       logger.error(
-        { instance: config.name, err: errorMessage },
+        { instance: config.name, err: err.message },
         'Failed to perform blocklist action',
       );
-      recordActivityEvent(this.db, {
-        type: 'action',
-        source: 'filters',
-        message: `Blocklist action failed for ${file.name}`,
-        details: {
-          filterId: filter.id,
-          actionType: 'blocklist',
-          status: 'failure',
-          instanceId: config.id,
-          filePath: file.path,
-          error: errorMessage,
-        },
-      });
-    }
-  }
-
-  private async sendNotification(filter: FilterRow, file: FileEvent) {
-    if (!filter.notify_webhook_url) return;
-
-    let webhookUrl: string;
-    try {
-      webhookUrl = validateWebhookUrl(filter.notify_webhook_url, {
-        fieldName: 'notify_webhook_url',
-      });
-    } catch (error) {
-      if (error instanceof SecurityPolicyError) {
-        logger.warn({ filterId: filter.id, error: error.message }, 'Blocked unsafe notification webhook');
-        return;
-      }
-      throw error;
-    }
-
-    const payload = {
-      event: 'filter_match',
-      filter: {
-        id: filter.id,
-        name: filter.name,
-      },
-      file: {
-        path: file.path,
-        name: file.name,
-        size: file.size,
-      },
-      timestamp: new Date().toISOString(),
-    };
-
-    try {
-      const response = await fetch(webhookUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-
-      if (response.ok) {
-        logger.info({ filterId: filter.id }, 'Webhook notification sent successfully');
-        recordActivityEvent(this.db, {
-          type: 'notification',
-          source: 'filters',
-          message: `Notification sent for filter "${filter.name}"`,
-          details: {
-            filterId: filter.id,
-            filePath: file.path,
-            fileName: file.name,
-            status: response.status,
-            success: true,
-          },
-        });
-      } else {
-        logger.warn(
-          { filterId: filter.id, status: response.status },
-          'Webhook notification failed',
-        );
-        recordActivityEvent(this.db, {
-          type: 'notification',
-          source: 'filters',
-          message: `Notification delivery failed for filter "${filter.name}"`,
-          details: {
-            filterId: filter.id,
-            filePath: file.path,
-            fileName: file.name,
-            status: response.status,
-            success: false,
-          },
-        });
-      }
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : String(err);
-      logger.error({ filterId: filter.id, err: errorMessage }, 'Error sending webhook notification');
-      recordActivityEvent(this.db, {
-        type: 'notification',
-        source: 'filters',
-        message: `Notification errored for filter "${filter.name}"`,
-        details: {
-          filterId: filter.id,
-          filePath: file.path,
-          fileName: file.name,
-          success: false,
-          error: errorMessage,
-        },
-      });
     }
   }
 }

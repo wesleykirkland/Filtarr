@@ -61,15 +61,23 @@ describe('modal, toast, and dialog components', () => {
       </Modal>,
     );
 
-    const dialog = document.body.querySelector<HTMLDialogElement>('dialog')!;
-    const [closeButton] = Array.from(dialog.querySelectorAll('button'));
-    expect(dialog.contains(document.activeElement)).toBe(true);
-    expect(closeButton).toBeTruthy();
+    const dialog = document.body.querySelector('dialog') as HTMLElement;
+    const [closeButton, , last] = Array.from(dialog.querySelectorAll('button')) as HTMLButtonElement[];
+    expect(document.activeElement).toBe(closeButton);
 
-    act(() => dialog.dispatchEvent(new Event('cancel', { bubbles: true, cancelable: true })));
+    last.focus();
+    act(() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true })));
+    expect(document.activeElement).toBe(closeButton);
+
+    closeButton.focus();
+    act(() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true })));
+    expect(document.activeElement).toBe(last);
+
+    act(() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
     expect(onClose).toHaveBeenCalledTimes(1);
 
-    act(() => dialog.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+    const backdrop = document.body.querySelector('[aria-label="Close dialog"]:not(dialog [aria-label="Close dialog"])') as HTMLElement;
+    await click(backdrop);
     expect(onClose).toHaveBeenCalledTimes(2);
 
     await view.unmount();
@@ -87,7 +95,7 @@ describe('modal, toast, and dialog components', () => {
     expect(document.body.textContent).not.toContain('Saved successfully');
 
     act(() => toast('error', 'Something failed'));
-    expect(document.body.querySelector('[role="alert"]')?.textContent).toContain('Something failed');
+    expect(document.body.querySelector('[aria-live="assertive"]')?.textContent).toContain('Something failed');
     act(() => vi.advanceTimersByTime(4000));
     expect(document.body.textContent).not.toContain('Something failed');
 

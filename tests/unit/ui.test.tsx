@@ -78,16 +78,16 @@ describe('ui primitives', () => {
     expect(view.container.textContent).toContain('Ready');
 
     await click(view.container.querySelector('#enabled'));
-    expect(view.container.querySelector('[data-state]')?.dataset.state).toBe('checked:general');
+    expect((view.container.querySelector('[data-state]') as HTMLElement)?.dataset['state']).toBe('checked:general');
 
     await click(view.container.querySelector('[role="switch"]'));
-    expect(view.container.querySelector('[data-state]')?.dataset.state).toBe('unchecked:general');
+    expect((view.container.querySelector('[data-state]') as HTMLElement)?.dataset['state']).toBe('unchecked:general');
 
     const advancedTab = Array.from(view.container.querySelectorAll('[role="tab"]')).find(
       (node) => node.textContent?.includes('Advanced'),
     );
     await click(advancedTab ?? null);
-    expect(view.container.querySelector('[data-state]')?.dataset.state).toBe('unchecked:advanced');
+    expect((view.container.querySelector('[data-state]') as HTMLElement)?.dataset['state']).toBe('unchecked:advanced');
 
     await view.unmount();
   });

@@ -81,8 +81,7 @@ async function waitFor(check: () => boolean) {
   throw new Error('Timed out waiting for UI update');
 }
 
-// NOTE: These UI tests have timing issues and are intentionally skipped for now.
-describe.skip('Settings subpages', () => {
+describe('Settings subpages', () => {
   let container: HTMLDivElement;
 
   beforeEach(() => {
@@ -203,9 +202,11 @@ describe.skip('Settings subpages', () => {
     expect(
       document.querySelector('input[placeholder="http://localhost:9898/api/v1/auth/oidc/callback"]'),
     ).not.toBeNull();
-    expect(document.querySelector<HTMLInputElement>('input[placeholder="openid, profile, email"]')?.value).toBe(
-      'openid, profile, email',
-    );
+    expect(
+      (document.querySelector(
+        'input[placeholder="openid, profile, email"]',
+      ) as HTMLInputElement).value,
+    ).toBe('openid, profile, email');
   });
 
   it('supports direct-linking to the backup subpage and shows backup actions', async () => {
@@ -214,7 +215,8 @@ describe.skip('Settings subpages', () => {
     await waitFor(() => document.body.textContent?.includes('Backup & Restore') ?? false);
     await waitFor(
       () =>
-        document.querySelector<HTMLInputElement>('input[placeholder="/config/backup"]')?.value === '/config/backup',
+        (document.querySelector('input[placeholder="/config/backup"]') as HTMLInputElement | null)
+          ?.value === '/config/backup',
     );
     await waitFor(
       () => document.body.textContent?.includes('filtarr-settings-20260307-120000.sql') ?? false,
@@ -223,7 +225,9 @@ describe.skip('Settings subpages', () => {
     expect(document.body.textContent).toContain('Enable automated daily backups');
     expect(document.body.textContent).toContain('Create Backup Now');
     expect(document.body.textContent).toContain('Import Backup');
-    expect(document.querySelector<HTMLInputElement>('input[placeholder="/config/backup"]')?.value).toBe('/config/backup');
+    expect(
+      (document.querySelector('input[placeholder="/config/backup"]') as HTMLInputElement).value,
+    ).toBe('/config/backup');
     expect(document.body.textContent).toContain('filtarr-settings-20260307-120000.sql');
   });
 });

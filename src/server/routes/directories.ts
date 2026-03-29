@@ -77,7 +77,7 @@ export function createDirectoriesRoutes(db: Database.Database): Router {
       });
       reloadWatcher();
       res.status(201).json(dir);
-    } catch (err) {
+    } catch (err: any) {
       if (err instanceof z.ZodError) {
         res.status(400).json({ error: err.issues[0]?.message || 'Invalid input' });
       } else if (err instanceof Error && err.message.includes('UNIQUE constraint failed')) {
@@ -119,7 +119,7 @@ export function createDirectoriesRoutes(db: Database.Database): Router {
       });
       reloadWatcher();
       res.json(dir);
-    } catch (err) {
+    } catch (err: any) {
       if (err instanceof z.ZodError) {
         res.status(400).json({ error: err.issues[0]?.message || 'Invalid input' });
       } else if (err instanceof Error && err.message.includes('not found')) {
@@ -147,11 +147,11 @@ export function createDirectoriesRoutes(db: Database.Database): Router {
         return;
       }
       logger.info({ dirId: id }, 'Directory deleted');
-      const displayPath = current?.path ?? `#${id}`;
+      const dirLabel = current?.path || `#${id}`;
       recordActivityEvent(db, {
         type: 'deleted',
         source: 'directories',
-        message: `Removed watched directory ${displayPath}`,
+        message: `Removed watched directory ${dirLabel}`,
         details: current
           ? { directoryId: current.id, path: current.path, recursive: current.recursive }
           : { directoryId: id },

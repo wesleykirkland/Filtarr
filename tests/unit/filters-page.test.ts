@@ -105,8 +105,7 @@ function getButton(label: string, index = 0): HTMLButtonElement {
   return button;
 }
 
-// NOTE: These UI tests have timing issues and are intentionally skipped for now.
-describe.skip('Filters deletion modal', () => {
+describe('Filters deletion modal', () => {
   let container: HTMLDivElement;
   let root: Root | null;
 

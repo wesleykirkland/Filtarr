@@ -7,7 +7,7 @@
  */
 
 import { randomBytes, createCipheriv, createDecipheriv, pbkdf2Sync } from 'node:crypto';
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 
 const ALGORITHM = 'aes-256-gcm';
@@ -39,15 +39,17 @@ export function getEncryptionKey(dataDir = './data'): Buffer {
   // Fall back to persisted key file
   const keyPath = join(dataDir, '.encryption-key');
 
-  if (existsSync(keyPath)) {
+  try {
     _derivedKey = Buffer.from(readFileSync(keyPath, 'utf-8').trim(), 'hex');
     if (_derivedKey.length !== KEY_LENGTH) {
       throw new Error(`Invalid encryption key length in ${keyPath}`);
     }
     return _derivedKey;
+  } catch (err: unknown) {
+    // File does not exist — auto-generate and persist
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
   }
 
-  // Auto-generate and persist
   _derivedKey = randomBytes(KEY_LENGTH);
   mkdirSync(dirname(keyPath), { recursive: true });
   writeFileSync(keyPath, _derivedKey.toString('hex'), { mode: 0o600 });

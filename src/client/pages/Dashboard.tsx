@@ -53,57 +53,6 @@ export default function Dashboard() {
       ? automationSummaryError.message
       : 'Try refreshing the page to load the latest connections and schedules.';
 
-  let automationSummaryContent: React.ReactNode;
-  if (isAutomationSummaryLoading) {
-    automationSummaryContent = (
-      <Card className="sm:col-span-1 xl:col-span-3">
-        <h3 className="text-sm font-medium text-gray-500">Automation summary</h3>
-        <p className="mt-2 text-lg font-semibold text-gray-900 dark:text-gray-100">Loading dashboard data…</p>
-        <p className="mt-1 text-sm text-gray-500">
-          Pulling the latest instances, filters, and schedules before showing recommendations.
-        </p>
-      </Card>
-    );
-  } else if (automationSummaryError) {
-    automationSummaryContent = (
-      <Card className="sm:col-span-1 xl:col-span-3">
-        <h3 className="text-sm font-medium text-gray-500">Automation summary</h3>
-        <p className="mt-2 text-lg font-semibold text-gray-900 dark:text-gray-100">Unable to load dashboard data</p>
-        <p className="mt-1 text-sm text-gray-500">{automationSummaryErrorMessage}</p>
-      </Card>
-    );
-  } else {
-    automationSummaryContent = (
-      <>
-        <Card>
-          <h3 className="text-sm font-medium text-gray-500">Connected instances</h3>
-          <p className="mt-2 text-3xl font-bold text-gray-900 dark:text-gray-100">{summary.instanceCount}</p>
-          <p className="mt-1 text-sm text-gray-500">{summary.activeInstanceCount} active</p>
-        </Card>
-
-        <Card>
-          <h3 className="text-sm font-medium text-gray-500">Filters ready</h3>
-          <p className="mt-2 text-3xl font-bold text-gray-900 dark:text-gray-100">{summary.activeFilterCount}</p>
-          <p className="mt-1 text-sm text-gray-500">
-            {summary.filterCount} total · {summary.watcherReadyFilterCount} with target paths
-          </p>
-          {summary.filtersMissingTargetPath > 0 && (
-            <p className="mt-2 text-xs font-medium text-yellow-600 dark:text-yellow-300">
-              {summary.filtersMissingTargetPath} active filter
-              {summary.filtersMissingTargetPath === 1 ? ' needs ' : 's need '}a target path
-            </p>
-          )}
-        </Card>
-
-        <Card>
-          <h3 className="text-sm font-medium text-gray-500">Scheduled jobs</h3>
-          <p className="mt-2 text-3xl font-bold text-gray-900 dark:text-gray-100">{summary.enabledJobCount}</p>
-          <p className="mt-1 text-sm text-gray-500">{summary.jobCount} total configured</p>
-        </Card>
-      </>
-    );
-  }
-
   return (
     <div className="space-y-6">
       <PageHeader
@@ -138,7 +87,55 @@ export default function Dashboard() {
           )}
         </Card>
 
-        {automationSummaryContent}
+        {isAutomationSummaryLoading && (
+          <Card className="sm:col-span-1 xl:col-span-3">
+            <h3 className="text-sm font-medium text-gray-500">Automation summary</h3>
+            <p className="mt-2 text-lg font-semibold text-gray-900 dark:text-gray-100">
+              Loading dashboard data…
+            </p>
+            <p className="mt-1 text-sm text-gray-500">
+              Pulling the latest instances, filters, and schedules before showing recommendations.
+            </p>
+          </Card>
+        )}
+        {!isAutomationSummaryLoading && automationSummaryError && (
+          <Card className="sm:col-span-1 xl:col-span-3">
+            <h3 className="text-sm font-medium text-gray-500">Automation summary</h3>
+            <p className="mt-2 text-lg font-semibold text-gray-900 dark:text-gray-100">
+              Unable to load dashboard data
+            </p>
+            <p className="mt-1 text-sm text-gray-500">{automationSummaryErrorMessage}</p>
+          </Card>
+        )}
+        {!isAutomationSummaryLoading && !automationSummaryError && (
+          <>
+            <Card>
+              <h3 className="text-sm font-medium text-gray-500">Connected instances</h3>
+              <p className="mt-2 text-3xl font-bold text-gray-900 dark:text-gray-100">{summary.instanceCount}</p>
+              <p className="mt-1 text-sm text-gray-500">{summary.activeInstanceCount} active</p>
+            </Card>
+
+            <Card>
+              <h3 className="text-sm font-medium text-gray-500">Filters ready</h3>
+              <p className="mt-2 text-3xl font-bold text-gray-900 dark:text-gray-100">{summary.activeFilterCount}</p>
+              <p className="mt-1 text-sm text-gray-500">
+                {summary.filterCount} total · {summary.watcherReadyFilterCount} with target paths
+              </p>
+              {summary.filtersMissingTargetPath > 0 && (
+                <p className="mt-2 text-xs font-medium text-yellow-600 dark:text-yellow-300">
+                  {summary.filtersMissingTargetPath} active filter
+                  {summary.filtersMissingTargetPath === 1 ? ' needs ' : 's need '}a target path
+                </p>
+              )}
+            </Card>
+
+            <Card>
+              <h3 className="text-sm font-medium text-gray-500">Scheduled jobs</h3>
+              <p className="mt-2 text-3xl font-bold text-gray-900 dark:text-gray-100">{summary.enabledJobCount}</p>
+              <p className="mt-1 text-sm text-gray-500">{summary.jobCount} total configured</p>
+            </Card>
+          </>
+        )}
       </div>
 
       {!isAutomationSummaryLoading && !automationSummaryError ? (

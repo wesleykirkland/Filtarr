@@ -69,7 +69,6 @@ jobs:
           file: Containerfile
           push: true
           provenance: false
-          sbom: false
           platforms: linux/amd64,linux/arm64
           tags: |
             ${{ steps.context.outputs.image }}:${{ steps.context.outputs.preview_tag }}
@@ -80,12 +79,6 @@ jobs:
             OCI_CREATED=${{ steps.context.outputs.created_at }}
             OCI_REF_NAME=${{ steps.context.outputs.preview_tag }}
             OCI_SOURCE=${{ github.server_url }}/${{ github.repository }}
-
-      - name: Inspect published image
-        shell: bash
-        run: |
-          echo "Inspecting multi-platform manifest..."
-          docker buildx imagetools inspect ${{ steps.context.outputs.image }}:${{ steps.context.outputs.preview_tag }}
 
       - name: Summarize preview publication
         shell: bash
@@ -174,49 +167,35 @@ jobs:
               throw error;
             }
 
-            // Filter versions that have SHA-specific tags (pr-#-sha) but preserve pr-# base tag
-            const isShaTag = (tag) => tag.startsWith(`${prTag}-`) && tag !== prTag;
-
-            const shaOnlyVersions = versions.filter((version) => {
+            const previewOnlyVersions = versions.filter((version) => {
               const tags = version.metadata?.container?.tags ?? [];
-              // Delete if it has pr-#-sha tags AND does not have the base pr-# tag
-              return tags.some(isShaTag) && !tags.includes(prTag);
+              return tags.some(isPreviewTag) && tags.every(isPreviewTag);
             });
 
             const mixedTagVersions = versions.filter((version) => {
               const tags = version.metadata?.container?.tags ?? [];
-              // Skip if it has both preview tags and non-preview tags
               return tags.some(isPreviewTag) && !tags.every(isPreviewTag);
             });
 
-            const preservedVersions = versions.filter((version) => {
-              const tags = version.metadata?.container?.tags ?? [];
-              // Preserve if it has the base pr-# tag
-              return tags.includes(prTag);
-            });
-
-            for (const version of shaOnlyVersions) {
+            for (const version of previewOnlyVersions) {
               await github.request(deleteRoute, {
                 ...routeParams,
                 package_version_id: version.id,
               });
             }
 
-            const deletedTags = shaOnlyVersions.map((version) => {
+            const deletedTags = previewOnlyVersions.map((version) => {
               const tags = version.metadata?.container?.tags ?? [];
               return tags.length > 0 ? tags.join(', ') : `(untagged preview digest ${version.name})`;
             });
 
             await core.summary
               .addHeading('PR preview cleanup result')
-              .addList([
-                ...(deletedTags.length > 0
-                  ? deletedTags.map((tags) => `Deleted SHA-specific version with tags: \`${tags}\``)
-                  : [`No SHA-specific GHCR versions matched \`${prTag}-*\`.`]),
-                ...(preservedVersions.length > 0
-                  ? [`Preserved base tag \`${prTag}\` as reference point (${preservedVersions.length} version(s))`]
-                  : []),
-              ])
+              .addList(
+                deletedTags.length > 0
+                  ? deletedTags.map((tags) => `Deleted preview version with tags: \`${tags}\``)
+                  : [`No preview-only GHCR versions matched \`${prTag}\`.`],
+              )
               .write();
 
             if (mixedTagVersions.length > 0) {

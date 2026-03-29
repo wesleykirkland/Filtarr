@@ -7,6 +7,12 @@ export interface ToastMessage {
   message: string;
 }
 
+const TOAST_COLORS: Record<ToastMessage['type'], string> = {
+  success: 'bg-green-600 text-white',
+  error: 'bg-red-600 text-white',
+  info: 'bg-blue-600 text-white',
+};
+
 let addToastFn: ((msg: Omit<ToastMessage, 'id'>) => void) | null = null;
 
 export function toast(type: ToastMessage['type'], message: string) {
@@ -50,46 +56,29 @@ export function ToastContainer() {
       aria-relevant="additions text"
       className="fixed bottom-4 right-4 z-50 space-y-2"
     >
-      {toasts.map((t) => {
-        let toneClass = 'bg-blue-600 text-white';
-        if (t.type === 'success') {
-          toneClass = 'bg-green-600 text-white';
-        } else if (t.type === 'error') {
-          toneClass = 'bg-red-600 text-white';
-        }
-        const commonProps = {
-          className: `flex min-w-72 items-start justify-between gap-3 rounded-xl px-4 py-3 text-sm font-medium shadow-lg ${toneClass}`,
-        } as const;
-
-        const content = (
-          <>
-            <span>{t.message}</span>
-            <button
-              type="button"
-              aria-label="Dismiss notification"
-              onClick={() => removeToast(t.id)}
-              className={buttonStyles({
-                variant: 'ghost',
-                size: 'sm',
-                className:
-                  '!rounded-md !px-2 !py-1 !text-white/80 hover:!bg-white/10 hover:!text-white focus-visible:ring-white/70',
-              })}
-            >
-              ×
-            </button>
-          </>
-        );
-
-        return t.type === 'error' ? (
-          <div key={t.id} role="alert" {...commonProps}>
-            {content}
-          </div>
-        ) : (
-          <output key={t.id} {...commonProps}>
-            {content}
-          </output>
-        );
-      })}
+      {toasts.map((t) => (
+        <output
+          key={t.id}
+          aria-live={t.type === 'error' ? 'assertive' : 'polite'}
+          aria-label={t.message}
+          className={`flex min-w-72 items-start justify-between gap-3 rounded-xl px-4 py-3 text-sm font-medium shadow-lg ${TOAST_COLORS[t.type]}`}
+        >
+          <span>{t.message}</span>
+          <button
+            type="button"
+            aria-label="Dismiss notification"
+            onClick={() => removeToast(t.id)}
+            className={buttonStyles({
+              variant: 'ghost',
+              size: 'sm',
+              className:
+                '!rounded-md !px-2 !py-1 !text-white/80 hover:!bg-white/10 hover:!text-white focus-visible:ring-white/70',
+            })}
+          >
+            ×
+          </button>
+        </output>
+      ))}
     </div>
   );
 }

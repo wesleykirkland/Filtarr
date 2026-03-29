@@ -1,7 +1,6 @@
 import type Database from 'better-sqlite3';
 import { logger } from '../lib/logger.js';
 import { getAllInstances, getInstanceConfigById } from '../../db/schemas/instances.js';
-import { recordActivityEvent } from '../lib/activity.js';
 import { createArrClient } from '../routes/instances.js';
 import { NotificationService } from '../services/NotificationService.js';
 
@@ -16,11 +15,16 @@ function getIntervalMs(db: Database.Database): number {
         { value: string }
       >(`SELECT value FROM settings WHERE key = 'validation_interval_minutes'`)
       .get();
-    const minutes = Number.parseInt(result?.value || '60', 10);
-    return (Number.isNaN(minutes) ? 60 : minutes) * 60 * 1000;
+    const minutes = Number.parseInt(result?.value || '15', 10);
+    return (Number.isNaN(minutes) ? 15 : minutes) * 60 * 1000;
   } catch {
-    return 60 * 60 * 1000; // default 1 hour
+    return 15 * 60 * 1000;
   }
+}
+
+function getErrorMessage(err: unknown): string {
+  if (err instanceof Error && err.message) return err.message;
+  return 'Unknown instance validation error';
 }
 
 async function validateInstances(db: Database.Database) {
@@ -28,6 +32,7 @@ async function validateInstances(db: Database.Database) {
   try {
     const instances = getAllInstances(db);
     const enabledInstances = instances.filter((i) => Boolean(i.enabled));
+    const notificationService = new NotificationService(db);
 
     for (const instance of enabledInstances) {
       if (isShuttingDown) break;
@@ -50,57 +55,41 @@ async function validateInstances(db: Database.Database) {
             { instanceId: instance.id, name: instance.name },
             'Scheduled instance validation succeeded',
           );
-          recordActivityEvent(db, {
-            type: 'validation',
-            source: 'instances',
-            message: `Scheduled validation succeeded for ${instance.name}`,
-            details: { instanceId: instance.id, instanceType: instance.type, success: true },
-          });
         } else {
           logger.warn(
             { instanceId: instance.id, name: instance.name, error: result.error },
             'Scheduled instance validation failed',
           );
-          recordActivityEvent(db, {
-            type: 'validation',
-            source: 'instances',
-            message: `Scheduled validation failed for ${instance.name}`,
-            details: {
-              instanceId: instance.id,
-              instanceType: instance.type,
-              success: false,
-              error: result.error,
-            },
-          });
 
-          // Send notification for healthcheck failure
-          const notificationService = new NotificationService(db);
           await notificationService.notifyInstanceHealthcheckFailure(
             {
               id: instance.id,
               name: instance.name,
-              type: instance.type,
-              url: instance.url,
+              type: config.type,
+              url: config.url,
             },
-            result.error || 'Unknown error',
+            result.error ?? 'Unknown healthcheck failure',
           );
         }
       } catch (err: unknown) {
+        const errorMessage = getErrorMessage(err);
         logger.error(
           { instanceId: instance.id, name: instance.name, err },
           'Failed to test instance during scheduled validation',
         );
-        recordActivityEvent(db, {
-          type: 'validation',
-          source: 'instances',
-          message: `Scheduled validation crashed for ${instance.name}`,
-          details: {
-            instanceId: instance.id,
-            instanceType: instance.type,
-            success: false,
-            error: err instanceof Error ? err.message : 'Unknown error',
+
+        const config = getInstanceConfigById(db, instance.id);
+        if (!config) continue;
+
+        await notificationService.notifyInstanceHealthcheckFailure(
+          {
+            id: instance.id,
+            name: instance.name,
+            type: config.type,
+            url: config.url,
           },
-        });
+          errorMessage,
+        );
       }
     }
   } catch (err) {

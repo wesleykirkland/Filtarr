@@ -31,7 +31,7 @@ export function FilesystemPicker({ value, onSelect, onClose }: FilesystemPickerP
 
   const { data, isLoading, error } = useQuery<BrowseResponse>({
     queryKey: ['browse', browsePath],
-    queryFn: () => api.get(`/browse?path=${encodeURIComponent(browsePath)}`),
+    queryFn: () => api.get(`/system/browse?path=${encodeURIComponent(browsePath)}`),
     retry: false,
   });
 
@@ -76,7 +76,7 @@ export function FilesystemPicker({ value, onSelect, onClose }: FilesystemPickerP
             <>
               {data?.parent ? (
                 <button
-                  onClick={() => data.parent && navigate(data.parent)}
+                  onClick={() => navigate(data.parent)}
                   className={buttonStyles({
                     variant: 'ghost',
                     className: 'w-full justify-start rounded-xl px-3 py-2 text-left',

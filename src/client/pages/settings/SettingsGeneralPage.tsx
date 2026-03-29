@@ -52,14 +52,14 @@ export default function SettingsGeneralPage() {
 
       <div className="mt-4 space-y-4">
         <div>
-          <label htmlFor="validation-interval" className="block text-sm font-medium text-gray-700 dark:text-gray-400">
+          <label htmlFor="settings-validation-interval" className="block text-sm font-medium text-gray-700 dark:text-gray-400">
             Instance Validation Interval (Minutes)
           </label>
           <p className="mb-2 text-xs text-gray-600 dark:text-gray-500">
             How often Filtarr will automatically test all enabled instances in the background.
           </p>
           <input
-            id="validation-interval"
+            id="settings-validation-interval"
             type="number"
             min="1"
             value={validationInterval}

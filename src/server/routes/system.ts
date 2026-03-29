@@ -41,48 +41,9 @@ const BLOCKED_BROWSE_PATHS = ['/proc', '/sys', '/dev'];
 // This should be configured to a non-sensitive directory in production.
 const BROWSE_ROOT = process.env['FILTARR_BROWSE_ROOT'] || '/';
 
-/**
-  // Root directory under which browsing is allowed.
-  // This can be configured via FILTARR_BROWSE_ROOT; defaults to '/' if unset.
-  const browseRoot = process.env['FILTARR_BROWSE_ROOT'] || '/';
-  const normalizedRoot = path.resolve(browseRoot);
- */
-  // Resolve the requested path relative to the allowed root.
-  // This prevents the request from escaping the configured root via ".." segments.
-  const candidate = path.resolve(normalizedRoot, requestedPath || '.');
-  const trimmed = (requestedPath || '').trim();
-  let resolved: string;
-  try {
-    // Resolve symlinks to avoid escaping the root via symbolic links.
-    resolved = fs.realpathSync(candidate);
-  } catch {
-    // If the path does not exist or cannot be resolved, treat it as disallowed here;
-    // the caller will handle existence checks separately.
-    return null;
-  }
-
-  // Ensure the final path is within the allowed browse root.
-  const rootWithSep = normalizedRoot.endsWith(path.sep)
-    ? normalizedRoot
-    : normalizedRoot + path.sep;
-  if (!(resolved === normalizedRoot || resolved.startsWith(rootWithSep))) {
-    return null;
-  }
-
-  // Block sensitive system directories even if they fall under the browse root.
-  // Treat empty or root request as the browse root
-    const blockedWithSep = blocked.endsWith(path.sep) ? blocked : blocked + path.sep;
-    if (resolved === blocked || resolved.startsWith(blockedWithSep)) {
-      return null;
-    }
-    trimmed === '' || trimmed === '/'
-      ? '.'
-      : trimmed.startsWith('/')
-      ? trimmed.slice(1)
-      : trimmed;
-
+function sanitizeBrowsePath(requestedPath: string): string | null {
   // Resolve against the allowed root directory
-  const candidate = path.resolve(BROWSE_ROOT, relativePath);
+  const candidate = path.resolve(BROWSE_ROOT, requestedPath);
 
   let realPath: string;
   try {

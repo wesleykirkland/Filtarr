@@ -42,14 +42,39 @@ const BLOCKED_BROWSE_PATHS = ['/proc', '/sys', '/dev'];
 const BROWSE_ROOT = process.env['FILTARR_BROWSE_ROOT'] || '/';
 
 /**
- * Validate and sanitize a browseable path.
- * Returns the resolved absolute path (within BROWSE_ROOT) or null if disallowed.
+  // Root directory under which browsing is allowed.
+  // This can be configured via FILTARR_BROWSE_ROOT; defaults to '/' if unset.
+  const browseRoot = process.env['FILTARR_BROWSE_ROOT'] || '/';
+  const normalizedRoot = path.resolve(browseRoot);
  */
-function sanitizeBrowsePath(requestedPath: string): string | null {
+  // Resolve the requested path relative to the allowed root.
+  // This prevents the request from escaping the configured root via ".." segments.
+  const candidate = path.resolve(normalizedRoot, requestedPath || '.');
   const trimmed = (requestedPath || '').trim();
+  let resolved: string;
+  try {
+    // Resolve symlinks to avoid escaping the root via symbolic links.
+    resolved = fs.realpathSync(candidate);
+  } catch {
+    // If the path does not exist or cannot be resolved, treat it as disallowed here;
+    // the caller will handle existence checks separately.
+    return null;
+  }
 
+  // Ensure the final path is within the allowed browse root.
+  const rootWithSep = normalizedRoot.endsWith(path.sep)
+    ? normalizedRoot
+    : normalizedRoot + path.sep;
+  if (!(resolved === normalizedRoot || resolved.startsWith(rootWithSep))) {
+    return null;
+  }
+
+  // Block sensitive system directories even if they fall under the browse root.
   // Treat empty or root request as the browse root
-  const relativePath =
+    const blockedWithSep = blocked.endsWith(path.sep) ? blocked : blocked + path.sep;
+    if (resolved === blocked || resolved.startsWith(blockedWithSep)) {
+      return null;
+    }
     trimmed === '' || trimmed === '/'
       ? '.'
       : trimmed.startsWith('/')

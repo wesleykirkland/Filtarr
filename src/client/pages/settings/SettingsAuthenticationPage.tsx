@@ -137,7 +137,6 @@ export default function SettingsAuthenticationPage() {
               <label
                 key={mode}
                 htmlFor={`auth-mode-${mode}`}
-                aria-label={AUTH_MODE_LABELS[mode]}
                 className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 ${
                   selectedAuthMode === mode
                     ? 'border-blue-500 bg-blue-50 dark:bg-blue-500/10'
@@ -152,6 +151,7 @@ export default function SettingsAuthenticationPage() {
                   checked={selectedAuthMode === mode}
                   onChange={() => setSelectedAuthMode(mode)}
                   className="mt-0.5"
+                  aria-label={AUTH_MODE_LABELS[mode]}
                 />
                 <div>
                   <div className="font-medium capitalize text-gray-900 dark:text-gray-100">

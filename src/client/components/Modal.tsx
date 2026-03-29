@@ -120,7 +120,7 @@ export function Modal({ title, isOpen, onClose, children, size = 'md' }: ModalPr
           </button>
         </div>
         <div className="max-h-[calc(100vh-8rem)] overflow-y-auto p-6">{children}</div>
-      </div>
+      </dialog>
     </div>,
     document.body,
   );

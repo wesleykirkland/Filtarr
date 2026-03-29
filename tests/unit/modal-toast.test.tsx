@@ -61,7 +61,7 @@ describe('modal, toast, and dialog components', () => {
       </Modal>,
     );
 
-    const dialog = document.body.querySelector('[role="dialog"]') as HTMLElement;
+    const dialog = document.body.querySelector('dialog') as HTMLElement;
     const [closeButton, , last] = Array.from(dialog.querySelectorAll('button')) as HTMLButtonElement[];
     expect(document.activeElement).toBe(closeButton);
 
@@ -94,7 +94,7 @@ describe('modal, toast, and dialog components', () => {
     expect(document.body.textContent).not.toContain('Saved successfully');
 
     act(() => toast('error', 'Something failed'));
-    expect(document.body.querySelector('[role="alert"]')?.textContent).toContain('Something failed');
+    expect(document.body.querySelector('[aria-live="assertive"]')?.textContent).toContain('Something failed');
     act(() => vi.advanceTimersByTime(4000));
     expect(document.body.textContent).not.toContain('Something failed');
 

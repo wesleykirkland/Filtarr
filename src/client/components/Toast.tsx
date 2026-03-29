@@ -59,7 +59,7 @@ export function ToastContainer() {
       {toasts.map((t) => (
         <output
           key={t.id}
-          role={t.type === 'error' ? 'alert' : undefined}
+          aria-live={t.type === 'error' ? 'assertive' : 'polite'}
           aria-label={t.message}
           className={`flex min-w-72 items-start justify-between gap-3 rounded-xl px-4 py-3 text-sm font-medium shadow-lg ${TOAST_COLORS[t.type]}`}
         >

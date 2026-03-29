@@ -624,11 +624,7 @@ function FilterForm({ initial, instances, onClose, onSaved }: FilterFormProps) {
               <p className="mb-2 text-xs dark:text-gray-500 text-gray-600">
                 Which Arr instance should this filter act on?
               </p>
-              {instances.length === 0 ? (
-                <p className="text-sm italic dark:text-gray-500 text-gray-600">
-                  No instances configured yet.
-                </p>
-              ) : (
+              {instances.length > 0 && (
                 <select
                   id="filter-arr-instance"
                   value={instanceId || ''}
@@ -645,6 +641,11 @@ function FilterForm({ initial, instances, onClose, onSaved }: FilterFormProps) {
                     </option>
                   ))}
                 </select>
+              )}
+              {instances.length === 0 && (
+                <p className="text-sm italic dark:text-gray-500 text-gray-600">
+                  No instances configured yet.
+                </p>
               )}
             </div>
 
@@ -977,7 +978,7 @@ export default function Filters() {
             <div className="rounded-2xl border border-red-200 bg-red-50/70 p-4 dark:border-red-900/50 dark:bg-red-950/30">
               <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
                 Are you sure you want to delete{' '}
-                <span className="font-semibold text-red-600 dark:text-red-300">"{deleting.name}"</span>{' '}?
+                <span className="font-semibold text-red-600 dark:text-red-300">"{deleting.name}"</span>{'?'}
               </p>
               <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
                 This will permanently remove the filter configuration and cannot be undone.

@@ -304,7 +304,6 @@ function JobForm({ initialJob, initialWatcherFilter, filters, jobs, onClose, onS
         <div className="mt-1 space-y-2">
           <label
             htmlFor="scheduler-automation-mode-cron"
-            aria-label="Cron schedule"
             className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 ${automationMode === 'cron' ? 'border-blue-500 dark:bg-blue-500/10 bg-blue-50' : 'dark:border-gray-700 border-gray-300 dark:hover:bg-gray-800/50 hover:bg-gray-50'}`}
           >
             <input
@@ -314,6 +313,7 @@ function JobForm({ initialJob, initialWatcherFilter, filters, jobs, onClose, onS
               checked={automationMode === 'cron'}
               onChange={() => setAutomationMode('cron')}
               className="mt-0.5"
+              aria-label="Cron schedule"
             />
             <div>
               <div className="text-sm font-medium dark:text-gray-100 text-gray-900">
@@ -326,7 +326,6 @@ function JobForm({ initialJob, initialWatcherFilter, filters, jobs, onClose, onS
           </label>
           <label
             htmlFor="scheduler-automation-mode-watcher"
-            aria-label="Watcher"
             className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 ${automationMode === 'watcher' ? 'border-blue-500 dark:bg-blue-500/10 bg-blue-50' : 'dark:border-gray-700 border-gray-300 dark:hover:bg-gray-800/50 hover:bg-gray-50'}`}
           >
             <input
@@ -336,6 +335,7 @@ function JobForm({ initialJob, initialWatcherFilter, filters, jobs, onClose, onS
               checked={automationMode === 'watcher'}
               onChange={() => setAutomationMode('watcher')}
               className="mt-0.5"
+              aria-label="Built-in file system watcher"
             />
             <div>
               <div className="text-sm font-medium dark:text-gray-100 text-gray-900">

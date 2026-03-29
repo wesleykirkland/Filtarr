@@ -133,7 +133,6 @@ export default function Setup() {
             <div className="space-y-3">
               <label
                 htmlFor="setup-auth-mode-forms"
-                aria-label="Forms Authentication"
                 className={cn(`flex cursor-pointer items-start gap-3 rounded-xl border p-4 transition-colors ${
                   authMode === 'forms'
                     ? 'border-blue-500 dark:bg-blue-500/10 bg-blue-50'
@@ -148,6 +147,7 @@ export default function Setup() {
                   checked={authMode === 'forms'}
                   onChange={() => setAuthMode('forms')}
                   className={checkboxStyles('mt-1 rounded-full')}
+                  aria-label="Forms Authentication"
                 />
                 <div>
                   <div className="font-medium text-gray-900 dark:text-gray-100">Forms Authentication</div>
@@ -157,7 +157,6 @@ export default function Setup() {
 
               <label
                 htmlFor="setup-auth-mode-basic"
-                aria-label="Basic Authentication"
                 className={cn(`flex cursor-pointer items-start gap-3 rounded-xl border p-4 transition-colors ${
                   authMode === 'basic'
                     ? 'border-blue-500 dark:bg-blue-500/10 bg-blue-50'
@@ -172,6 +171,7 @@ export default function Setup() {
                   checked={authMode === 'basic'}
                   onChange={() => setAuthMode('basic')}
                   className={checkboxStyles('mt-1 rounded-full')}
+                  aria-label="Basic Authentication"
                 />
                 <div>
                   <div className="font-medium text-gray-900 dark:text-gray-100">Basic Authentication</div>
@@ -181,7 +181,6 @@ export default function Setup() {
 
               <label
                 htmlFor="setup-auth-mode-none"
-                aria-label="No Authentication"
                 className={cn(`flex cursor-pointer items-start gap-3 rounded-xl border p-4 transition-colors ${
                   authMode === 'none'
                     ? 'border-yellow-500 dark:bg-yellow-500/10 bg-yellow-50'
@@ -196,6 +195,7 @@ export default function Setup() {
                   checked={authMode === 'none'}
                   onChange={() => setAuthMode('none')}
                   className={checkboxStyles('mt-1 rounded-full')}
+                  aria-label="No Authentication"
                 />
                 <div>
                   <div className="font-medium text-gray-900 dark:text-gray-100">No Authentication</div>

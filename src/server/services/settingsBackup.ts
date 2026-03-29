@@ -492,7 +492,7 @@ export class SettingsBackupService {
     if (typeof value === 'number') return Number.isFinite(value) ? String(value) : 'NULL';
     if (typeof value === 'bigint') return value.toString();
     if (typeof value === 'object') return `'${JSON.stringify(value).replaceAll("'", "''")}'`;
-    const stringified = String(value);
+    const stringified = String(value as string | boolean | symbol);
     return `'${stringified.replaceAll("'", "''")}'`;
   }
 

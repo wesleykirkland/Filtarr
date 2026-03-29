@@ -84,7 +84,6 @@ export function Modal({ title, isOpen, onClose, children, size = 'md' }: ModalPr
 
   return createPortal(
     <div
-      role="presentation"
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm sm:p-6"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) onClose();

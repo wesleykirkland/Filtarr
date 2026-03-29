@@ -74,7 +74,7 @@ export function updateJob(db: Database.Database, id: number, input: UpdateJobInp
   const schedule = input.schedule ?? current.schedule;
   const type = input.type ?? current.type;
   const payload = input.payload ?? current.payload;
-  const enabled = input.enabled != null ? (input.enabled ? 1 : 0) : current.enabled;
+  const enabled = input.enabled == null ? current.enabled : Number(input.enabled);
   const lastRun = input.lastRun ?? current.last_run;
   const nextRun = input.nextRun ?? current.next_run;
 

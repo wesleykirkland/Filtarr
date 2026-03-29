@@ -60,7 +60,7 @@ export function Modal({ title, isOpen, onClose, children, size = 'md' }: ModalPr
 
       if (event.shiftKey && activeElement === first) {
         event.preventDefault();
-        last.focus();
+        last?.focus();
       } else if (!event.shiftKey && activeElement === last) {
         event.preventDefault();
         first.focus();
@@ -83,12 +83,12 @@ export function Modal({ title, isOpen, onClose, children, size = 'md' }: ModalPr
   }[size];
 
   return createPortal(
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm sm:p-6"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose();
-      }}
-    >
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6">
+      <button
+        aria-label="Close dialog"
+        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+        onClick={onClose}
+      />
       <dialog
         ref={dialogRef}
         open

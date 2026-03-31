@@ -24,6 +24,17 @@ function installLocalStorageMock() {
   });
 }
 
+function installMatchMediaMock(prefersDark: boolean) {
+  Object.defineProperty(globalThis, 'matchMedia', {
+    configurable: true,
+    value: (query: string) => ({
+      matches: query === '(prefers-color-scheme: dark)' ? prefersDark : false,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    }),
+  });
+}
+
 function ThemeConsumer() {
   const { darkMode, toggleDarkMode } = useTheme();
   return (
@@ -45,28 +56,48 @@ describe('ThemeProvider', () => {
     document.documentElement.className = '';
   });
 
-  it('defaults to dark mode and persists toggles', async () => {
+  it('defaults to system dark preference and persists toggles', async () => {
+    installMatchMediaMock(true);
+
     const view = await render(
       <ThemeProvider>
         <ThemeConsumer />
       </ThemeProvider>,
     );
 
-    const button = view.container.querySelector('button');
-    expect(button?.dataset['mode']).toBe('dark');
+    const button = view.container.querySelector<HTMLButtonElement>('button');
+    expect(button?.dataset.mode).toBe('dark');
     expect(document.documentElement.classList.contains('dark')).toBe(true);
     expect(localStorage.getItem('darkMode')).toBe('true');
 
     await click(button);
 
-    expect(button?.dataset['mode']).toBe('light');
+    expect(button?.dataset.mode).toBe('light');
     expect(document.documentElement.classList.contains('light')).toBe(true);
     expect(localStorage.getItem('darkMode')).toBe('false');
 
     await view.unmount();
   });
 
-  it('hydrates from localStorage', async () => {
+  it('defaults to system light preference', async () => {
+    installMatchMediaMock(false);
+
+    const view = await render(
+      <ThemeProvider>
+        <ThemeConsumer />
+      </ThemeProvider>,
+    );
+
+    const button = view.container.querySelector<HTMLButtonElement>('button');
+    expect(button?.dataset.mode).toBe('light');
+    expect(document.documentElement.classList.contains('light')).toBe(true);
+    expect(localStorage.getItem('darkMode')).toBe('false');
+
+    await view.unmount();
+  });
+
+  it('hydrates from localStorage regardless of system preference', async () => {
+    installMatchMediaMock(true);
     localStorage.setItem('darkMode', 'false');
 
     const view = await render(
@@ -75,7 +106,8 @@ describe('ThemeProvider', () => {
       </ThemeProvider>,
     );
 
-    expect(view.container.querySelector('button')?.dataset['mode']).toBe('light');
+    const button = view.container.querySelector<HTMLButtonElement>('button');
+    expect(button?.dataset.mode).toBe('light');
     expect(document.documentElement.classList.contains('light')).toBe(true);
 
     await view.unmount();

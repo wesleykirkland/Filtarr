@@ -10,9 +10,7 @@
           var saved = localStorage.getItem('darkMode');
           var dark = saved === null ? (typeof globalThis.matchMedia === 'function' && globalThis.matchMedia('(prefers-color-scheme: dark)').matches) : saved === 'true';
           document.documentElement.classList.add(dark ? 'dark' : 'light');
-        } catch (e) {
-          // Fallback to light theme if localStorage/matchMedia are unavailable (e.g. private browsing)
-          void e;
+        } catch {
           document.documentElement.classList.add('light');
         }
       })();

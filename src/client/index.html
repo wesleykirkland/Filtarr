@@ -6,9 +6,13 @@
     <title>Filtarr</title>
     <script>
       (function () {
-        var saved = localStorage.getItem('darkMode');
-        var dark = saved !== null ? saved === 'true' : window.matchMedia('(prefers-color-scheme: dark)').matches;
-        document.documentElement.classList.add(dark ? 'dark' : 'light');
+        try {
+          var saved = localStorage.getItem('darkMode');
+          var dark = saved === null ? (typeof globalThis.matchMedia === 'function' && globalThis.matchMedia('(prefers-color-scheme: dark)').matches) : saved === 'true';
+          document.documentElement.classList.add(dark ? 'dark' : 'light');
+        } catch (_e) {
+          document.documentElement.classList.add('light');
+        }
       })();
     </script>
   </head>

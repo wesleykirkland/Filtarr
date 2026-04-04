@@ -16,6 +16,7 @@ export const FILTER_PRESETS: FilterPreset[] = [
     ruleType: 'extension',
     rulePayload: 'exe, msi',
     actionType: 'blocklist',
+    actionPayload: 'blocklist_and_search',
   },
   {
     id: 'clean_samples',
@@ -33,6 +34,7 @@ export const FILTER_PRESETS: FilterPreset[] = [
     ruleType: 'extension',
     rulePayload: 'iso, img',
     actionType: 'blocklist',
+    actionPayload: 'blocklist_and_search',
   },
   {
     id: 'garbage_cleaner',

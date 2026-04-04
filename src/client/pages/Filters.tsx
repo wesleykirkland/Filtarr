@@ -2,12 +2,16 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import {
+  ARR_BEHAVIOR_BADGE,
+  ARR_BEHAVIOR_OPTIONS,
   canDeleteFilter,
   FILTER_CARD_CLASS_NAME,
+  getArrBehavior,
   getFilterNotificationChannels,
   hasConfiguredPath,
   trimToUndefined,
 } from '../lib/filterUi';
+import type { ArrBehavior } from '../lib/filterUi';
 import { toast } from '../components/Toast';
 import { Modal } from '../components/Modal';
 import { FilesystemPicker } from '../components/FilesystemPicker';
@@ -384,6 +388,8 @@ function FilterForm({ initial, instances, onClose, onSaved }: FilterFormProps) {
   const usesScriptRuntime = isScript || actionType === 'script';
   const submitLabel = initial ? 'Update Filter' : 'Create Filter';
   const showActionPayload = actionType === 'move' || actionType === 'script';
+  const showArrBehavior = actionType === 'blocklist';
+  const arrBehavior = getArrBehavior(actionPayload);
   const actionPayloadLabel = actionType === 'move' ? 'Destination Path' : 'Script Payload';
   const rulePlaceholder = isScript ? SCRIPT_RULE_PLACEHOLDERS[scriptRuntime] : RULE_PLACEHOLDERS[ruleType];
   const scriptRuntimeHelpText = getScriptRuntimeHelpText(scriptRuntime);
@@ -525,7 +531,10 @@ function FilterForm({ initial, instances, onClose, onSaved }: FilterFormProps) {
                 <select
                   id="filter-action-type"
                   value={actionType}
-                  onChange={(e) => setActionType(e.target.value as Filter['action_type'])}
+                  onChange={(e) => {
+                    setActionType(e.target.value as Filter['action_type']);
+                    setActionPayload('');
+                  }}
                   className="mt-1 block w-full rounded-lg border dark:border-gray-700 border-gray-300 dark:bg-gray-800 bg-white px-3 py-2 dark:text-gray-100 text-gray-900 focus:border-blue-500 focus:outline-none"
                 >
                   {Object.entries(ACTION_TYPE_LABELS).map(([v, l]) => (
@@ -601,6 +610,28 @@ function FilterForm({ initial, instances, onClose, onSaved }: FilterFormProps) {
                       className="mt-1 block w-full rounded-lg border dark:border-gray-700 border-gray-300 dark:bg-gray-800 bg-white px-3 py-2 dark:text-gray-100 text-gray-900 focus:border-blue-500 focus:outline-none"
                     />
                   )}
+                </div>
+              )}
+              {showArrBehavior && (
+                <div className="sm:col-span-2">
+                  <label htmlFor="filter-arr-behavior" className="block text-sm font-medium dark:text-gray-400 text-gray-700">
+                    Arr Behavior
+                  </label>
+                  <select
+                    id="filter-arr-behavior"
+                    value={arrBehavior}
+                    onChange={(e) => setActionPayload(e.target.value as ArrBehavior)}
+                    className="mt-1 block w-full rounded-lg border dark:border-gray-700 border-gray-300 dark:bg-gray-800 bg-white px-3 py-2 dark:text-gray-100 text-gray-900 focus:border-blue-500 focus:outline-none"
+                  >
+                    {ARR_BEHAVIOR_OPTIONS.map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="mt-1.5 text-xs dark:text-gray-500 text-gray-600">
+                    {ARR_BEHAVIOR_OPTIONS.find((o) => o.value === arrBehavior)?.description}
+                  </p>
                 </div>
               )}
             </div>
@@ -769,11 +800,19 @@ function FilterCard({
                   Built-in
                 </span>
               )}
-              <span
-                className={`rounded px-2 py-0.5 text-[11px] font-medium uppercase ${ACTION_BADGE[f.action_type]}`}
-              >
-                {ACTION_TYPE_LABELS[f.action_type]}
-              </span>
+              {f.action_type === 'blocklist' ? (
+                <span
+                  className={`rounded px-2 py-0.5 text-[11px] font-medium uppercase ${ARR_BEHAVIOR_BADGE[getArrBehavior(f.action_payload)].className}`}
+                >
+                  {ARR_BEHAVIOR_BADGE[getArrBehavior(f.action_payload)].text}
+                </span>
+              ) : (
+                <span
+                  className={`rounded px-2 py-0.5 text-[11px] font-medium uppercase ${ACTION_BADGE[f.action_type]}`}
+                >
+                  {ACTION_TYPE_LABELS[f.action_type]}
+                </span>
+              )}
             </div>
             {f.description && (
               <p className="mt-0.5 text-sm dark:text-gray-500 text-gray-600 truncate">

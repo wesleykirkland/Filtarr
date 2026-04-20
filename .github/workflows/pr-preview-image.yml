@@ -119,7 +119,7 @@ jobs:
       packages: write
     steps:
       - name: Delete preview package versions
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         env:
           OWNER: ${{ github.repository_owner }}
           PACKAGE_NAME: ${{ github.event.repository.name }}

@@ -74,7 +74,7 @@
     "@vitejs/plugin-react": "^6.0.0",
     "@vitest/coverage-v8": "^4.0.18",
     "eslint": "^10.0.2",
-    "jsdom": "^29.0.0",
+    "jsdom": "^29.1.0",
     "prettier": "^3.8.1",
     "supertest": "^7.2.2",
     "tailwindcss": "^4.2.1",

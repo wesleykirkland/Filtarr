@@ -1,4 +1,4 @@
-import cron from 'node-cron';
+import cron, { type ScheduledTask } from 'node-cron';
 import type Database from 'better-sqlite3';
 import { logger } from '../lib/logger.js';
 import { getAllJobs, updateJob } from '../../db/schemas/jobs.js';
@@ -12,7 +12,7 @@ import { getFilterById } from '../../db/schemas/filters.js';
 export class CronManager {
   private readonly db: Database.Database;
   private readonly filterEngine: FilterEngine;
-  private readonly activeJobs: Map<number, cron.ScheduledTask> = new Map();
+  private readonly activeJobs: Map<number, ScheduledTask> = new Map();
 
   constructor(db: Database.Database) {
     this.db = db;

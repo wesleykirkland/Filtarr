@@ -59,7 +59,7 @@ jobs:
           } >> "${GITHUB_OUTPUT}"
 
       - name: Check out repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           ref: ${{ steps.context.outputs.develop_sha }}
           persist-credentials: false

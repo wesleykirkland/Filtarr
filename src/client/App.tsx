@@ -1,4 +1,4 @@
-import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { Routes, Route, Navigate, useLocation } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from './hooks/useAuth';
 import { api } from './lib/api';

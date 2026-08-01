@@ -3,3 +3,8 @@ fail-on-scopes:
   - runtime
   - development
 license-check: false
+allow-ghsas:
+  # React Router: RSC Mode CSRF Bypass Allows Action Execution Before 400 Response.
+  # Only affects apps using the unstable RSC APIs, which Filtarr does not use.
+  # No 7.x patch exists (fixed in 8.3.0, a major bump) so this blocks every 7.x update.
+  - GHSA-qwww-vcr4-c8h2

@@ -12,7 +12,7 @@ const state = vi.hoisted(() => ({
 
 vi.mock('../../src/client/hooks/useAuth', () => ({ useAuth: () => state.auth }));
 vi.mock('../../src/client/components/Toast', () => ({ toast: state.toast }));
-vi.mock('react-router-dom', () => ({ useNavigate: () => state.navigate }));
+vi.mock('react-router', () => ({ useNavigate: () => state.navigate }));
 
 async function setInputValue(input: HTMLInputElement, value: string) {
   await act(async () => {

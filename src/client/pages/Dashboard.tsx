@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import { Badge, Card, EmptyState, PageHeader, buttonStyles, cn } from '../components/ui';
 import { FolderIcon, PlusIcon, SparklesIcon } from '../components/Icons';

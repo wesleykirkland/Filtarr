@@ -1,4 +1,4 @@
-import { Navigate, NavLink, Route, Routes } from 'react-router-dom';
+import { Navigate, NavLink, Route, Routes } from 'react-router';
 import SettingsApiKeysPage from './settings/SettingsApiKeysPage';
 import SettingsAuthenticationPage from './settings/SettingsAuthenticationPage';
 import SettingsBackupPage from './settings/SettingsBackupPage';

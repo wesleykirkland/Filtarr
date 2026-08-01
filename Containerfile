@@ -4,7 +4,9 @@ FROM node:24-alpine AS builder
 WORKDIR /app
 
 COPY package.json package-lock.json ./
-RUN npm ci
+RUN apk add --no-cache --virtual .build-deps python3 make g++ && \
+    npm ci && \
+    apk del .build-deps
 
 COPY tsconfig.json vite.config.ts ./
 COPY src/ ./src/
@@ -36,7 +38,10 @@ RUN addgroup -g 1001 -S filtarr && \
 WORKDIR /app
 
 COPY package.json package-lock.json ./
-RUN npm ci --omit=dev && npm cache clean --force
+RUN apk add --no-cache --virtual .build-deps python3 make g++ && \
+    npm ci --omit=dev && \
+    apk del .build-deps && \
+    npm cache clean --force
 
 COPY --from=builder /app/dist ./dist
 COPY src/db/migrations ./dist/db/migrations

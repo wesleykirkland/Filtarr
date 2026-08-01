@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { Badge, Button, Card, Field, Input, checkboxStyles, cn } from '../components/ui';
 import { api } from '../lib/api';

@@ -33,3 +33,5 @@ data/
 *.db-wal
 *.db-shm
 coverage/
+.session-secret
+compose-local.yml

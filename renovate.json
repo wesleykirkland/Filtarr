@@ -1,6 +1,23 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
-    "config:recommended"
+    "config:recommended",
+    ":semanticCommits",
+    ":semanticCommitTypeAll(chore)",
+    ":semanticCommitScope(deps)"
+  ],
+  "labels": ["dependencies"],
+  "schedule": ["before 6am on monday"],
+  "packageRules": [
+    {
+      "description": "Consolidate every non-major update (Go modules + GitHub Actions, all directories) into a single PR.",
+      "matchUpdateTypes": ["minor", "patch", "pin", "digest", "bump"],
+      "groupName": "all non-major dependencies"
+    },
+    {
+      "description": "Consolidate every major update into a single PR, kept separate from non-major so breaking changes are reviewed on their own.",
+      "matchUpdateTypes": ["major"],
+      "groupName": "all major dependencies"
+    }
   ]
 }

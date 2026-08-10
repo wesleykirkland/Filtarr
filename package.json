@@ -79,7 +79,7 @@
     "supertest": "^7.2.2",
     "tailwindcss": "^4.2.1",
     "tsx": "^4.23.10",
-    "typescript": "^6.0.0",
+    "typescript": "^7.0.2",
     "typescript-eslint": "^8.56.1",
     "vite": "^8.2.1",
     "vitest": "^4.0.18"

@@ -81,7 +81,7 @@
     "tsx": "^4.23.10",
     "typescript": "^6.0.0",
     "typescript-eslint": "^8.56.1",
-    "vite": "^8.2.1",
+    "vite": "^8.2.2",
     "vitest": "^4.0.18"
   }
 }

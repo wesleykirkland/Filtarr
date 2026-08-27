@@ -12,6 +12,8 @@ import { FILTER_PRESETS } from '../lib/filterPresets.js';
 import { logger } from '../lib/logger.js';
 import { reloadWatcher } from '../services/watcher.js';
 
+const BLOCKLIST_PAYLOADS = ['blocklist_and_search', 'blocklist_only', 'do_not_blocklist'] as const;
+
 const createFilterSchema = z.object({
   name: z.string().min(1, 'Name is required'),
   description: z.string().optional(),
@@ -31,7 +33,18 @@ const createFilterSchema = z.object({
   instanceId: z.number().int().optional(),
   enabled: z.boolean().optional(),
   sortOrder: z.number().int().optional(),
-});
+}).refine(
+  (data) => {
+    if (data.actionType === 'blocklist') {
+      return data.actionPayload != null && (BLOCKLIST_PAYLOADS as readonly string[]).includes(data.actionPayload);
+    }
+    return true;
+  },
+  {
+    message: `actionPayload must be one of: ${BLOCKLIST_PAYLOADS.join(', ')} when actionType is 'blocklist'`,
+    path: ['actionPayload'],
+  },
+);
 
 const updateFilterSchema = z.object({
   name: z.string().min(1).optional(),
@@ -52,7 +65,18 @@ const updateFilterSchema = z.object({
   instanceId: z.number().int().optional(),
   enabled: z.boolean().optional(),
   sortOrder: z.number().int().optional(),
-});
+}).refine(
+  (data) => {
+    if (data.actionType === 'blocklist') {
+      return data.actionPayload != null && (BLOCKLIST_PAYLOADS as readonly string[]).includes(data.actionPayload);
+    }
+    return true;
+  },
+  {
+    message: `actionPayload must be one of: ${BLOCKLIST_PAYLOADS.join(', ')} when actionType is 'blocklist'`,
+    path: ['actionPayload'],
+  },
+);
 
 export function createFiltersRoutes(db: Database.Database): Router {
   const router = Router();

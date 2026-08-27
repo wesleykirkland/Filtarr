@@ -5,6 +5,9 @@ import { logger } from '../lib/logger.js';
 import { getAllFilters, type FilterRow } from '../../db/schemas/filters.js';
 import { getInstanceConfigById } from '../../db/schemas/instances.js';
 import { createArrClient } from '../routes/instances.js';
+import { SonarrClient } from '../../services/arr/sonarr.js';
+import { RadarrClient } from '../../services/arr/radarr.js';
+import { LidarrClient } from '../../services/arr/lidarr.js';
 import { isPathWithinTarget, normalizeFilterTargetPath } from './filterPaths.js';
 import { NotificationService } from './NotificationService.js';
 import { normalizeScriptRuntime, runConfiguredScript } from './scriptRunner.js';
@@ -231,6 +234,11 @@ export class FilterEngine {
       return;
     }
 
+    const behavior = (filter.action_payload || 'blocklist_and_search') as
+      | 'blocklist_and_search'
+      | 'blocklist_only'
+      | 'do_not_blocklist';
+
     const client = createArrClient(
       config.type as any,
       config.url,
@@ -265,26 +273,75 @@ export class FilterEngine {
         return resPath.startsWith(outPath);
       });
 
-      if (matchingItem) {
-        logger.info(
-          { instance: config.name, title: matchingItem.title },
-          'Found matching release in queue, blocklisting...',
-        );
-        await client.blocklistAndRemove(matchingItem.id);
-        logger.info(
-          { instance: config.name, title: matchingItem.title },
-          'Successfully blocklisted release',
-        );
-      } else {
+      if (!matchingItem) {
         logger.debug(
           { instance: config.name, file: file.name },
           'Could not find matching release in queue for blocklisting',
         );
+        return;
+      }
+
+      logger.info(
+        { instance: config.name, title: matchingItem.title, behavior },
+        'Found matching release in queue, executing blocklist behavior...',
+      );
+
+      switch (behavior) {
+        case 'blocklist_and_search':
+          await client.blocklistAndRemove(matchingItem.id);
+          await this.triggerSearch(client, config.type, matchingItem);
+          logger.info(
+            { instance: config.name, title: matchingItem.title },
+            'Blocklisted release and triggered search',
+          );
+          break;
+
+        case 'blocklist_only':
+          await client.deleteQueueItem(matchingItem.id, {
+            blocklist: true,
+            removeFromClient: true,
+            skipRedownload: true,
+          });
+          logger.info(
+            { instance: config.name, title: matchingItem.title },
+            'Blocklisted release (skip redownload)',
+          );
+          break;
+
+        case 'do_not_blocklist':
+          await client.deleteQueueItem(matchingItem.id, {
+            blocklist: false,
+            removeFromClient: true,
+          });
+          logger.info(
+            { instance: config.name, title: matchingItem.title },
+            'Removed release from queue without blocklisting',
+          );
+          break;
       }
     } catch (err: any) {
       logger.error(
         { instance: config.name, err: err.message },
         'Failed to perform blocklist action',
+      );
+    }
+  }
+
+  private async triggerSearch(
+    client: ReturnType<typeof createArrClient>,
+    instanceType: string,
+    queueItem: { seriesId?: number; episodeId?: number; movieId?: number; artistId?: number; albumId?: number },
+  ) {
+    if (client instanceof SonarrClient && queueItem.episodeId) {
+      await client.searchEpisodes([queueItem.episodeId]);
+    } else if (client instanceof RadarrClient && queueItem.movieId) {
+      await client.searchMovies([queueItem.movieId]);
+    } else if (client instanceof LidarrClient && queueItem.albumId) {
+      await client.searchAlbum(queueItem.albumId);
+    } else {
+      logger.warn(
+        { instanceType },
+        'Could not determine search command for instance type',
       );
     }
   }

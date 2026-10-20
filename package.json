@@ -36,7 +36,7 @@
     "@tanstack/react-query": "^5.90.21",
     "bcrypt": "^6.0.0",
     "better-sqlite3": "^13.0.3",
-    "chokidar": "^5.0.0",
+    "chokidar": "^6.0.0",
     "cors": "^2.8.6",
     "csrf-csrf": "^4.0.3",
     "dotenv": "^18.0.0",
@@ -79,7 +79,7 @@
     "supertest": "^7.2.2",
     "tailwindcss": "^4.2.1",
     "tsx": "^4.23.10",
-    "typescript": "^6.0.0",
+    "typescript": "^7.0.0",
     "typescript-eslint": "^8.56.1",
     "vite": "^8.2.1",
     "vitest": "^5.0.0"

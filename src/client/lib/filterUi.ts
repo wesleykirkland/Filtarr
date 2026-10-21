@@ -40,6 +40,54 @@ export function canDeleteFilter(filter: FilterDeletionState): boolean {
   return filter.is_built_in === 0;
 }
 
+export type ArrBehavior = 'blocklist_and_search' | 'blocklist_only' | 'do_not_blocklist';
+
+export interface ArrBehaviorOption {
+  value: ArrBehavior;
+  label: string;
+  description: string;
+}
+
+export const ARR_BEHAVIOR_OPTIONS: ArrBehaviorOption[] = [
+  {
+    value: 'blocklist_and_search',
+    label: 'Blocklist & Search',
+    description: 'Blocklists the release and triggers a search for a replacement.',
+  },
+  {
+    value: 'blocklist_only',
+    label: 'Blocklist Only',
+    description: 'Blocklists the release without searching for a replacement.',
+  },
+  {
+    value: 'do_not_blocklist',
+    label: 'Remove (Don\'t Blocklist)',
+    description: 'Removes from queue without blocklisting. The Arr may re-grab the same release.',
+  },
+];
+
+export const ARR_BEHAVIOR_BADGE: Record<ArrBehavior, { text: string; className: string }> = {
+  blocklist_and_search: {
+    text: 'BLOCKLIST & SEARCH',
+    className: 'bg-red-500/20 text-red-400',
+  },
+  blocklist_only: {
+    text: 'BLOCKLIST ONLY',
+    className: 'bg-orange-500/20 text-orange-400',
+  },
+  do_not_blocklist: {
+    text: 'REMOVE (NO BLOCKLIST)',
+    className: 'bg-yellow-500/20 text-yellow-400',
+  },
+};
+
+export function getArrBehavior(actionPayload?: string | null): ArrBehavior {
+  if (actionPayload === 'blocklist_only' || actionPayload === 'do_not_blocklist') {
+    return actionPayload;
+  }
+  return 'blocklist_and_search';
+}
+
 export function getFilterNotificationChannels(
   filter: FilterNotificationState,
   defaults?: NotificationDefaultsState,

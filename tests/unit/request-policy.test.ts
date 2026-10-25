@@ -1,6 +1,3 @@
-import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
 import express from 'express';
 import request from 'supertest';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -11,9 +8,8 @@ import {
   sensitiveActionLimiter,
   SENSITIVE_ACTION_PATHS,
 } from '../../src/server/middleware/requestPolicy.js';
-import { resetConfigCache } from '../../src/config/index.js';
-import { closeDatabase, openDatabase } from '../../src/db/index.js';
 import { createApp } from '../../src/server/app.js';
+import { openFormsTestDatabase, type FormsTestDatabase } from '../support/formsApp.js';
 
 type HeaderMap = Record<string, string>;
 
@@ -187,25 +183,16 @@ describe('sensitiveActionLimiter', () => {
 });
 
 describe('request policy wiring in createApp', () => {
-  let db: ReturnType<typeof openDatabase>;
-  let tempDir: string;
+  let testDb: FormsTestDatabase;
+  let db: FormsTestDatabase['db'];
 
   beforeEach(() => {
-    resetConfigCache();
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'filtarr-request-policy-'));
-    process.env['FILTARR_DATA_DIR'] = tempDir;
-    process.env['NODE_ENV'] = 'test';
-    db = openDatabase(tempDir);
-    db.prepare(
-      `INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('auth_mode', 'forms', datetime('now'))`,
-    ).run();
+    testDb = openFormsTestDatabase('filtarr-request-policy-');
+    db = testDb.db;
   });
 
   afterEach(() => {
-    closeDatabase(db);
-    resetConfigCache();
-    delete process.env['FILTARR_DATA_DIR'];
-    fs.rmSync(tempDir, { recursive: true, force: true });
+    testDb.cleanup();
   });
 
   it('rejects urlencoded and cross-site bodies and marks API responses no-store', async () => {

@@ -27,6 +27,8 @@ function getAuthConfig(db: Database): AuthConfig {
     rateLimitAuth: 5,
     rateLimitGeneral: 100,
     corsOrigin: envConfig.corsOrigin ?? 'same-origin',
+    trustProxy: envConfig.trustProxy,
+    cookieSecure: envConfig.cookieSecure,
   };
 
   // For forms mode, we need session config
@@ -50,6 +52,12 @@ function getAuthConfig(db: Database): AuthConfig {
 export function createApp(db: Database = getDatabase()): express.Application {
   const app = express();
   const authConfig = getAuthConfig(db);
+
+  // Honor X-Forwarded-* only when explicitly configured (FILTARR_TRUST_PROXY).
+  // This drives req.ip (rate limiting) and req.secure (Secure session cookies behind TLS proxies).
+  if (authConfig.trustProxy !== undefined) {
+    app.set('trust proxy', authConfig.trustProxy);
+  }
 
   applySecurityMiddleware(app, authConfig);
 

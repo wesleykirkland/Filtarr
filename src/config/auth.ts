@@ -36,9 +36,52 @@ export const AuthConfigSchema = z.object({
   rateLimitAuth: z.number().int().positive().default(5), // attempts per minute on auth endpoints
   rateLimitGeneral: z.number().int().positive().default(100), // requests per minute general API
   corsOrigin: z.union([z.string(), z.array(z.string())]).default('same-origin'),
+  // Express 'trust proxy' setting (FILTARR_TRUST_PROXY). Unset/false = do not trust X-Forwarded-*.
+  trustProxy: z.union([z.boolean(), z.number().int().nonnegative(), z.string()]).optional(),
+  // Session cookie Secure flag (FILTARR_COOKIE_SECURE). Unset = secure only when NODE_ENV=production.
+  cookieSecure: z.union([z.boolean(), z.literal('auto')]).optional(),
 });
 
 export type AuthConfig = z.infer<typeof AuthConfigSchema>;
+
+export type TrustProxySetting = boolean | number | string;
+
+/**
+ * Parse FILTARR_TRUST_PROXY into a value suitable for `app.set('trust proxy', value)`.
+ * Accepts `true`/`false`, a non-negative integer hop count, or a comma-separated list of
+ * trusted addresses/subnets (e.g. `loopback, 10.0.0.0/8`). Empty/unset returns undefined.
+ */
+export function parseTrustProxy(raw: string | undefined): TrustProxySetting | undefined {
+  const value = raw?.trim();
+  if (!value) return undefined;
+  const lower = value.toLowerCase();
+  if (lower === 'true') return true;
+  if (lower === 'false') return false;
+  if (/^\d+$/.test(value)) return Number.parseInt(value, 10);
+  return value
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .join(',');
+}
+
+/**
+ * Parse FILTARR_COOKIE_SECURE. Accepts `true`, `false`, or `auto` (Secure only when the
+ * request arrived over HTTPS, as determined by Express/trust proxy). Empty/unset returns undefined.
+ */
+export function parseCookieSecure(raw: string | undefined): boolean | 'auto' | undefined {
+  const value = raw?.trim().toLowerCase();
+  if (!value) return undefined;
+  if (value === 'true') return true;
+  if (value === 'false') return false;
+  if (value === 'auto') return 'auto';
+  throw new Error(`Invalid FILTARR_COOKIE_SECURE value "${raw}". Expected true, false, or auto.`);
+}
+
+/** Default Secure flag for the session cookie when FILTARR_COOKIE_SECURE is not set. */
+export function defaultCookieSecure(): boolean {
+  return process.env['NODE_ENV'] === 'production';
+}
 
 /**
  * Load auth config from environment variables and/or config file values.
@@ -83,6 +126,17 @@ export function loadAuthConfigFromEnv(): Partial<AuthConfig> {
   // CORS
   if (env['FILTARR_CORS_ORIGIN']) {
     config.corsOrigin = env['FILTARR_CORS_ORIGIN'];
+  }
+
+  // Reverse proxy / cookie transport
+  const trustProxy = parseTrustProxy(env['FILTARR_TRUST_PROXY']);
+  if (trustProxy !== undefined) {
+    config.trustProxy = trustProxy;
+  }
+
+  const cookieSecure = parseCookieSecure(env['FILTARR_COOKIE_SECURE']);
+  if (cookieSecure !== undefined) {
+    config.cookieSecure = cookieSecure;
   }
 
   return config;

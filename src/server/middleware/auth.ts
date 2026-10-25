@@ -13,7 +13,7 @@ import crypto from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type Database from 'better-sqlite3';
-import type { AuthConfig, AuthMode } from '../../config/auth.js';
+import { defaultCookieSecure, type AuthConfig, type AuthMode } from '../../config/auth.js';
 import { getConfig } from '../../config/index.js';
 import type { User } from '../../db/schemas/users.js';
 import { apiKeyMiddleware } from './apiKey.js';
@@ -162,7 +162,9 @@ function sessionMiddleware(config: AuthConfig): RequestHandler {
     saveUninitialized: false,
     cookie: {
       httpOnly: true,
-      secure: process.env['NODE_ENV'] === 'production',
+      // FILTARR_COOKIE_SECURE overrides; default is Secure in production only.
+      // Behind a TLS-terminating proxy, set FILTARR_TRUST_PROXY so req.secure is detected.
+      secure: config.cookieSecure ?? defaultCookieSecure(),
       sameSite: 'strict',
       maxAge: config.forms?.sessionMaxAge || 86400000,
     },

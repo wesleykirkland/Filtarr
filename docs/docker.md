@@ -83,8 +83,23 @@ Authentication is typically configured via the web UI during initial setup, but 
 - **`FILTARR_SESSION_SECRET`**: Session encryption secret (min 32 characters)
 - **`FILTARR_SESSION_MAX_AGE`**: Session lifetime in milliseconds (default: `86400000` = 24 hours)
 - **`FILTARR_SESSION_COOKIE_NAME`**: Cookie name (default: `filtarr.sid`)
+- **`FILTARR_COOKIE_SECURE`**: `Secure` flag on the session cookie: `true`, `false`, or `auto` (default: `true` when `NODE_ENV=production`, otherwise `false`)
+  - Browsers drop `Secure` cookies on plain HTTP, so forms login loops back to the login page when Filtarr is accessed over `http://`. Set `false` for plain-HTTP LAN deployments.
+  - `auto` sets `Secure` only when the request arrived over HTTPS (requires `FILTARR_TRUST_PROXY` behind a TLS-terminating proxy).
+
+#### Reverse Proxy
+- **`FILTARR_TRUST_PROXY`**: Whether to trust `X-Forwarded-*` headers (default: `false`)
+  - `false`: ignore forwarded headers; client IP is the TCP peer.
+  - A hop count such as `1`: trust that many proxies in front of Filtarr (typical for a single Nginx/Traefik/Caddy).
+  - A comma-separated list of proxy addresses/subnets, e.g. `loopback,172.16.0.0/12`.
+  - `true`: trust any forwarded header. Only safe if Filtarr is reachable exclusively through the proxy.
+  - Behind a TLS-terminating proxy this is required for forms login: without it Filtarr sees the request as HTTP and will not issue the `Secure` session cookie in production.
+  - It also determines the client IP used for rate limiting. Forwarded headers are never used for rate-limit keys unless this is set.
 
 #### OIDC Auth
+
+> **Not yet available.** No OIDC sign-in strategy ships in this build, so the settings API rejects switching to `oidc`. These variables are reserved for a future release.
+
 - **`FILTARR_OIDC_ISSUER`**: OIDC issuer URL
 - **`FILTARR_OIDC_CLIENT_ID`**: OIDC client ID
 - **`FILTARR_OIDC_CLIENT_SECRET`**: OIDC client secret

@@ -29,6 +29,10 @@ export function helmetMiddleware(): RequestHandler {
 /**
  * Rate limiter for authentication endpoints.
  * 5 attempts per minute per IP (configurable).
+ *
+ * Keyed on req.ip via express-rate-limit's default key generator (IPv6-subnet aware).
+ * req.ip only reflects X-Forwarded-For when Express 'trust proxy' is configured
+ * (FILTARR_TRUST_PROXY), so clients cannot spoof their key with a forged header.
  */
 export function authRateLimiter(maxAttempts: number = 5): RequestHandler {
   return rateLimit({
@@ -37,20 +41,13 @@ export function authRateLimiter(maxAttempts: number = 5): RequestHandler {
     message: { error: 'Too many authentication attempts. Please try again later.' },
     standardHeaders: true,
     legacyHeaders: false,
-    keyGenerator: (req) => {
-      // Use X-Forwarded-For if behind a reverse proxy, otherwise remote IP
-      return (
-        (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() ||
-        req.socket.remoteAddress ||
-        'unknown'
-      );
-    },
   });
 }
 
 /**
  * General API rate limiter.
  * 100 requests per minute per IP (configurable).
+ * Keyed on req.ip (see authRateLimiter).
  */
 export function generalRateLimiter(maxRequests: number = 100): RequestHandler {
   return rateLimit({
@@ -59,13 +56,6 @@ export function generalRateLimiter(maxRequests: number = 100): RequestHandler {
     message: { error: 'Too many requests. Please slow down.' },
     standardHeaders: true,
     legacyHeaders: false,
-    keyGenerator: (req) => {
-      return (
-        (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() ||
-        req.socket.remoteAddress ||
-        'unknown'
-      );
-    },
   });
 }
 

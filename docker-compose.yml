@@ -51,7 +51,19 @@ services:
       # FILTARR_SESSION_MAX_AGE: ${FILTARR_SESSION_MAX_AGE:-86400000}
       # FILTARR_SESSION_COOKIE_NAME: ${FILTARR_SESSION_COOKIE_NAME:-filtarr.sid}
 
-      # OIDC Auth (if using OIDC mode)
+      # Reverse proxy / cookie transport
+      # FILTARR_TRUST_PROXY: trust X-Forwarded-* headers from a reverse proxy.
+      #   false (default), true (trust any - only if Filtarr is unreachable except via the proxy),
+      #   a hop count (e.g. 1), or a comma list of proxy IPs/subnets (e.g. loopback,172.16.0.0/12).
+      #   Required behind a TLS-terminating proxy so forms login can set its Secure session cookie,
+      #   and so rate limiting sees real client IPs.
+      # FILTARR_TRUST_PROXY: ${FILTARR_TRUST_PROXY:-false}
+      # FILTARR_COOKIE_SECURE: Secure flag on the session cookie: true, false, or auto.
+      #   Default: true when NODE_ENV=production. Set to false for plain-HTTP LAN access
+      #   (otherwise forms login cannot persist a session), or auto to follow the request scheme.
+      # FILTARR_COOKIE_SECURE: ${FILTARR_COOKIE_SECURE:-}
+
+      # OIDC Auth (not yet available: no OIDC sign-in strategy ships in this build)
       # FILTARR_OIDC_ISSUER: ${FILTARR_OIDC_ISSUER:-}
       # FILTARR_OIDC_CLIENT_ID: ${FILTARR_OIDC_CLIENT_ID:-}
       # FILTARR_OIDC_CLIENT_SECRET: ${FILTARR_OIDC_CLIENT_SECRET:-}

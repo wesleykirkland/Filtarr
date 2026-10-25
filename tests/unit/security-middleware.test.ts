@@ -60,23 +60,22 @@ describe('security middleware factories', () => {
     );
   });
 
-  it('builds auth and general rate limiters with the expected IP keying behavior', () => {
+  it('builds auth and general rate limiters keyed on req.ip rather than raw X-Forwarded-For', () => {
     authRateLimiter(3);
     generalRateLimiter(25);
 
     const authOptions = state.rateLimit.mock.calls[0][0];
     const generalOptions = state.rateLimit.mock.calls[1][0];
-    const forwardedReq = { headers: { 'x-forwarded-for': '1.1.1.1, 2.2.2.2' }, socket: { remoteAddress: '3.3.3.3' } };
 
     expect(authOptions.max).toBe(3);
     expect(authOptions.message).toEqual({ error: 'Too many authentication attempts. Please try again later.' });
-    expect(authOptions.keyGenerator(forwardedReq as any)).toBe('1.1.1.1');
-    expect(authOptions.keyGenerator({ headers: {}, socket: { remoteAddress: '4.4.4.4' } } as any)).toBe('4.4.4.4');
-    expect(authOptions.keyGenerator({ headers: {}, socket: {} } as any)).toBe('unknown');
+    // No custom key generator: express-rate-limit defaults to req.ip, which only honors
+    // X-Forwarded-For when Express 'trust proxy' is configured.
+    expect(authOptions.keyGenerator).toBeUndefined();
 
     expect(generalOptions.max).toBe(25);
     expect(generalOptions.message).toEqual({ error: 'Too many requests. Please slow down.' });
-    expect(generalOptions.keyGenerator(forwardedReq as any)).toBe('1.1.1.1');
+    expect(generalOptions.keyGenerator).toBeUndefined();
   });
 
   it('configures same-origin and explicit CORS policies', () => {

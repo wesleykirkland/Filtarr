@@ -1,4 +1,6 @@
+import Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { AUTH_TABLES_UP } from '../../src/db/schemas/users.js';
 
 const state = vi.hoisted(() => {
   const box: any = {};
@@ -8,6 +10,10 @@ const state = vi.hoisted(() => {
   box.passportSessionHandle = vi.fn((_req, _res, next) => next());
   box.apiKeyMiddleware = vi.fn(() => box.apiKeyHandle);
   box.sessionFactory = vi.fn(() => box.sessionHandle);
+  box.MemoryStore = vi.fn(function (this: any) {
+    this.clear = vi.fn((cb: () => void) => cb());
+  });
+  box.sessionFactory.MemoryStore = box.MemoryStore;
   box.passportUse = vi.fn();
   box.passportInitialize = vi.fn(() => box.passportInitializeHandle);
   box.passportSession = vi.fn(() => box.passportSessionHandle);
@@ -23,14 +29,11 @@ const state = vi.hoisted(() => {
   box.bcryptCompare = vi.fn();
   box.existsSync = vi.fn();
   box.mkdirSync = vi.fn();
-  box.readFileSync = vi.fn(() => {
-    const err = new Error('ENOENT: no such file or directory') as NodeJS.ErrnoException;
-    err.code = 'ENOENT';
-    throw err;
-  });
+  box.readFileSync = vi.fn();
   box.writeFileSync = vi.fn();
   box.randomBytes = vi.fn(() => Buffer.alloc(48, 7));
-  box.getConfig = vi.fn(() => ({ dataDir: '/tmp/filtarr-data' }));
+  box.getConfig = vi.fn(() => ({ dataDir: '/tmp/filtarr-data', nodeEnv: 'test' }));
+  box.loggerWarn = vi.fn();
   box.localVerify = undefined;
   box.serializeUser = undefined;
   box.deserializeUser = undefined;
@@ -61,8 +64,16 @@ vi.mock('node:fs', () => ({
 }));
 vi.mock('node:crypto', () => ({ default: { randomBytes: state.randomBytes } }));
 vi.mock('../../src/config/index.js', () => ({ getConfig: state.getConfig }));
+vi.mock('../../src/server/lib/logger.js', () => ({
+  logger: { warn: state.loggerWarn, error: vi.fn(), info: vi.fn() },
+}));
 
-import { createAuthMiddleware, getOrCreateSessionSecret } from '../../src/server/middleware/auth.js';
+import {
+  createAuthMiddleware,
+  getOrCreateSessionSecret,
+  invalidateAllSessions,
+  verifyUserCredentials,
+} from '../../src/server/middleware/auth.js';
 
 function makeConfig(overrides: Record<string, unknown> = {}) {
   return {
@@ -76,37 +87,37 @@ function makeConfig(overrides: Record<string, unknown> = {}) {
 }
 
 function makeDb(options: Record<string, any> = {}) {
-  const failedUpdate = { run: vi.fn() };
-  const resetUpdate = { run: vi.fn() };
-  const db = {
-    prepare: vi.fn((sql: string) => {
-      if (sql.includes('AS setupComplete')) {
-        if (options.authModeThrows) throw new Error('settings unavailable');
-        return {
-          get: vi.fn(() => ({
-            setupComplete: options.setupPending ? null : 'true',
-            hasUsers: options.setupPending ? 0 : 1,
-            hasApiKeys: 0,
-          })),
-        };
-      }
-      if (sql.includes("SELECT value FROM settings")) {
-        if (options.authModeThrows) throw new Error('settings unavailable');
-        return { get: vi.fn(() => (options.authMode === undefined ? undefined : { value: options.authMode })) };
-      }
-      if (sql.includes('SELECT * FROM users WHERE username = ?')) {
-        if (options.strategyLookupThrows) throw new Error('strategy lookup failed');
-        return { get: vi.fn(() => options.strategyUser) };
-      }
-      if (sql.includes("UPDATE users SET failed_attempts = 0")) return resetUpdate;
-      if (sql.includes("UPDATE users SET failed_attempts = ?")) return failedUpdate;
-      if (sql.includes('SELECT * FROM users WHERE id = ?')) {
-        return { get: vi.fn(() => options.deserializeUser) };
-      }
-      throw new Error(`Unexpected SQL: ${sql}`);
-    }),
-  };
-  return { db: db as any, failedUpdate, resetUpdate };
+  const db = new Database(':memory:');
+  if (!options.authModeThrows) {
+    db.exec('CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT, updated_at TEXT)');
+    if (options.authMode !== undefined) {
+      db.prepare('INSERT INTO settings (key, value) VALUES (?, ?)').run('auth_mode', options.authMode);
+    }
+    if (!options.setupPending) {
+      db.prepare('INSERT INTO settings (key, value) VALUES (?, ?)').run('setup_complete', 'true');
+    }
+  }
+  db.exec(AUTH_TABLES_UP);
+  const user = options.strategyUser;
+  if (user) {
+    db.prepare(
+      `INSERT INTO users (id, username, password_hash, display_name, failed_attempts, locked_until)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    ).run(
+      user.id ?? 1,
+      user.username ?? 'admin',
+      user.password_hash ?? 'hash',
+      user.display_name ?? null,
+      user.failed_attempts ?? 0,
+      user.locked_until ?? null,
+    );
+  }
+  const getUser = (id = 1) =>
+    db.prepare('SELECT failed_attempts, locked_until FROM users WHERE id = ?').get(id) as {
+      failed_attempts: number;
+      locked_until: string | null;
+    };
+  return { db: db as any, getUser };
 }
 
 function makeResponse() {
@@ -127,51 +138,23 @@ function getHandles(db: any, config = makeConfig({ forms: { sessionSecret: 'x'.r
 
 describe('auth middleware helpers', () => {
   beforeEach(() => {
-    [
-      state.apiKeyHandle,
-      state.sessionHandle,
-      state.passportInitializeHandle,
-      state.passportSessionHandle,
-      state.apiKeyMiddleware,
-      state.sessionFactory,
-      state.passportUse,
-      state.passportInitialize,
-      state.passportSession,
-      state.passportSerializeUser,
-      state.passportDeserializeUser,
-      state.LocalStrategy,
-      state.bcryptCompare,
-      state.existsSync,
-      state.mkdirSync,
-      state.readFileSync,
-      state.writeFileSync,
-      state.randomBytes,
-      state.getConfig,
-    ].forEach((mock) => mock.mockReset());
-    state.apiKeyMiddleware.mockImplementation(() => state.apiKeyHandle);
-    state.sessionFactory.mockImplementation(() => state.sessionHandle);
-    state.passportInitialize.mockImplementation(() => state.passportInitializeHandle);
-    state.passportSession.mockImplementation(() => state.passportSessionHandle);
-    state.passportSerializeUser.mockImplementation((callback) => {
-      state.serializeUser = callback;
+    vi.clearAllMocks();
+    state.bcryptCompare.mockReset();
+    state.readFileSync.mockReset();
+    state.readFileSync.mockImplementation(() => {
+      const err = new Error('ENOENT') as NodeJS.ErrnoException;
+      err.code = 'ENOENT';
+      throw err;
     });
-    state.passportDeserializeUser.mockImplementation((callback) => {
-      state.deserializeUser = callback;
-    });
-    state.LocalStrategy.mockImplementation(function (this: unknown, verify) {
-      state.localVerify = verify;
-    });
+    state.existsSync.mockReset();
     state.randomBytes.mockReturnValue(Buffer.alloc(48, 7));
-    state.getConfig.mockReturnValue({ dataDir: '/tmp/filtarr-data' });
+    state.getConfig.mockReturnValue({ dataDir: '/tmp/filtarr-data', nodeEnv: 'test' });
     state.localVerify = undefined;
     state.serializeUser = undefined;
     state.deserializeUser = undefined;
-    delete process.env['NODE_ENV'];
-    vi.useRealTimers();
   });
 
   afterEach(() => {
-    delete process.env['NODE_ENV'];
     vi.useRealTimers();
   });
 
@@ -209,9 +192,15 @@ describe('auth middleware helpers', () => {
     getHandles(makeDb({ authMode: 'forms' }).db).requireAuth({ isAuthenticated: () => true } as any, makeResponse(), formsNext);
     expect(formsNext).toHaveBeenCalledTimes(1);
 
-    const oidcNext = vi.fn();
-    getHandles(makeDb({ authMode: 'oidc' }).db).requireAuth({ isAuthenticated: () => true } as any, makeResponse(), oidcNext);
-    expect(oidcNext).toHaveBeenCalledTimes(1);
+    // Sessions are honored only in forms mode (no OIDC strategy ships, and stale forms
+    // sessions must not survive a switch to basic/oidc).
+    for (const mode of ['oidc', 'basic']) {
+      const sessionRes = makeResponse();
+      const sessionNext = vi.fn();
+      getHandles(makeDb({ authMode: mode }).db).requireAuth({ isAuthenticated: () => true } as any, sessionRes, sessionNext);
+      expect(sessionNext).not.toHaveBeenCalled();
+      expect(sessionRes.status).toHaveBeenCalledWith(401);
+    }
 
     const basicRes = makeResponse();
     getHandles(makeDb({ authMode: 'basic' }).db).requireAuth({} as any, basicRes, vi.fn());
@@ -229,96 +218,97 @@ describe('auth middleware helpers', () => {
     expect(deniedRes.json).toHaveBeenCalledWith({ error: 'Authentication required' });
   });
 
-  it('handles missing, malformed, valid, and thrown basic-auth flows without breaking the request chain', async () => {
-    const noHeaderNext = vi.fn();
-    await getHandles(makeDb().db).basicAuth({ headers: {} } as any, makeResponse(), noHeaderNext);
-    expect(noHeaderNext).toHaveBeenCalledTimes(1);
+  it('ignores Basic credentials entirely outside basic mode', async () => {
+    const header = { authorization: `Basic ${Buffer.from('admin:secret').toString('base64')}` };
+    for (const mode of ['forms', 'none', 'oidc']) {
+      const { db } = makeDb({ authMode: mode, strategyUser: { id: 1 } });
+      const req = { headers: header } as any;
+      const next = vi.fn();
+      await getHandles(db).basicAuth(req, makeResponse(), next);
+      expect(next).toHaveBeenCalledTimes(1);
+      expect(req._basicAuthValid).toBeUndefined();
+    }
     expect(state.bcryptCompare).not.toHaveBeenCalled();
-
-    const malformedNext = vi.fn();
-    await getHandles(makeDb().db).basicAuth(
-      { headers: { authorization: `Basic ${Buffer.from('admin-only').toString('base64')}` } } as any,
-      makeResponse(),
-      malformedNext,
-    );
-    expect(malformedNext).toHaveBeenCalledTimes(1);
-
-    state.bcryptCompare.mockResolvedValueOnce(true).mockRejectedValueOnce(new Error('compare failed'));
-    const validReq = { headers: { authorization: `Basic ${Buffer.from('admin:secret').toString('base64')}` } } as any;
-    await getHandles(makeDb({ strategyUser: { id: 1, username: 'admin', password_hash: 'hash', failed_attempts: 0, locked_until: null } }).db).basicAuth(validReq, makeResponse(), vi.fn());
-    expect(validReq._basicAuthValid).toBe(true);
-    expect(state.bcryptCompare).toHaveBeenCalledWith('secret', 'hash');
-
-    const invalidReq = { headers: { authorization: `Basic ${Buffer.from('admin:secret').toString('base64')}` } } as any;
-    const thrownNext = vi.fn();
-    await getHandles(makeDb({ strategyUser: { id: 1, username: 'admin', password_hash: 'hash', failed_attempts: 0, locked_until: null } }).db).basicAuth(invalidReq, makeResponse(), thrownNext);
-    expect(thrownNext).toHaveBeenCalledTimes(1);
-    expect(invalidReq._basicAuthValid).toBeUndefined();
-
-    const lookupErrorNext = vi.fn();
-    await getHandles(makeDb({ strategyLookupThrows: true }).db).basicAuth(
-      { headers: { authorization: `Basic ${Buffer.from('admin:secret').toString('base64')}` } } as any,
-      makeResponse(),
-      lookupErrorNext,
-    );
-    expect(lookupErrorNext).toHaveBeenCalledTimes(1);
   });
 
-  it('applies account lockout to basic auth: counts failures, locks, and rejects locked accounts', async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-03-11T00:00:00.000Z'));
-    const header = { authorization: `Basic ${Buffer.from('admin:wrong').toString('base64')}` };
+  describe('verifyUserCredentials', () => {
+    it('counts failures, locks at the threshold, and rejects locked accounts without comparing the real hash', async () => {
+      const { db, getUser } = makeDb({ strategyUser: { id: 7, failed_attempts: 3 } });
 
-    // Wrong password increments failed_attempts
-    state.bcryptCompare.mockResolvedValueOnce(false);
-    const failing = makeDb({
-      strategyUser: { id: 7, username: 'admin', password_hash: 'hash', failed_attempts: 1, locked_until: null },
-    });
-    const failingReq = { headers: header } as any;
-    await getHandles(failing.db).basicAuth(failingReq, makeResponse(), vi.fn());
-    expect(failing.failedUpdate.run).toHaveBeenCalledWith(2, null, 7);
-    expect(failingReq._basicAuthValid).toBeUndefined();
+      state.bcryptCompare.mockResolvedValue(false);
+      await expect(verifyUserCredentials(db, 'admin', 'wrong')).resolves.toEqual({ ok: false, reason: 'invalid' });
+      expect(getUser(7)).toEqual({ failed_attempts: 4, locked_until: null });
 
-    // Fifth failure sets locked_until 15 minutes out
-    state.bcryptCompare.mockResolvedValueOnce(false);
-    const locking = makeDb({
-      strategyUser: { id: 7, username: 'admin', password_hash: 'hash', failed_attempts: 4, locked_until: null },
-    });
-    await getHandles(locking.db).basicAuth({ headers: header } as any, makeResponse(), vi.fn());
-    expect(locking.failedUpdate.run).toHaveBeenCalledWith(5, '2026-03-11T00:15:00.000Z', 7);
+      await expect(verifyUserCredentials(db, 'admin', 'wrong')).resolves.toEqual({ ok: false, reason: 'invalid' });
+      const locked = getUser(7);
+      expect(locked.failed_attempts).toBe(5);
+      const lockMs = new Date(locked.locked_until ?? 0).getTime() - Date.now();
+      expect(lockMs).toBeGreaterThan(14 * 60 * 1000);
+      expect(lockMs).toBeLessThanOrEqual(15 * 60 * 1000);
 
-    // A locked account is rejected even with the correct password, without checking it
-    state.bcryptCompare.mockClear();
-    const locked = makeDb({
-      strategyUser: { id: 7, username: 'admin', password_hash: 'hash', failed_attempts: 5, locked_until: '2026-03-11T00:10:00.000Z' },
+      // Locked: even the right password is refused, and the real hash is never compared
+      state.bcryptCompare.mockClear().mockResolvedValue(true);
+      await expect(verifyUserCredentials(db, 'admin', 'right')).resolves.toEqual({ ok: false, reason: 'locked' });
+      expect(state.bcryptCompare).toHaveBeenCalledTimes(1);
+      expect(state.bcryptCompare.mock.calls[0][1]).not.toBe('hash');
+      expect(getUser(7).failed_attempts).toBe(5);
     });
-    const lockedReq = { headers: { authorization: `Basic ${Buffer.from('admin:right').toString('base64')}` } } as any;
-    const lockedNext = vi.fn();
-    await getHandles(locked.db).basicAuth(lockedReq, makeResponse(), lockedNext);
-    expect(lockedNext).toHaveBeenCalledTimes(1);
-    expect(lockedReq._basicAuthValid).toBeUndefined();
-    expect(state.bcryptCompare).not.toHaveBeenCalled();
-    expect(locked.failedUpdate.run).not.toHaveBeenCalled();
 
-    // Successful basic auth resets the counter
-    state.bcryptCompare.mockResolvedValueOnce(true);
-    const success = makeDb({
-      strategyUser: { id: 7, username: 'admin', password_hash: 'hash', failed_attempts: 3, locked_until: null },
+    it('reserves attempts atomically so 10 parallel wrong passwords stop at exactly the threshold', async () => {
+      const { db, getUser } = makeDb({ strategyUser: { id: 1 } });
+      state.bcryptCompare.mockImplementation(
+        (_pw: string, hash: string) => new Promise((resolve) => setTimeout(() => resolve(hash === 'never'), 5)),
+      );
+
+      const results = await Promise.all(
+        Array.from({ length: 10 }, () => verifyUserCredentials(db, 'admin', 'wrong')),
+      );
+
+      const reasons = results.map((r) => (r.ok ? 'ok' : r.reason));
+      expect(reasons.filter((r) => r === 'invalid')).toHaveLength(5);
+      expect(reasons.filter((r) => r === 'locked')).toHaveLength(5);
+      expect(getUser(1).failed_attempts).toBe(5);
+      expect(getUser(1).locked_until).not.toBeNull();
+      // Only the 5 reserved attempts touched the real hash
+      expect(state.bcryptCompare.mock.calls.filter((c: unknown[]) => c[1] === 'hash')).toHaveLength(5);
     });
-    const successReq = { headers: header } as any;
-    await getHandles(success.db).basicAuth(successReq, makeResponse(), vi.fn());
-    expect(successReq._basicAuthValid).toBe(true);
-    expect(success.resetUpdate.run).toHaveBeenCalledWith(7);
+
+    it('restarts the count after an expired lock and resets on success', async () => {
+      const { db, getUser } = makeDb({
+        strategyUser: { id: 2, failed_attempts: 5, locked_until: '2000-01-01T00:00:00.000Z' },
+      });
+      state.bcryptCompare.mockResolvedValueOnce(false);
+      await verifyUserCredentials(db, 'admin', 'wrong');
+      expect(getUser(2)).toEqual({ failed_attempts: 1, locked_until: null });
+
+      state.bcryptCompare.mockResolvedValueOnce(true);
+      const ok = await verifyUserCredentials(db, 'admin', 'right');
+      expect(ok.ok).toBe(true);
+      expect(getUser(2)).toEqual({ failed_attempts: 0, locked_until: null });
+    });
+
+    it('runs a dummy bcrypt comparison for unknown users', async () => {
+      const { db } = makeDb();
+      state.bcryptCompare.mockResolvedValue(false);
+      await expect(verifyUserCredentials(db, 'ghost', 'pw')).resolves.toEqual({ ok: false, reason: 'unknown_user' });
+      expect(state.bcryptCompare).toHaveBeenCalledTimes(1);
+      expect(state.bcryptCompare.mock.calls[0][1]).toMatch(/^\$2b\$12\$/);
+    });
   });
 
-  it('honors an explicit cookieSecure override for the session cookie', () => {
-    process.env['NODE_ENV'] = 'production';
+  it('honors an explicit cookieSecure override and derives the default from getConfig().nodeEnv', () => {
+    state.getConfig.mockReturnValue({ dataDir: '/tmp/filtarr-data', nodeEnv: 'production' });
     createAuthMiddleware(makeDb().db, makeConfig({ forms: { sessionSecret: 's'.repeat(32) }, cookieSecure: false }));
     expect(state.sessionFactory).toHaveBeenLastCalledWith(
       expect.objectContaining({ cookie: expect.objectContaining({ secure: false }) }),
     );
 
-    delete process.env['NODE_ENV'];
+    createAuthMiddleware(makeDb().db, makeConfig({ forms: { sessionSecret: 's'.repeat(32) } }));
+    expect(state.sessionFactory).toHaveBeenLastCalledWith(
+      expect.objectContaining({ cookie: expect.objectContaining({ secure: true }) }),
+    );
+
+    state.getConfig.mockReturnValue({ dataDir: '/tmp/filtarr-data', nodeEnv: 'test' });
     createAuthMiddleware(makeDb().db, makeConfig({ forms: { sessionSecret: 's'.repeat(32) }, cookieSecure: 'auto' }));
     expect(state.sessionFactory).toHaveBeenLastCalledWith(
       expect.objectContaining({ cookie: expect.objectContaining({ secure: 'auto' }) }),
@@ -327,12 +317,12 @@ describe('auth middleware helpers', () => {
 
   it('builds session middleware with default and configured cookie settings and wires passport callbacks', () => {
     state.existsSync.mockReturnValue(false);
-    const defaultDb = makeDb().db;
-    createAuthMiddleware(defaultDb, makeConfig());
+    createAuthMiddleware(makeDb().db, makeConfig());
     expect(state.sessionFactory).toHaveBeenCalledWith(
       expect.objectContaining({
         name: 'filtarr.sid',
         secret: Buffer.alloc(48, 7).toString('hex'),
+        store: expect.any(state.MemoryStore),
         cookie: expect.objectContaining({ secure: false, maxAge: 86400000 }),
       }),
     );
@@ -343,7 +333,6 @@ describe('auth middleware helpers', () => {
       { mode: 384 },
     );
 
-    process.env['NODE_ENV'] = 'production';
     createAuthMiddleware(
       makeDb().db,
       makeConfig({ forms: { sessionSecret: 's'.repeat(32), sessionMaxAge: 9000, cookieName: 'custom.sid' } }),
@@ -352,13 +341,20 @@ describe('auth middleware helpers', () => {
       expect.objectContaining({
         name: 'custom.sid',
         secret: 's'.repeat(32),
-        cookie: expect.objectContaining({ secure: true, maxAge: 9000 }),
+        cookie: expect.objectContaining({ maxAge: 9000 }),
       }),
     );
     expect(state.passportUse).toHaveBeenCalledTimes(2);
     expect(state.localVerify).toBeTypeOf('function');
     expect(state.serializeUser).toBeTypeOf('function');
     expect(state.deserializeUser).toBeTypeOf('function');
+  });
+
+  it('invalidateAllSessions clears every session store', async () => {
+    createAuthMiddleware(makeDb().db, makeConfig({ forms: { sessionSecret: 'x'.repeat(32) } }));
+    const store = state.MemoryStore.mock.instances.at(-1);
+    await invalidateAllSessions();
+    expect(store.clear).toHaveBeenCalled();
   });
 
   it('returns configured and persisted session secrets without regenerating them', () => {
@@ -372,57 +368,44 @@ describe('auth middleware helpers', () => {
     expect(state.writeFileSync).not.toHaveBeenCalled();
   });
 
-  it('handles passport local-strategy failure branches and reports thrown errors', async () => {
-    const missingDb = makeDb({ strategyUser: undefined }).db;
-    createAuthMiddleware(missingDb, makeConfig({ forms: { sessionSecret: 'x'.repeat(32) } }));
+  it('returns the same generic message for unknown, wrong, and locked logins and logs the real reason', async () => {
+    const config = makeConfig({ forms: { sessionSecret: 'x'.repeat(32) } });
+    state.bcryptCompare.mockResolvedValue(false);
+
+    createAuthMiddleware(makeDb().db, config);
     const missingDone = vi.fn();
     await state.localVerify('admin', 'secret', missingDone);
     expect(missingDone).toHaveBeenCalledWith(null, false, { message: 'Invalid credentials' });
 
-    const lockedDb = makeDb({ strategyUser: { locked_until: '2999-01-01T00:00:00.000Z', password_hash: 'hash' } }).db;
-    createAuthMiddleware(lockedDb, makeConfig({ forms: { sessionSecret: 'x'.repeat(32) } }));
+    createAuthMiddleware(makeDb({ strategyUser: { id: 1 } }).db, config);
+    const wrongDone = vi.fn();
+    await state.localVerify('admin', 'secret', wrongDone);
+    expect(wrongDone).toHaveBeenCalledWith(null, false, { message: 'Invalid credentials' });
+
+    createAuthMiddleware(makeDb({ strategyUser: { id: 1, locked_until: '2999-01-01T00:00:00.000Z' } }).db, config);
     const lockedDone = vi.fn();
     await state.localVerify('admin', 'secret', lockedDone);
-    expect(lockedDone).toHaveBeenCalledWith(null, false, { message: 'Account temporarily locked' });
+    expect(lockedDone).toHaveBeenCalledWith(null, false, { message: 'Invalid credentials' });
 
-    const errorDb = makeDb({ strategyLookupThrows: true }).db;
-    createAuthMiddleware(errorDb, makeConfig({ forms: { sessionSecret: 'x'.repeat(32) } }));
+    expect(state.loggerWarn.mock.calls.map((c: any[]) => c[0].reason)).toEqual(['unknown_user', 'invalid', 'locked']);
+
+    const errorDb = makeDb().db;
+    errorDb.exec('DROP TABLE users');
+    createAuthMiddleware(errorDb, config);
     const errorDone = vi.fn();
     await state.localVerify('admin', 'secret', errorDone);
     expect(errorDone.mock.calls[0][0]).toEqual(expect.any(Error));
   });
 
-  it('increments lockouts, resets success state, and serializes users through passport callbacks', async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-03-11T00:00:00.000Z'));
-
-    state.bcryptCompare.mockResolvedValueOnce(false).mockResolvedValueOnce(false).mockResolvedValueOnce(true);
-
-    const invalid = makeDb({
-      strategyUser: { id: 3, username: 'admin', display_name: 'Admin', password_hash: 'hash', failed_attempts: 2, locked_until: null },
-    });
-    createAuthMiddleware(invalid.db, makeConfig({ forms: { sessionSecret: 'x'.repeat(32) } }));
-    const invalidDone = vi.fn();
-    await state.localVerify('admin', 'wrong', invalidDone);
-    expect(invalid.failedUpdate.run).toHaveBeenCalledWith(3, null, 3);
-    expect(invalidDone).toHaveBeenCalledWith(null, false, { message: 'Invalid credentials' });
-
-    const lockout = makeDb({
-      strategyUser: { id: 4, username: 'admin', display_name: 'Admin', password_hash: 'hash', failed_attempts: 4, locked_until: null },
-    });
-    createAuthMiddleware(lockout.db, makeConfig({ forms: { sessionSecret: 'x'.repeat(32) } }));
-    const lockoutDone = vi.fn();
-    await state.localVerify('admin', 'wrong', lockoutDone);
-    expect(lockout.failedUpdate.run).toHaveBeenCalledWith(5, '2026-03-11T00:15:00.000Z', 4);
-
+  it('resets lockouts on success and serializes users through passport callbacks', async () => {
     const success = makeDb({
-      strategyUser: { id: 5, username: 'admin', display_name: 'Admin', password_hash: 'hash', failed_attempts: 1, locked_until: null },
-      deserializeUser: { id: 5, username: 'admin', display_name: 'Admin' },
+      strategyUser: { id: 5, display_name: 'Admin', failed_attempts: 1 },
     });
+    state.bcryptCompare.mockResolvedValueOnce(true);
     createAuthMiddleware(success.db, makeConfig({ forms: { sessionSecret: 'x'.repeat(32) } }));
     const successDone = vi.fn();
     await state.localVerify('admin', 'secret', successDone);
-    expect(success.resetUpdate.run).toHaveBeenCalledWith(5);
+    expect(success.getUser(5)).toEqual({ failed_attempts: 0, locked_until: null });
     expect(successDone).toHaveBeenCalledWith(null, { id: 5, username: 'admin', displayName: 'Admin' });
 
     const serializeDone = vi.fn();
@@ -433,8 +416,6 @@ describe('auth middleware helpers', () => {
     state.deserializeUser(5, deserializeDone);
     expect(deserializeDone).toHaveBeenCalledWith(null, { id: 5, username: 'admin', displayName: 'Admin' });
 
-    const missingDeserialize = makeDb({ deserializeUser: undefined });
-    createAuthMiddleware(missingDeserialize.db, makeConfig({ forms: { sessionSecret: 'x'.repeat(32) } }));
     const missingDeserializeDone = vi.fn();
     state.deserializeUser(8, missingDeserializeDone);
     expect(missingDeserializeDone).toHaveBeenCalledWith(null, false);

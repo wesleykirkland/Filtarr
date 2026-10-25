@@ -9,6 +9,19 @@ interface TableInfoRow {
   name: string;
 }
 
+/*
+ * Schema migrations
+ * -----------------
+ * Only the baseline (001_initial.sql) is executed. It is idempotent (CREATE ... IF NOT EXISTS)
+ * and runs on every startup; its name is recorded in _migrations once. Other .sql files in
+ * migrations/ are NOT executed.
+ *
+ * To make the next schema change:
+ *   1. Update 001_initial.sql so fresh databases get the new shape.
+ *   2. Bring existing databases up to date in repairLegacySchema(), e.g. add a column with
+ *      ensureColumn(db, 'table', 'column', 'ALTER TABLE table ADD COLUMN ...;') plus any
+ *      idempotent data backfill. Every repair step must be safe to run on every startup.
+ */
 const BASELINE_MIGRATION = '001_initial.sql';
 
 function migrationWasApplied(db: Database.Database, migrationName: string): boolean {

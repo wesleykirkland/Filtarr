@@ -12,6 +12,7 @@ describe('config index', () => {
     delete process.env['FILTARR_DATA_DIR'];
     delete process.env['FILTARR_LOG_LEVEL'];
     delete process.env['NODE_ENV'];
+    delete process.env['FILTARR_WATCHER_POLLING'];
     resetConfigCache();
   });
 
@@ -27,7 +28,17 @@ describe('config index', () => {
       dataDir: './data',
       logLevel: 'info',
       nodeEnv: 'production',
+      watcherPolling: false,
     });
+  });
+
+  it('enables watcher polling only when FILTARR_WATCHER_POLLING is true', () => {
+    process.env['FILTARR_WATCHER_POLLING'] = 'TRUE';
+    expect(loadConfig().watcherPolling).toBe(true);
+
+    process.env['FILTARR_WATCHER_POLLING'] = 'no';
+    resetConfigCache();
+    expect(loadConfig().watcherPolling).toBe(false);
   });
 
   it('uses environment overrides and caches the first result', () => {

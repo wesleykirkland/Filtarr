@@ -1,7 +1,11 @@
 import Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FilterRow } from '../../src/db/schemas/filters.js';
-import { NotificationService } from '../../src/server/services/NotificationService.js';
+import { logger } from '../../src/server/lib/logger.js';
+import {
+  NOTIFICATION_TIMEOUT_MS,
+  NotificationService,
+} from '../../src/server/services/NotificationService.js';
 
 const mockFetch = vi.fn();
 globalThis.fetch = mockFetch;
@@ -210,5 +214,128 @@ describe('NotificationService', () => {
     expect(JSON.parse(mockFetch.mock.calls[0]?.[1].body as string).text).toContain(
       'Filtarr instance healthcheck failed: Primary Sonarr',
     );
+  });
+
+  const fileEvent = {
+    path: '/downloads/movie/file.mkv',
+    name: 'file.mkv',
+    size: 42,
+    extension: 'mkv',
+  };
+
+  it('logs a warning with channel, host, and reason when a webhook fetch rejects', async () => {
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+    mockFetch
+      .mockRejectedValueOnce(new Error('connect ECONNREFUSED'))
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ ok: true }) });
+
+    await expect(
+      service.notifyFilterMatch(
+        makeFilter({ notify_webhook_url: 'https://hooks.example.com/secret-token-path?key=abc' }),
+        fileEvent,
+      ),
+    ).resolves.toBeUndefined();
+
+    expect(warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        filterId: 1,
+        deliveryChannel: 'webhook',
+        host: 'hooks.example.com',
+        reason: 'connect ECONNREFUSED',
+      }),
+      'Webhook notification failed',
+    );
+    const logged = JSON.stringify(warn.mock.calls);
+    expect(logged).not.toContain('secret-token-path');
+    expect(logged).not.toContain('key=abc');
+  });
+
+  it('logs a warning without leaking the token when the Slack fetch rejects', async () => {
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+    mockFetch
+      .mockResolvedValueOnce({ ok: true, status: 200 })
+      .mockRejectedValueOnce(new Error('socket hang up'));
+
+    await expect(service.notifyFilterMatch(makeFilter(), fileEvent)).resolves.toBeUndefined();
+
+    expect(warn).toHaveBeenCalledWith(
+      expect.objectContaining({ deliveryChannel: 'slack', host: 'slack.com', reason: 'socket hang up' }),
+      'Slack notification failed',
+    );
+    expect(JSON.stringify(warn.mock.calls)).not.toContain('xoxb-test-token');
+  });
+
+  it('logs a warning and skips the request when the webhook URL is invalid', async () => {
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+    mockFetch.mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ ok: true }) });
+
+    await expect(
+      service.notifyFilterMatch(
+        makeFilter({ notify_webhook_url: 'http://insecure.example.com/hook' }),
+        fileEvent,
+      ),
+    ).resolves.toBeUndefined();
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(mockFetch).toHaveBeenCalledWith('https://slack.com/api/chat.postMessage', expect.anything());
+    expect(warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        deliveryChannel: 'webhook',
+        host: 'insecure.example.com',
+        reason: expect.any(String),
+      }),
+      'Webhook notification failed',
+    );
+  });
+
+  it('reports an unparseable webhook URL without logging it', async () => {
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+    db.prepare('UPDATE settings SET value = ? WHERE key = ?').run('0', 'slack_enabled');
+    db.prepare('UPDATE settings SET value = ? WHERE key = ?').run(
+      'not a url secret-123',
+      'default_webhook_url',
+    );
+
+    await expect(
+      service.notifyInstanceHealthcheckFailure(
+        { id: 7, name: 'Primary Sonarr', type: 'sonarr', url: 'http://sonarr.local' },
+        'down',
+      ),
+    ).resolves.toBeUndefined();
+
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith(
+      expect.objectContaining({ instanceId: 7, deliveryChannel: 'webhook', host: 'invalid-url' }),
+      'Webhook healthcheck notification failed',
+    );
+    expect(JSON.stringify(warn.mock.calls)).not.toContain('secret-123');
+  });
+
+  it('passes a timeout signal to every fetch and reports timeouts clearly', async () => {
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+    const timeoutSpy = vi.spyOn(AbortSignal, 'timeout');
+    const timeoutError = new DOMException('The operation was aborted due to timeout', 'TimeoutError');
+    mockFetch.mockRejectedValueOnce(timeoutError).mockRejectedValueOnce(timeoutError);
+
+    await service.notifyFilterMatch(makeFilter(), fileEvent);
+
+    expect(timeoutSpy).toHaveBeenCalledWith(NOTIFICATION_TIMEOUT_MS);
+    for (const [, init] of mockFetch.mock.calls) {
+      expect(init.signal).toBeInstanceOf(AbortSignal);
+    }
+    expect(warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        deliveryChannel: 'webhook',
+        reason: `Request timed out after ${NOTIFICATION_TIMEOUT_MS}ms`,
+      }),
+      'Webhook notification failed',
+    );
+  });
+
+  it('still surfaces validation errors from test notifications to the caller', async () => {
+    await expect(
+      service.sendTestNotification('webhook', { defaultWebhookUrl: 'http://insecure.example.com' }),
+    ).rejects.toThrow();
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 });

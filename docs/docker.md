@@ -67,6 +67,10 @@ Navigate to `http://localhost:9898/setup` to complete the initial configuration:
 - **`FILTARR_HOST`**: Bind address (default: `0.0.0.0`)
 - **`FILTARR_LOG_LEVEL`**: `debug`, `info` (default), `warn`, or `error`
 - **`FILTARR_DATA_DIR`**: Data directory path (default: `/config`)
+- **`FILTARR_WATCHER_POLLING`**: `true` or `false` (default: `false`)
+  - Makes the file watcher poll for changes instead of relying on native filesystem events
+  - Enable this when watched folders live on network mounts (NFS/SMB/CIFS), where native events are often not delivered
+  - Polling uses more CPU on large directory trees
 
 ### Authentication
 

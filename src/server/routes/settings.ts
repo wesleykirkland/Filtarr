@@ -4,6 +4,7 @@
 
 import express, { Router, type Request, type Response, type NextFunction } from 'express';
 import bcrypt from 'bcrypt';
+import { z } from 'zod';
 import type Database from 'better-sqlite3';
 import {
   DEFAULT_OIDC_CALLBACK_URL,
@@ -54,9 +55,9 @@ interface BackupSettingsUpdateRequest {
   retentionCount?: number;
 }
 
-interface BackupImportRequest {
-  sql?: string;
-}
+const backupImportSchema = z.object({
+  sql: z.string().trim().min(1, 'Backup SQL is required'),
+});
 
 function getSettingValue(db: Database.Database, key: string): string | undefined {
   return db.prepare<[string], { value: string }>('SELECT value FROM settings WHERE key = ?').get(key)
@@ -443,25 +444,13 @@ export function createSettingsRoutes(
     express.json({ limit: BACKUP_IMPORT_BODY_LIMIT }),
     (req: Request, res: Response): void => {
       try {
-        const body = req.body as BackupImportRequest;
-        const sqlInput: unknown = body.sql;
-
-        // Validate that the input is a non-empty string before proceeding.
-        // This uses a type-narrowing guard so CodeQL sees the check as structural,
-        // not as a user-controlled bypass of a security gate.
-        if (typeof sqlInput !== 'string') {
+        const parsed = backupImportSchema.safeParse(req.body);
+        if (!parsed.success) {
           res.status(400).json({ error: 'Backup SQL is required' });
           return;
         }
 
-        const trimmedSql = sqlInput.trim();
-        // codeql[js/user-controlled-bypass] - intentional input validation, not a security gate; real SQL content validation occurs in importBackup → validateBackupSql
-        if (trimmedSql.length === 0) {
-          res.status(400).json({ error: 'Backup SQL is required' });
-          return;
-        }
-
-        const result = backupService.importBackup(trimmedSql);
+        const result = backupService.importBackup(parsed.data.sql);
         onAuthModeChange?.(getCurrentAuthMode(db));
         reloadSettingsBackupScheduler();
 

@@ -7,7 +7,32 @@ import { migrateEncryptedSecrets } from './secretMigration.js';
 
 let _db: Database.Database | null = null;
 
+/**
+ * Restrict newly created files (database, WAL/SHM, backups, key file) to the
+ * owner. process.umask() cannot be changed from worker threads, so failures
+ * there are ignored and the explicit chmod below still applies.
+ */
+function restrictFileCreationMask(): void {
+  try {
+    process.umask(0o077);
+  } catch {
+    // Unsupported in worker threads.
+  }
+}
+
+function restrictDatabaseFilePermissions(dbPath: string): void {
+  for (const filePath of [dbPath, `${dbPath}-wal`, `${dbPath}-shm`]) {
+    try {
+      if (fs.existsSync(filePath)) fs.chmodSync(filePath, 0o600);
+    } catch {
+      // Best effort (e.g. read-only or non-POSIX filesystems).
+    }
+  }
+}
+
 export function openDatabase(dataDir: string): Database.Database {
+  restrictFileCreationMask();
+
   // Ensure data directory exists
   fs.mkdirSync(dataDir, { recursive: true });
 
@@ -17,6 +42,7 @@ export function openDatabase(dataDir: string): Database.Database {
   // Enable WAL mode for better concurrent read performance
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
+  restrictDatabaseFilePermissions(dbPath);
 
   // Run migrations
   runMigrations(db);

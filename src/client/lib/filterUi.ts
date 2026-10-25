@@ -1,3 +1,9 @@
+import {
+  DEFAULT_BLOCKLIST_BEHAVIOR,
+  isBlocklistBehavior,
+  type BlocklistBehavior,
+} from '../../shared/blocklistBehavior';
+
 export interface FilterNotificationState {
   notify_on_match: number;
   notify_webhook_url?: string | null;
@@ -40,7 +46,7 @@ export function canDeleteFilter(filter: FilterDeletionState): boolean {
   return filter.is_built_in === 0;
 }
 
-export type ArrBehavior = 'blocklist_and_search' | 'blocklist_only' | 'do_not_blocklist';
+export type ArrBehavior = BlocklistBehavior;
 
 export interface ArrBehaviorOption {
   value: ArrBehavior;
@@ -52,7 +58,7 @@ export const ARR_BEHAVIOR_OPTIONS: ArrBehaviorOption[] = [
   {
     value: 'blocklist_and_search',
     label: 'Blocklist & Search',
-    description: 'Blocklists the release and triggers a search for a replacement.',
+    description: 'Blocklists the release and lets the Arr search for a replacement.',
   },
   {
     value: 'blocklist_only',
@@ -60,8 +66,8 @@ export const ARR_BEHAVIOR_OPTIONS: ArrBehaviorOption[] = [
     description: 'Blocklists the release without searching for a replacement.',
   },
   {
-    value: 'do_not_blocklist',
-    label: 'Remove (Don\'t Blocklist)',
+    value: 'remove_only',
+    label: 'Remove Only (Don\'t Blocklist)',
     description: 'Removes from queue without blocklisting. The Arr may re-grab the same release.',
   },
 ];
@@ -75,17 +81,47 @@ export const ARR_BEHAVIOR_BADGE: Record<ArrBehavior, { text: string; className: 
     text: 'BLOCKLIST ONLY',
     className: 'bg-orange-500/20 text-orange-400',
   },
-  do_not_blocklist: {
-    text: 'REMOVE (NO BLOCKLIST)',
+  remove_only: {
+    text: 'REMOVE ONLY',
     className: 'bg-yellow-500/20 text-yellow-400',
   },
 };
 
 export function getArrBehavior(actionPayload?: string | null): ArrBehavior {
-  if (actionPayload === 'blocklist_only' || actionPayload === 'do_not_blocklist') {
-    return actionPayload;
+  return isBlocklistBehavior(actionPayload) ? actionPayload : DEFAULT_BLOCKLIST_BEHAVIOR;
+}
+
+export type FilterActionType = 'blocklist' | 'delete' | 'move' | 'script' | 'notify';
+
+/**
+ * The actionPayload value to submit for a given action type. Always explicit:
+ * blocklist sends a valid behavior, payload-less actions send '' so an edit
+ * clears any stale value on the server (undefined would keep it).
+ */
+export function buildActionPayload(actionType: FilterActionType, actionPayload: string): string {
+  switch (actionType) {
+    case 'blocklist':
+      return getArrBehavior(actionPayload);
+    case 'move':
+    case 'script':
+      return actionPayload;
+    default:
+      return '';
   }
-  return 'blocklist_and_search';
+}
+
+/**
+ * The actionPayload to keep when the action type select changes. The payload
+ * is only reset when switching into or out of 'blocklist' (whose payload is a
+ * behavior enum); move/script/delete flips keep what the user typed.
+ */
+export function actionPayloadAfterTypeChange(
+  previousType: FilterActionType,
+  nextType: FilterActionType,
+  actionPayload: string,
+): string {
+  const crossesBlocklist = (previousType === 'blocklist') !== (nextType === 'blocklist');
+  return crossesBlocklist ? '' : actionPayload;
 }
 
 export function getFilterNotificationChannels(

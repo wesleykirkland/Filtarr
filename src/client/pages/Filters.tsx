@@ -2,8 +2,10 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import {
+  actionPayloadAfterTypeChange,
   ARR_BEHAVIOR_BADGE,
   ARR_BEHAVIOR_OPTIONS,
+  buildActionPayload,
   canDeleteFilter,
   FILTER_CARD_CLASS_NAME,
   getArrBehavior,
@@ -370,12 +372,12 @@ function FilterForm({ initial, instances, onClose, onSaved }: FilterFormProps) {
     setErr('');
     mutation.mutate({
       name,
-      description: description || undefined,
+      description,
       triggerSource: 'watcher',
       ruleType,
       rulePayload,
       actionType,
-      actionPayload: actionPayload || undefined,
+      actionPayload: buildActionPayload(actionType, actionPayload),
       scriptRuntime,
       targetPath: trimmedTargetPath,
       instanceId,
@@ -532,8 +534,9 @@ function FilterForm({ initial, instances, onClose, onSaved }: FilterFormProps) {
                   id="filter-action-type"
                   value={actionType}
                   onChange={(e) => {
-                    setActionType(e.target.value as Filter['action_type']);
-                    setActionPayload('');
+                    const nextType = e.target.value as Filter['action_type'];
+                    setActionPayload(actionPayloadAfterTypeChange(actionType, nextType, actionPayload));
+                    setActionType(nextType);
                   }}
                   className="mt-1 block w-full rounded-lg border dark:border-gray-700 border-gray-300 dark:bg-gray-800 bg-white px-3 py-2 dark:text-gray-100 text-gray-900 focus:border-blue-500 focus:outline-none"
                 >

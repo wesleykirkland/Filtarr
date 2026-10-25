@@ -10,6 +10,8 @@
  *   POST   /api/v1/instances          — Create new instance
  *   PUT    /api/v1/instances/:id      — Update instance
  *   DELETE /api/v1/instances/:id      — Delete instance
+ *   POST   /api/v1/instances/test     — Test connection to an unsaved instance
+ *                                       (pass instanceId without apiKey to reuse a stored key)
  *   GET    /api/v1/instances/:id/test — Test instance connection
  */
 
@@ -295,7 +297,24 @@ export function createInstancesRouter(db: Database): Router {
   // POST /api/v1/instances/test — Test connection to an unsaved instance
   router.post('/test', async (req: Request, res: Response): Promise<void> => {
     try {
-      const { type, url, apiKey, timeout, skipSslVerify } = req.body;
+      const { type, url, timeout, skipSslVerify, instanceId } = req.body;
+      let { apiKey } = req.body;
+
+      // When editing a saved instance without re-entering the key, fall back
+      // to the stored (decrypted) key so the masked value is never sent upstream.
+      if (!apiKey && instanceId !== undefined && instanceId !== null) {
+        const id = parseInstanceId(String(instanceId));
+        if (id === null) {
+          res.status(400).json({ error: 'Invalid instance ID' });
+          return;
+        }
+        const existing = getInstanceConfigById(db, id);
+        if (!existing) {
+          res.status(404).json({ error: 'Instance not found' });
+          return;
+        }
+        apiKey = existing.apiKey;
+      }
 
       const validationError = validateCreateFields('test', type, url, apiKey);
       if (validationError) {

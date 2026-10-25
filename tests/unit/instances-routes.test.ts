@@ -126,4 +126,21 @@ describe('instances routes', () => {
     expect((await request(app).get('/8/test')).status).toBe(404);
     expect((await request(app).get('/7/test')).body).toEqual({ success: false, error: 'offline' });
   });
+
+  it('falls back to the stored api key when testing an edited instance without a new key', async () => {
+    const app = makeApp();
+    const { SonarrClient } = await import('../../src/services/arr/sonarr.js');
+    state.sonarrTest.mockResolvedValue({ success: true });
+    state.getInstanceConfigById
+      .mockReturnValueOnce({ id: 7, name: 'Saved', type: 'sonarr', url: 'https://saved.example.com', apiKey: 'stored-secret', skipSslVerify: false })
+      .mockReturnValueOnce(null);
+
+    const ok = await request(app).post('/test').send({ type: 'sonarr', url: 'https://edited.example.com', apiKey: '', instanceId: 7 });
+    expect(ok.body).toEqual({ success: true });
+    expect(SonarrClient).toHaveBeenLastCalledWith(expect.objectContaining({ baseUrl: 'https://edited.example.com/', apiKey: 'stored-secret' }));
+    expect(state.getInstanceConfigById).toHaveBeenCalledWith(expect.anything(), 7);
+
+    expect((await request(app).post('/test').send({ type: 'sonarr', url: 'https://x.example.com', instanceId: 99 })).status).toBe(404);
+    expect((await request(app).post('/test').send({ type: 'sonarr', url: 'https://x.example.com', instanceId: 'abc' })).status).toBe(400);
+  });
 });

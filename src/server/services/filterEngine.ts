@@ -5,6 +5,11 @@ import { logger } from '../lib/logger.js';
 import { getAllFilters, type FilterRow } from '../../db/schemas/filters.js';
 import { getInstanceConfigById } from '../../db/schemas/instances.js';
 import { createArrClient } from '../routes/instances.js';
+import {
+  DEFAULT_BLOCKLIST_BEHAVIOR,
+  isBlocklistBehavior,
+  type BlocklistBehavior,
+} from '../../shared/blocklistBehavior.js';
 import { isPathWithinTarget, normalizeFilterTargetPath } from './filterPaths.js';
 import { NotificationService } from './NotificationService.js';
 import { normalizeScriptRuntime, runConfiguredScript } from './scriptRunner.js';
@@ -231,8 +236,10 @@ export class FilterEngine {
       return;
     }
 
+    const behavior = this.resolveBlocklistBehavior(filter);
+
     const client = createArrClient(
-      config.type as any,
+      config.type,
       config.url,
       config.apiKey,
       config.timeout,
@@ -240,8 +247,8 @@ export class FilterEngine {
     );
 
     try {
-      // Try to find the item in the queue first
-      const queue = await client.getQueue(1, 100);
+      // Try to find the item in the queue (paginating through all items)
+      const queueItems = await client.getAllQueueItems();
 
       // Path mapping translation
       const translateLocToRem = (localPath: string) => {
@@ -258,28 +265,70 @@ export class FilterEngine {
 
       const translatedPath = translateLocToRem(file.path);
 
-      const matchingItem = queue.records.find((r) => {
+      const matchingItem = queueItems.find((r) => {
         if (!r.outputPath) return false;
-        const resPath = path.resolve(translatedPath);
-        const outPath = path.resolve(r.outputPath);
-        return resPath.startsWith(outPath);
+        return isPathWithinTarget(translatedPath, r.outputPath);
       });
 
-      if (matchingItem) {
-        logger.info(
-          { instance: config.name, title: matchingItem.title },
-          'Found matching release in queue, blocklisting...',
-        );
-        await client.blocklistAndRemove(matchingItem.id);
-        logger.info(
-          { instance: config.name, title: matchingItem.title },
-          'Successfully blocklisted release',
-        );
-      } else {
+      if (!matchingItem) {
         logger.debug(
           { instance: config.name, file: file.name },
           'Could not find matching release in queue for blocklisting',
         );
+        return;
+      }
+
+      logger.info(
+        { instance: config.name, title: matchingItem.title, behavior },
+        'Found matching release in queue, executing blocklist behavior...',
+      );
+
+      switch (behavior) {
+        case 'blocklist_and_search':
+          // Arr-native redownload: the Arr searches for a replacement itself.
+          await client.deleteQueueItem(matchingItem.id, {
+            blocklist: true,
+            removeFromClient: true,
+            skipRedownload: false,
+          });
+          logger.info(
+            { instance: config.name, title: matchingItem.title },
+            'Blocklisted release and requested redownload',
+          );
+          break;
+
+        case 'blocklist_only':
+          await client.deleteQueueItem(matchingItem.id, {
+            blocklist: true,
+            removeFromClient: true,
+            skipRedownload: true,
+          });
+          logger.info(
+            { instance: config.name, title: matchingItem.title },
+            'Blocklisted release (skip redownload)',
+          );
+          break;
+
+        case 'remove_only':
+          // skipRedownload only matters when blocklisting; keep the Arr default.
+          await client.deleteQueueItem(matchingItem.id, {
+            blocklist: false,
+            removeFromClient: true,
+            skipRedownload: false,
+          });
+          logger.info(
+            { instance: config.name, title: matchingItem.title },
+            'Removed release from queue without blocklisting',
+          );
+          break;
+
+        default: {
+          const unhandled: never = behavior;
+          logger.error(
+            { filterId: filter.id, behavior: unhandled },
+            'Unhandled blocklist behavior; no action taken',
+          );
+        }
       }
     } catch (err: any) {
       logger.error(
@@ -287,5 +336,17 @@ export class FilterEngine {
         'Failed to perform blocklist action',
       );
     }
+  }
+
+  private resolveBlocklistBehavior(filter: FilterRow): BlocklistBehavior {
+    const stored = filter.action_payload;
+    if (stored === null || stored === '') return DEFAULT_BLOCKLIST_BEHAVIOR;
+    if (isBlocklistBehavior(stored)) return stored;
+
+    logger.error(
+      { filterId: filter.id, actionPayload: stored, fallback: DEFAULT_BLOCKLIST_BEHAVIOR },
+      'Invalid blocklist behavior stored on filter; falling back to default',
+    );
+    return DEFAULT_BLOCKLIST_BEHAVIOR;
   }
 }

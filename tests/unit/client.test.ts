@@ -262,3 +262,51 @@ describe('ArrClient timeout bounds', () => {
     expect(timeoutOf(new ArrClient({ ...base, timeout: 45_000 }))).toBe(45_000);
   });
 });
+
+describe('ArrClient.getAllQueueItems', () => {
+  function pageResponse(page: number, pageSize: number, totalRecords: number) {
+    const start = (page - 1) * pageSize;
+    const count = Math.max(0, Math.min(pageSize, totalRecords - start));
+    const records = Array.from({ length: count }, (_, i) => ({ id: start + i + 1 }));
+    return createResponse({ body: { page, pageSize, totalRecords, records } });
+  }
+
+  function mockQueue(totalRecords: number) {
+    mockFetch.mockReset();
+    mockFetch.mockImplementation(async (url: string) => {
+      const params = new URL(url).searchParams;
+      return pageResponse(Number(params.get('page')), Number(params.get('pageSize')), totalRecords);
+    });
+  }
+
+  it('fetches every page until totalRecords is reached', async () => {
+    mockQueue(250);
+    const client = new TestArrClient({ baseUrl: 'https://example.com', apiKey: 'k' });
+
+    const items = await client.getAllQueueItems();
+
+    expect(mockFetch).toHaveBeenCalledTimes(3);
+    expect(items).toHaveLength(250);
+    expect(new Set(items.map((i) => i.id)).size).toBe(250);
+    const pages = mockFetch.mock.calls.map(([url]) => new URL(url as string).searchParams.get('page'));
+    expect(pages).toEqual(['1', '2', '3']);
+  });
+
+  it('stops after maxPages', async () => {
+    mockQueue(1000);
+    const client = new TestArrClient({ baseUrl: 'https://example.com', apiKey: 'k' });
+
+    const items = await client.getAllQueueItems(2);
+
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    expect(items).toHaveLength(200);
+  });
+
+  it('makes a single request when the queue fits on one page', async () => {
+    mockQueue(0);
+    const client = new TestArrClient({ baseUrl: 'https://example.com', apiKey: 'k' });
+
+    expect(await client.getAllQueueItems()).toEqual([]);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+});

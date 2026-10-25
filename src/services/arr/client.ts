@@ -30,6 +30,8 @@ const MIN_TIMEOUT = 1_000; // 1 second
 const MAX_TIMEOUT = 300_000; // 5 minutes
 const DEFAULT_MAX_RETRIES = 3;
 const RETRY_BASE_DELAY = 1000; // 1 second
+const QUEUE_PAGE_SIZE = 100;
+const DEFAULT_QUEUE_MAX_PAGES = 20;
 const RETRYABLE_STATUS_CODES = new Set([408, 429, 500, 502, 503, 504]);
 
 type QueryParams = Record<string, string | number | boolean>;
@@ -123,6 +125,27 @@ export class ArrClient {
       sortKey: 'timeleft',
       sortDirection: 'ascending',
     });
+  }
+
+  /**
+   * Fetch all queue items, paginating automatically. Stops after `maxPages`
+   * pages (default 20, i.e. 2000 items) to bound the work on huge queues.
+   */
+  async getAllQueueItems(maxPages = DEFAULT_QUEUE_MAX_PAGES): Promise<QueueResource[]> {
+    const pageSize = QUEUE_PAGE_SIZE;
+    const first = await this.getQueue(1, pageSize);
+    const all = [...first.records];
+
+    const totalPages = Math.ceil(first.totalRecords / pageSize);
+    const lastPage = Math.min(totalPages, maxPages);
+    for (let page = 2; page <= lastPage; page++) {
+      const next = await this.getQueue(page, pageSize);
+      all.push(...next.records);
+    }
+
+    // Results are capped at maxPages * pageSize; callers that need to know
+    // whether the queue was truncated can compare all.length to first.totalRecords.
+    return all;
   }
 
   /** DELETE /api/v3/queue/{id} with options */

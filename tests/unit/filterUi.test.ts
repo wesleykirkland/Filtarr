@@ -1,11 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import {
+  actionPayloadAfterTypeChange,
+  ARR_BEHAVIOR_BADGE,
+  ARR_BEHAVIOR_OPTIONS,
+  buildActionPayload,
   canDeleteFilter,
+  getArrBehavior,
   FILTER_CARD_CLASS_NAME,
   getFilterNotificationChannels,
   hasConfiguredPath,
   trimToUndefined,
 } from '../../src/client/lib/filterUi';
+import { BLOCKLIST_BEHAVIORS } from '../../src/shared/blocklistBehavior';
 
 describe('filterUi helpers', () => {
   it('treats blank values as undefined', () => {
@@ -68,5 +74,42 @@ describe('filterUi helpers', () => {
       { key: 'default-webhook', label: 'Webhook', detail: 'Settings default' },
       { key: 'default-slack', label: 'Slack', detail: '#default-alerts' },
     ]);
+  });
+});
+
+describe('blocklist behavior helpers', () => {
+  it.each([
+    [null, 'blocklist_and_search'],
+    [undefined, 'blocklist_and_search'],
+    ['', 'blocklist_and_search'],
+    ['blocklist_and_search', 'blocklist_and_search'],
+    ['blocklist_only', 'blocklist_only'],
+    ['remove_only', 'remove_only'],
+    ['do_not_blocklist', 'blocklist_and_search'],
+    ['garbage', 'blocklist_and_search'],
+  ])('getArrBehavior(%j) -> %s', (input, expected) => {
+    expect(getArrBehavior(input)).toBe(expected);
+  });
+
+  it('has an option and a badge for every shared behavior', () => {
+    expect(ARR_BEHAVIOR_OPTIONS.map((o) => o.value)).toEqual([...BLOCKLIST_BEHAVIORS]);
+    expect(Object.keys(ARR_BEHAVIOR_BADGE).sort()).toEqual([...BLOCKLIST_BEHAVIORS].sort());
+  });
+
+  it('builds an explicit actionPayload for each action type', () => {
+    expect(buildActionPayload('blocklist', '')).toBe('blocklist_and_search');
+    expect(buildActionPayload('blocklist', 'blocklist_only')).toBe('blocklist_only');
+    expect(buildActionPayload('move', '/mnt/q')).toBe('/mnt/q');
+    expect(buildActionPayload('script', 'echo hi')).toBe('echo hi');
+    expect(buildActionPayload('delete', '/stale')).toBe('');
+    expect(buildActionPayload('notify', 'stale')).toBe('');
+  });
+
+  it('only resets the payload when switching into or out of blocklist', () => {
+    expect(actionPayloadAfterTypeChange('move', 'script', '/mnt/q')).toBe('/mnt/q');
+    expect(actionPayloadAfterTypeChange('move', 'delete', '/mnt/q')).toBe('/mnt/q');
+    expect(actionPayloadAfterTypeChange('move', 'blocklist', '/mnt/q')).toBe('');
+    expect(actionPayloadAfterTypeChange('blocklist', 'move', 'blocklist_only')).toBe('');
+    expect(actionPayloadAfterTypeChange('blocklist', 'blocklist', 'blocklist_only')).toBe('blocklist_only');
   });
 });

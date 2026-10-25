@@ -4,8 +4,33 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { getConfig } from '../../config/index.js';
 import { runMigrations } from '../../db/migrate.js';
-import { encrypt } from '../../services/encryption.js';
+import {
+  decryptStoredSecret,
+  encrypt,
+  encryptStoredSecret,
+  isEncryptedStoredSecret,
+} from '../../services/encryption.js';
+import { customScriptsEnabled } from '../../services/security.js';
+import { OidcAuthConfigSchema } from '../../config/auth.js';
 import { logger } from '../lib/logger.js';
+import { createFilterSchema } from '../routes/filters.js';
+import { createJobSchema } from '../routes/jobs.js';
+
+/** Raised when a backup import is rejected by validation; safe to show to the client. */
+export class BackupImportValidationError extends Error {
+  constructor(message: string) {
+    super(`Backup import rejected: ${message}`);
+    this.name = 'BackupImportValidationError';
+  }
+}
+
+/** Raised when the configured backup directory is not inside the data directory. */
+export class BackupDirectoryError extends Error {
+  constructor() {
+    super('Backup directory must be inside the Filtarr data directory');
+    this.name = 'BackupDirectoryError';
+  }
+}
 
 export interface BackupFileInfo {
   fileName: string;
@@ -46,8 +71,11 @@ interface SettingsBackupServiceOptions {
   now?: () => Date;
 }
 
-const DEFAULT_BACKUP_DIRECTORY = '/config/backup';
+const DEFAULT_BACKUP_SUBDIRECTORY = 'backup';
 const DEFAULT_RETENTION_COUNT = 30;
+const BACKUP_DIRECTORY_ERROR_MESSAGE = 'Backup directory is not inside the Filtarr data directory';
+const BACKUP_WRITE_ERROR_MESSAGE = 'Backup failed; check the server logs for details';
+const KNOWN_BACKUP_ERRORS = new Set([BACKUP_DIRECTORY_ERROR_MESSAGE, BACKUP_WRITE_ERROR_MESSAGE]);
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 const EXPORT_TABLES = [
   'settings',
@@ -63,19 +91,108 @@ const EXPORT_TABLES = [
   'directory_filters',
 ] as const;
 const TABLES_WITHOUT_EXPORTED_ROWS = new Set(['events', 'users', 'sessions', 'api_keys']);
-const BLANKED_SETTING_KEYS = new Set(['default_webhook_url', 'default_slack_token', 'oidc_client_secret']);
+const BLANKED_SETTING_KEYS = new Set([
+  'default_webhook_url',
+  'default_slack_token',
+  'oidc_client_secret',
+  'slack_webhook_url',
+]);
+/**
+ * The only settings keys an import may write. Everything else in the live
+ * settings table (setup_complete, auth_mode, backup bookkeeping, unknown keys)
+ * is left untouched, and anything else in the backup is ignored.
+ */
+const RESTORABLE_SETTING_KEYS = new Set([
+  'validation_interval_minutes',
+  'slack_enabled',
+  'webhook_enabled',
+  'default_slack_channel',
+  'oidc_issuer_url',
+  'oidc_client_id',
+  'oidc_callback_url',
+  'oidc_scopes',
+  'backup_enabled',
+  'backup_directory',
+  'backup_retention_count',
+  ...BLANKED_SETTING_KEYS,
+]);
 const REDACTION_NOTES = [
   'settings.default_webhook_url => blank',
   'settings.default_slack_token => blank',
   'settings.oidc_client_secret => blank',
+  'settings.slack_webhook_url => blank',
   'settings.auth_mode => exported as none; not restored (current auth mode is kept on import)',
-  'arr_instances.api_key_encrypted => blank placeholder',
-  'filters.notify_webhook_url => blank',
-  'filters.notify_slack_token => blank',
+  'arr_instances.api_key_encrypted => blank placeholder; always blanked on import, so API keys must be re-entered',
+  'filters.notify_webhook_url => blank; always blanked on import',
+  'filters.notify_slack_token => blank; always blanked on import',
   'users, sessions, api_keys, and events rows => omitted from export and left untouched on import',
+  `only these settings keys are restored on import: ${[...RESTORABLE_SETTING_KEYS].join(', ')}; all other settings (including setup_complete and auth_mode) are left untouched`,
   'blank secret settings in a backup do not overwrite secrets already configured on import',
+  'non-blank secret settings in a backup are re-encrypted with this server\'s key on import (undecryptable values are ignored)',
+  'imported filters and jobs are validated like API input; custom-script filters and jobs require FILTARR_ENABLE_CUSTOM_SCRIPTS=true',
 ] as const;
 const BACKUP_FILE_PATTERN = /^filtarr-settings-\d{8}-\d{6}\.sql$/;
+
+const BOOLEAN_SETTING_KEYS = new Set(['slack_enabled', 'webhook_enabled', 'backup_enabled']);
+
+/**
+ * Apply the same value rules the settings routes enforce. Returns false for a
+ * value the corresponding API route would reject. Keys without rules are
+ * free-form strings. (backup_directory containment is checked separately.)
+ */
+export function validateSettingValue(key: string, value: unknown): boolean {
+  if (typeof value !== 'string') return false;
+
+  if (key === 'validation_interval_minutes') {
+    const minutes = Number(value);
+    return value.trim() !== '' && Number.isFinite(minutes) && minutes >= 1;
+  }
+
+  if (key === 'backup_retention_count') {
+    return /^\d+$/.test(value) && Number.parseInt(value, 10) >= 1;
+  }
+
+  if (BOOLEAN_SETTING_KEYS.has(key)) {
+    return value === '0' || value === '1';
+  }
+
+  if (key === 'oidc_issuer_url') {
+    return value === '' || OidcAuthConfigSchema.shape.issuerUrl.safeParse(value).success;
+  }
+
+  if (key === 'oidc_callback_url') {
+    return value === '' || OidcAuthConfigSchema.shape.callbackUrl.safeParse(value).success;
+  }
+
+  return true;
+}
+
+function isPathInside(parent: string, candidate: string): boolean {
+  const relative = path.relative(parent, candidate);
+  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
+}
+
+/** Realpath of the nearest existing ancestor, re-joined with the missing tail. */
+function realpathOfNearestAncestor(target: string): string {
+  let current = target;
+  const missing: string[] = [];
+  while (!fs.existsSync(current)) {
+    const parent = path.dirname(current);
+    if (parent === current) break;
+    missing.unshift(path.basename(current));
+    current = parent;
+  }
+  return path.join(fs.realpathSync(current), ...missing);
+}
+
+function toOptional(value: unknown): unknown {
+  return value === null ? undefined : value;
+}
+
+function toOptionalBoolean(value: unknown): unknown {
+  if (value === null || value === undefined) return undefined;
+  return typeof value === 'number' ? value !== 0 : value;
+}
 
 /**
  * Split a SQL script into statements on `;`, honouring SQLite quoting rules.
@@ -162,7 +279,8 @@ export class SettingsBackupService {
     options: SettingsBackupServiceOptions = {},
   ) {
     this.dataDir = options.dataDir ?? getConfig().dataDir;
-    this.defaultDirectory = options.defaultDirectory ?? DEFAULT_BACKUP_DIRECTORY;
+    this.defaultDirectory =
+      options.defaultDirectory ?? path.join(this.dataDir, DEFAULT_BACKUP_SUBDIRECTORY);
     this.now = options.now ?? (() => new Date());
   }
 
@@ -179,7 +297,7 @@ export class SettingsBackupService {
       frequency: 'daily',
       lastBackupAt,
       nextBackupAt: enabled ? this.getNextBackupAt(lastBackupAt) : null,
-      lastError: this.getNullableSetting('backup_last_error'),
+      lastError: this.getLastError(),
       backups,
     };
   }
@@ -194,7 +312,7 @@ export class SettingsBackupService {
     }
 
     if (input.directory !== undefined) {
-      this.upsertSetting('backup_directory', this.normalizeDirectory(input.directory));
+      this.upsertSetting('backup_directory', this.resolveBackupDirectory(input.directory, true));
     }
 
     if (input.retentionCount !== undefined) {
@@ -224,14 +342,21 @@ export class SettingsBackupService {
     const state = this.getState();
     const createdAt = this.now().toISOString();
     const sql = this.createRedactedDump(createdAt, reason);
-    const directory = state.directory;
+    let directory = state.directory;
 
     try {
-      fs.mkdirSync(directory, { recursive: true });
+      directory = this.resolveBackupDirectory(directory, true);
+    } catch (error) {
+      this.upsertSetting('backup_last_error', BACKUP_DIRECTORY_ERROR_MESSAGE);
+      logger.error({ err: error, directory, reason }, 'Refusing to write backup outside the data directory');
+      throw error;
+    }
 
+    try {
       const fileName = `filtarr-settings-${this.formatFileTimestamp(createdAt)}.sql`;
       const filePath = path.join(directory, fileName);
-      fs.writeFileSync(filePath, sql, 'utf8');
+      fs.writeFileSync(filePath, sql, { encoding: 'utf8', mode: 0o600 });
+      fs.chmodSync(filePath, 0o600);
 
       this.upsertSetting('backup_last_run_at', createdAt);
       this.upsertSetting('backup_last_error', '');
@@ -247,8 +372,7 @@ export class SettingsBackupService {
         createdAt: stats.mtime.toISOString(),
       };
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown backup failure';
-      this.upsertSetting('backup_last_error', message);
+      this.upsertSetting('backup_last_error', BACKUP_WRITE_ERROR_MESSAGE);
       logger.error({ err: error, directory, reason }, 'Failed to create redacted settings backup');
       throw error;
     }
@@ -269,6 +393,7 @@ export class SettingsBackupService {
         tempDb.exec(stmt);
       }
       runMigrations(tempDb);
+      this.validateImportedData(tempDb);
       this.restoreFromDatabase(tempDb);
 
       return {
@@ -277,6 +402,7 @@ export class SettingsBackupService {
       };
     } catch (error) {
       logger.warn({ err: error }, 'Failed to import settings backup');
+      if (error instanceof BackupImportValidationError) throw error;
       throw new Error('Backup SQL could not be imported', { cause: error });
     } finally {
       tempDb.close();
@@ -313,20 +439,102 @@ export class SettingsBackupService {
     return statements;
   }
 
+  /**
+   * Validate every imported filter, job, and settings row with the same rules
+   * as the API routes before anything is copied into the live database.
+   * Throws a BackupImportValidationError naming the first offending row.
+   */
+  private validateImportedData(sourceDb: Database.Database): void {
+    const scriptsAllowed = customScriptsEnabled();
+
+    const filters = this.selectAll(sourceDb, 'filters');
+    filters.forEach((row, index) => {
+      const label = `filters row ${index + 1}`;
+      const parsed = createFilterSchema.safeParse({
+        name: row['name'],
+        description: toOptional(row['description']),
+        triggerSource: row['trigger_source'],
+        ruleType: row['rule_type'],
+        rulePayload: row['rule_payload'],
+        actionType: row['action_type'],
+        actionPayload: toOptional(row['action_payload']),
+        scriptRuntime: toOptional(row['script_runtime']),
+        targetPath: toOptional(row['target_path']),
+        notifyOnMatch: toOptionalBoolean(row['notify_on_match']),
+        // Per-filter notification secrets are always blanked on import.
+        notifyWebhookUrl: '',
+        notifySlack: toOptionalBoolean(row['notify_slack']),
+        notifySlackToken: '',
+        notifySlackChannel: toOptional(row['notify_slack_channel']),
+        overrideNotifications: toOptionalBoolean(row['override_notifications']),
+        instanceId: toOptional(row['instance_id']),
+        enabled: toOptionalBoolean(row['enabled']),
+        sortOrder: toOptional(row['sort_order']),
+      });
+      if (!parsed.success) {
+        const field = parsed.error.issues[0]?.path.join('.') || 'row';
+        throw new BackupImportValidationError(`${label} failed validation (${field})`);
+      }
+      if (!scriptsAllowed && (parsed.data.ruleType === 'script' || parsed.data.actionType === 'script')) {
+        throw new BackupImportValidationError(
+          `${label} uses a custom script, which is disabled unless FILTARR_ENABLE_CUSTOM_SCRIPTS=true`,
+        );
+      }
+    });
+
+    const jobs = this.selectAll(sourceDb, 'jobs');
+    jobs.forEach((row, index) => {
+      const label = `jobs row ${index + 1}`;
+      const parsed = createJobSchema.safeParse({
+        name: row['name'],
+        description: toOptional(row['description']),
+        schedule: row['schedule'],
+        type: row['type'],
+        payload: toOptional(row['payload']),
+        enabled: toOptionalBoolean(row['enabled']),
+      });
+      if (!parsed.success) {
+        const field = parsed.error.issues[0]?.path.join('.') || 'row';
+        throw new BackupImportValidationError(`${label} failed validation (${field})`);
+      }
+      if (!scriptsAllowed && parsed.data.type === 'custom_script') {
+        throw new BackupImportValidationError(
+          `${label} is a custom script job, which is disabled unless FILTARR_ENABLE_CUSTOM_SCRIPTS=true`,
+        );
+      }
+    });
+
+    for (const row of this.selectAll(sourceDb, 'settings')) {
+      const key = typeof row['key'] === 'string' ? row['key'] : '';
+      if (!RESTORABLE_SETTING_KEYS.has(key) || BLANKED_SETTING_KEYS.has(key)) continue;
+
+      let valid = validateSettingValue(key, row['value']);
+      if (valid && key === 'backup_directory') {
+        valid = this.isDirectoryAllowed(row['value'] as string);
+      }
+      if (!valid) {
+        throw new BackupImportValidationError(`settings key "${key}" has an invalid value`);
+      }
+    }
+  }
+
   private restoreFromDatabase(sourceDb: Database.Database): void {
     // Tables whose rows are never exported (users, sessions, api_keys, events)
     // must never be cleared on restore, otherwise importing a settings backup
-    // would remove every admin account and API key.
-    const restoredTables = EXPORT_TABLES.filter((table) => !TABLES_WITHOUT_EXPORTED_ROWS.has(table));
+    // would remove every admin account and API key. Settings are merged key by
+    // key below rather than cleared.
+    const restoredTables = EXPORT_TABLES.filter(
+      (table) => !TABLES_WITHOUT_EXPORTED_ROWS.has(table) && table !== 'settings',
+    );
     const deleteOrder = [...restoredTables].reverse();
     const insertOrder = [...restoredTables];
 
-    // Secrets and auth mode that must survive a restore when the backup does
-    // not carry a usable value for them.
-    const preservedSettings = new Map<string, string>();
-    for (const key of ['auth_mode', ...BLANKED_SETTING_KEYS]) {
-      const value = this.getSettingValue(key);
-      if (value !== undefined) preservedSettings.set(key, value);
+    const importedSettings = new Map<string, string>();
+    for (const row of this.selectAll(sourceDb, 'settings')) {
+      const key = typeof row['key'] === 'string' ? row['key'] : '';
+      if (RESTORABLE_SETTING_KEYS.has(key) && typeof row['value'] === 'string') {
+        importedSettings.set(key, row['value']);
+      }
     }
 
     const restore = this.db.transaction(() => {
@@ -338,13 +546,8 @@ export class SettingsBackupService {
         const columns = this.getTableColumns(sourceDb, table);
         if (columns.length === 0) continue;
 
-        const rows = sourceDb
-          .prepare(`SELECT * FROM ${this.quoteIdentifier(table)}`)
-          .all() as Array<Record<string, unknown>>;
-
-        for (const row of rows) {
-          const normalizedRow = this.normalizeImportedRow(table, row, preservedSettings);
-          if (!normalizedRow) continue;
+        for (const row of this.selectAll(sourceDb, table)) {
+          const normalizedRow = this.normalizeImportedRow(table, row);
           const placeholders = columns.map(() => '?').join(', ');
           const columnList = columns.map((column) => this.quoteIdentifier(column)).join(', ');
           const values = columns.map((column) => normalizedRow[column]);
@@ -357,10 +560,25 @@ export class SettingsBackupService {
         }
       }
 
-      // Re-apply preserved settings that the backup did not contain at all.
-      for (const [key, value] of preservedSettings) {
-        if (this.getSettingValue(key) === undefined) {
-          this.upsertSetting(key, value);
+      for (const key of RESTORABLE_SETTING_KEYS) {
+        const imported = importedSettings.get(key);
+
+        if (BLANKED_SETTING_KEYS.has(key)) {
+          // Secrets: a usable imported value is re-encrypted with this server's
+          // key; otherwise whatever is configured now is kept.
+          const secret = this.toStoredImportedSecret(imported);
+          if (secret !== null) {
+            this.upsertSetting(key, secret);
+          } else if (imported !== undefined && this.getSettingValue(key) === undefined) {
+            this.upsertSetting(key, '');
+          }
+          continue;
+        }
+
+        if (imported === undefined) {
+          this.db.prepare('DELETE FROM settings WHERE key = ?').run(key);
+        } else {
+          this.upsertSetting(key, key === 'backup_directory' ? this.normalizeDirectory(imported) : imported);
         }
       }
     });
@@ -374,6 +592,26 @@ export class SettingsBackupService {
     } finally {
       if (foreignKeysWereOn) this.db.pragma('foreign_keys = ON');
     }
+  }
+
+  /**
+   * Turn an imported secret setting into its stored form, or null when the
+   * backup carries no usable value. Plaintext is encrypted; an `enc:` value is
+   * kept only if it decrypts with this server's key.
+   */
+  private toStoredImportedSecret(value: string | undefined): string | null {
+    const trimmed = value?.trim();
+    if (!trimmed) return null;
+
+    if (isEncryptedStoredSecret(trimmed)) {
+      try {
+        return decryptStoredSecret(trimmed, this.dataDir) ? trimmed : null;
+      } catch {
+        return null;
+      }
+    }
+
+    return encryptStoredSecret(trimmed, this.dataDir);
   }
 
   private createRedactedDump(createdAt: string, reason: 'manual' | 'scheduled'): string {
@@ -452,38 +690,10 @@ export class SettingsBackupService {
   private normalizeImportedRow(
     table: (typeof EXPORT_TABLES)[number],
     row: Record<string, unknown>,
-    preservedSettings: ReadonlyMap<string, string>,
-  ): Record<string, unknown> | null {
-    if (table === 'settings') {
-      const key = typeof row['key'] === 'string' ? row['key'] : '';
-
-      if (key === 'auth_mode') {
-        // Never change the live auth mode from a backup. If none is set yet,
-        // skip the row rather than silently disabling authentication.
-        const current = preservedSettings.get(key);
-        return current === undefined ? null : { ...row, value: current };
-      }
-
-      if (BLANKED_SETTING_KEYS.has(key)) {
-        const imported = typeof row['value'] === 'string' ? row['value'] : '';
-        if (imported.trim().length > 0) return row;
-        return { ...row, value: preservedSettings.get(key) ?? '' };
-      }
-
-      if (key === 'backup_last_error') {
-        return { ...row, value: '' };
-      }
-
-      return row;
-    }
-
+  ): Record<string, unknown> {
     if (table === 'arr_instances') {
-      const encryptedPlaceholder =
-        typeof row['api_key_encrypted'] === 'string' && row['api_key_encrypted'].trim().length > 0
-          ? row['api_key_encrypted']
-          : encrypt('', this.dataDir);
-
-      return { ...row, api_key_encrypted: encryptedPlaceholder };
+      // Imported API keys are never trusted: always store a blank placeholder.
+      return { ...row, api_key_encrypted: encrypt('', this.dataDir) };
     }
 
     if (table === 'filters') {
@@ -495,6 +705,11 @@ export class SettingsBackupService {
     }
 
     return row;
+  }
+
+  private selectAll(db: Database.Database, table: (typeof EXPORT_TABLES)[number]): Array<Record<string, unknown>> {
+    if (this.getTableColumns(db, table).length === 0) return [];
+    return db.prepare(`SELECT * FROM ${this.quoteIdentifier(table)}`).all() as Array<Record<string, unknown>>;
   }
 
   private getSchemaRows(type: SqliteSchemaRow['type']): SqliteSchemaRow[] {
@@ -522,7 +737,7 @@ export class SettingsBackupService {
   }
 
   private listBackups(directory: string): BackupFileInfo[] {
-    if (!fs.existsSync(directory)) return [];
+    if (!this.isDirectoryAllowed(directory) || !fs.existsSync(directory)) return [];
 
     return fs
       .readdirSync(directory)
@@ -571,9 +786,11 @@ export class SettingsBackupService {
     return valid.toSorted((left, right) => Date.parse(right) - Date.parse(left))[0] ?? null;
   }
 
-  private getNullableSetting(key: string): string | null {
-    const value = this.getSettingValue(key)?.trim();
-    return value ?? null;
+  /** Only generic messages are ever surfaced; filesystem details stay in the logs. */
+  private getLastError(): string | null {
+    const value = this.getSettingValue('backup_last_error')?.trim();
+    if (!value) return null;
+    return KNOWN_BACKUP_ERRORS.has(value) ? value : BACKUP_WRITE_ERROR_MESSAGE;
   }
 
   private getDirectorySetting(): string {
@@ -582,7 +799,40 @@ export class SettingsBackupService {
 
   private normalizeDirectory(directory: string): string {
     const trimmed = directory.trim();
-    return trimmed.length > 0 ? trimmed : this.defaultDirectory;
+    return path.resolve(this.dataDir, trimmed.length > 0 ? trimmed : this.defaultDirectory);
+  }
+
+  private isDirectoryAllowed(directory: string): boolean {
+    try {
+      this.resolveBackupDirectory(directory, false);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Resolve a backup directory and require it (after resolving symlinks) to be
+   * inside the data directory. With `create`, the directory is created when
+   * missing and re-checked afterwards. Throws BackupDirectoryError otherwise.
+   */
+  private resolveBackupDirectory(directory: string, create: boolean): string {
+    const candidate = this.normalizeDirectory(directory);
+    fs.mkdirSync(this.dataDir, { recursive: true });
+    const dataRoot = fs.realpathSync(this.dataDir);
+
+    if (!isPathInside(dataRoot, realpathOfNearestAncestor(candidate))) {
+      throw new BackupDirectoryError();
+    }
+
+    if (create) {
+      fs.mkdirSync(candidate, { recursive: true });
+      if (!isPathInside(dataRoot, fs.realpathSync(candidate))) {
+        throw new BackupDirectoryError();
+      }
+    }
+
+    return candidate;
   }
 
   private getPositiveIntegerSetting(key: string, defaultValue: number): number {

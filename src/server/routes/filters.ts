@@ -122,7 +122,7 @@ function normalizeBlocklistPayload<T extends { actionType?: string; actionPayloa
   return data;
 }
 
-const createFilterSchema = z.object({
+export const createFilterSchema = z.object({
   name: z.string().min(1, 'Name is required'),
   description: z.string().optional(),
   triggerSource: z.enum(['watcher', 'cron', 'manual']),

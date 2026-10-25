@@ -2,11 +2,23 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import Database from 'better-sqlite3';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
 import { runMigrations } from '../../src/db/migrate.js';
-import { decrypt, encrypt, resetEncryptionKey } from '../../src/services/encryption.js';
-import { SettingsBackupService, splitSqlStatements } from '../../src/server/services/settingsBackup.js';
+import {
+  decrypt,
+  decryptStoredSecret,
+  encrypt,
+  isEncryptedStoredSecret,
+  resetEncryptionKey,
+} from '../../src/services/encryption.js';
+import {
+  BackupDirectoryError,
+  BackupImportValidationError,
+  SettingsBackupService,
+  splitSqlStatements,
+} from '../../src/server/services/settingsBackup.js';
+import { createFilterSchema } from '../../src/server/routes/filters.js';
 import { resetConfigCache } from '../../src/config/index.js';
 import { closeDatabase, openDatabase } from '../../src/db/index.js';
 import { createApp } from '../../src/server/app.js';
@@ -97,7 +109,7 @@ function seedDatabase(db: Database.Database, dataDir: string): SeedResult {
       'Episode Filter',
       'Moves matching releases',
       'watcher',
-      'contains',
+      'regex',
       '{"value":"1080p"}',
       'move',
       '{"destination":"/library/series"}',
@@ -154,7 +166,7 @@ describe('SettingsBackupService', () => {
 
   it('creates a redacted SQL backup that omits live secrets and auth data', () => {
     const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'filtarr-backup-export-'));
-    const backupDir = path.join(rootDir, 'backups');
+    const backupDir = path.join(rootDir, 'data', 'backups');
     const dataDir = path.join(rootDir, 'data');
     cleanupPaths.push(rootDir);
 
@@ -204,12 +216,12 @@ describe('SettingsBackupService', () => {
 
     const sourceService = new SettingsBackupService(sourceDb, {
       dataDir: path.join(sourceRoot, 'data'),
-      defaultDirectory: path.join(sourceRoot, 'backups'),
+      defaultDirectory: path.join(sourceRoot, 'data', 'backups'),
       now: () => new Date('2026-03-08T12:30:00.000Z'),
     });
     const targetService = new SettingsBackupService(targetDb, {
       dataDir: path.join(targetRoot, 'data'),
-      defaultDirectory: path.join(targetRoot, 'backups'),
+      defaultDirectory: path.join(targetRoot, 'data', 'backups'),
       now: () => new Date('2026-03-08T12:45:00.000Z'),
     });
 
@@ -297,11 +309,11 @@ describe('SettingsBackupService', () => {
 
     const sourceService = new SettingsBackupService(sourceDb, {
       dataDir: path.join(sourceRoot, 'data'),
-      defaultDirectory: path.join(sourceRoot, 'backups'),
+      defaultDirectory: path.join(sourceRoot, 'data', 'backups'),
     });
     const targetService = new SettingsBackupService(targetDb, {
       dataDir: path.join(targetRoot, 'data'),
-      defaultDirectory: path.join(targetRoot, 'backups'),
+      defaultDirectory: path.join(targetRoot, 'data', 'backups'),
     });
 
     const sql = fs.readFileSync(sourceService.createBackup('manual').filePath, 'utf8');
@@ -342,11 +354,11 @@ describe('SettingsBackupService', () => {
 
     const sourceService = new SettingsBackupService(sourceDb, {
       dataDir: path.join(sourceRoot, 'data'),
-      defaultDirectory: path.join(sourceRoot, 'backups'),
+      defaultDirectory: path.join(sourceRoot, 'data', 'backups'),
     });
     const targetService = new SettingsBackupService(targetDb, {
       dataDir: path.join(targetRoot, 'data'),
-      defaultDirectory: path.join(targetRoot, 'backups'),
+      defaultDirectory: path.join(targetRoot, 'data', 'backups'),
     });
 
     const sql = fs.readFileSync(sourceService.createBackup('manual').filePath, 'utf8');
@@ -375,7 +387,7 @@ describe('SettingsBackupService', () => {
 
     const service = new SettingsBackupService(db, {
       dataDir: path.join(rootDir, 'data'),
-      defaultDirectory: path.join(rootDir, 'backups'),
+      defaultDirectory: path.join(rootDir, 'data', 'backups'),
     });
     service.importBackup(fs.readFileSync(service.createBackup('manual').filePath, 'utf8'));
 
@@ -411,7 +423,7 @@ describe('SettingsBackupService', () => {
     insertSetting(db, 'backup_retention_count', '1');
     let current = new Date('2026-03-08T12:00:00.000Z');
     const service = new SettingsBackupService(db, {
-      dataDir: path.join(rootDir, 'data'),
+      dataDir: rootDir,
       defaultDirectory: backupDir,
       now: () => current,
     });
@@ -422,6 +434,224 @@ describe('SettingsBackupService', () => {
     const second = service.createBackup('manual');
 
     expect(fs.readdirSync(backupDir).toSorted()).toEqual([second.fileName, 'my-database-dump.sql'].toSorted());
+  });
+});
+
+describe('SettingsBackupService import hardening', () => {
+  const cleanupPaths: string[] = [];
+  const cleanupDbs: Database.Database[] = [];
+
+  afterEach(() => {
+    while (cleanupDbs.length > 0) cleanupDbs.pop()?.close();
+    while (cleanupPaths.length > 0) {
+      const target = cleanupPaths.pop();
+      if (target) fs.rmSync(target, { recursive: true, force: true });
+    }
+    vi.unstubAllEnvs();
+    resetEncryptionKey();
+  });
+
+  /** Export a backup from a seeded source DB (optionally mutated first) and prepare an empty target. */
+  function prepare(mutateSource?: (db: Database.Database) => void) {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'filtarr-backup-harden-'));
+    cleanupPaths.push(root);
+    const sourceDataDir = path.join(root, 'source');
+    const targetDataDir = path.join(root, 'target');
+
+    const sourceDb = createDatabase();
+    const targetDb = createDatabase();
+    cleanupDbs.push(sourceDb, targetDb);
+    seedDatabase(sourceDb, sourceDataDir);
+    mutateSource?.(sourceDb);
+
+    const sourceService = new SettingsBackupService(sourceDb, { dataDir: sourceDataDir });
+    const targetService = new SettingsBackupService(targetDb, { dataDir: targetDataDir });
+    const backup = sourceService.createBackup('manual');
+    const sql = fs.readFileSync(backup.filePath, 'utf8');
+
+    return { backup, sql, targetDb, targetService, targetDataDir };
+  }
+
+  const getSetting = (db: Database.Database, key: string) =>
+    db.prepare<[string], { value: string }>('SELECT value FROM settings WHERE key = ?').get(key)?.value;
+
+  it('keeps setup_complete, auth_mode, and keys outside the allowlist on import', () => {
+    const { sql, targetDb, targetService } = prepare((db) => {
+      insertSetting(db, 'planted_key', 'from-backup');
+      db.prepare("DELETE FROM settings WHERE key = 'setup_complete'").run();
+    });
+    insertSetting(targetDb, 'setup_complete', 'true');
+    insertSetting(targetDb, 'auth_mode', 'forms');
+    insertSetting(targetDb, 'some_future_key', 'keep-me');
+    insertSetting(targetDb, 'backup_last_run_at', '2026-01-01T00:00:00.000Z');
+
+    expect(sql).not.toContain("'setup_complete'");
+    targetService.importBackup(sql);
+
+    expect(getSetting(targetDb, 'setup_complete')).toBe('true');
+    expect(getSetting(targetDb, 'auth_mode')).toBe('forms');
+    expect(getSetting(targetDb, 'some_future_key')).toBe('keep-me');
+    expect(getSetting(targetDb, 'backup_last_run_at')).toBe('2026-01-01T00:00:00.000Z');
+    expect(getSetting(targetDb, 'planted_key')).toBeUndefined();
+    expect(getSetting(targetDb, 'validation_interval_minutes')).toBe('45');
+  });
+
+  it('does not import setup_complete from a backup', () => {
+    const { sql, targetDb, targetService } = prepare((db) => insertSetting(db, 'setup_complete', 'true'));
+
+    targetService.importBackup(sql);
+
+    expect(getSetting(targetDb, 'setup_complete')).toBeUndefined();
+  });
+
+  it('rejects a custom_script job when custom scripts are disabled', () => {
+    vi.stubEnv('FILTARR_ENABLE_CUSTOM_SCRIPTS', 'false');
+    const { sql, targetDb, targetService } = prepare((db) => {
+      db.prepare("UPDATE jobs SET type = 'custom_script', payload = 'echo planted'").run();
+    });
+    insertSetting(targetDb, 'validation_interval_minutes', '7');
+
+    expect(() => targetService.importBackup(sql)).toThrow(BackupImportValidationError);
+    expect(() => targetService.importBackup(sql)).toThrow(/jobs row 1 .*FILTARR_ENABLE_CUSTOM_SCRIPTS/);
+    // Nothing was restored.
+    expect(getSetting(targetDb, 'validation_interval_minutes')).toBe('7');
+    expect(targetDb.prepare<[], { count: number }>('SELECT COUNT(*) as count FROM filters').get()?.count).toBe(0);
+  });
+
+  it('accepts a custom_script job when custom scripts are enabled', () => {
+    vi.stubEnv('FILTARR_ENABLE_CUSTOM_SCRIPTS', 'true');
+    const { sql, targetDb, targetService } = prepare((db) => {
+      db.prepare("UPDATE jobs SET type = 'custom_script'").run();
+    });
+
+    targetService.importBackup(sql);
+
+    expect(targetDb.prepare<[], { type: string }>('SELECT type FROM jobs').get()?.type).toBe('custom_script');
+  });
+
+  it('rejects a script filter when custom scripts are disabled', () => {
+    vi.stubEnv('FILTARR_ENABLE_CUSTOM_SCRIPTS', 'false');
+    const { sql, targetService } = prepare((db) => {
+      db.prepare("UPDATE filters SET action_type = 'script', action_payload = 'echo planted'").run();
+    });
+
+    expect(() => targetService.importBackup(sql)).toThrow(/filters row 1 uses a custom script/);
+  });
+
+  it('rejects filters that fail the API create schema', () => {
+    const { sql, targetService } = prepare((db) => {
+      db.prepare("UPDATE filters SET rule_type = 'bogus'").run();
+    });
+
+    expect(() => targetService.importBackup(sql)).toThrow(/filters row 1 failed validation \(ruleType\)/);
+  });
+
+  const rootTargetedFilterRejected = !createFilterSchema.safeParse({
+    name: 'Wipe',
+    triggerSource: 'manual',
+    ruleType: 'regex',
+    rulePayload: '.*',
+    actionType: 'delete',
+    targetPath: '/',
+  }).success;
+
+  // Runs once the filters create schema rejects root target paths; the import
+  // reuses that schema object, so the rule applies to imports automatically.
+  it.skipIf(!rootTargetedFilterRejected)('rejects a root-targeted delete filter via the filters schema', () => {
+    const { sql, targetService } = prepare((db) => {
+      db.prepare("UPDATE filters SET action_type = 'delete', action_payload = NULL, target_path = '/'").run();
+    });
+
+    expect(() => targetService.importBackup(sql)).toThrow(/filters row 1 failed validation/);
+  });
+
+  it('rejects validation_interval_minutes below the route minimum', () => {
+    const { sql, targetService } = prepare((db) => insertSetting(db, 'validation_interval_minutes', '0'));
+
+    expect(() => targetService.importBackup(sql)).toThrow(
+      /settings key "validation_interval_minutes" has an invalid value/,
+    );
+  });
+
+  it('rejects an imported backup directory outside the data directory', () => {
+    const { sql, targetService } = prepare();
+    const tampered = `${sql}INSERT INTO "settings" (key, value) VALUES ('backup_directory', '/etc');\n`;
+
+    expect(() => targetService.importBackup(tampered)).toThrow(/settings key "backup_directory"/);
+  });
+
+  it('blanks imported API keys and re-encrypts plaintext secret settings', () => {
+    const { sql, targetDb, targetService, targetDataDir } = prepare();
+    const tampered =
+      sql.replace("'default_slack_token', ''", "'default_slack_token', 'xoxb-imported'") +
+      `INSERT INTO "arr_instances" (name, type, url, api_key_encrypted) VALUES ('Planted', 'radarr', 'http://radarr.local', 'deadbeefcafe');\n`;
+    expect(tampered).toContain('xoxb-imported');
+
+    targetService.importBackup(tampered);
+
+    const keys = targetDb
+      .prepare<[], { api_key_encrypted: string }>('SELECT api_key_encrypted FROM arr_instances')
+      .all();
+    expect(keys).toHaveLength(2);
+    for (const { api_key_encrypted } of keys) {
+      expect(api_key_encrypted).not.toBe('deadbeefcafe');
+      expect(decrypt(api_key_encrypted, targetDataDir)).toBe('');
+    }
+
+    const storedToken = getSetting(targetDb, 'default_slack_token');
+    expect(isEncryptedStoredSecret(storedToken)).toBe(true);
+    expect(decryptStoredSecret(storedToken, targetDataDir)).toBe('xoxb-imported');
+  });
+
+  it('blanks the legacy slack_webhook_url on export', () => {
+    const { sql } = prepare((db) => insertSetting(db, 'slack_webhook_url', 'https://hooks.slack.test/secret'));
+
+    expect(sql).not.toContain('https://hooks.slack.test/secret');
+  });
+
+  it('rejects backup directories outside the data directory', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'filtarr-backup-dir-'));
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'filtarr-backup-outside-'));
+    cleanupPaths.push(root, outside);
+    const dataDir = path.join(root, 'data');
+    const db = createDatabase();
+    cleanupDbs.push(db);
+    const service = new SettingsBackupService(db, { dataDir });
+
+    expect(() => service.updateSettings({ directory: outside })).toThrow(BackupDirectoryError);
+    expect(() => service.updateSettings({ directory: '../escape' })).toThrow(BackupDirectoryError);
+
+    fs.mkdirSync(dataDir, { recursive: true });
+    fs.symlinkSync(outside, path.join(dataDir, 'link'));
+    expect(() => service.updateSettings({ directory: path.join(dataDir, 'link', 'nested') })).toThrow(
+      BackupDirectoryError,
+    );
+
+    const state = service.updateSettings({ directory: 'backups' });
+    expect(state.directory).toBe(path.join(dataDir, 'backups'));
+
+    // A pre-existing out-of-tree setting is neither written to nor listed, and the error is generic.
+    fs.writeFileSync(path.join(outside, 'filtarr-settings-20260101-000000.sql'), '-- other');
+    insertSetting(db, 'backup_directory', outside);
+    expect(service.getState().backups).toEqual([]);
+    expect(() => service.createBackup('manual')).toThrow(BackupDirectoryError);
+    expect(service.getState().lastError).toBe('Backup directory is not inside the Filtarr data directory');
+    expect(fs.readdirSync(outside)).toEqual(['filtarr-settings-20260101-000000.sql']);
+  });
+
+  it('never surfaces raw filesystem errors as the last backup error', () => {
+    const db = createDatabase();
+    cleanupDbs.push(db);
+    const service = new SettingsBackupService(db, { dataDir: os.tmpdir() });
+    insertSetting(db, 'backup_last_error', "EACCES: permission denied, open '/secret/path'");
+
+    expect(service.getState().lastError).toBe('Backup failed; check the server logs for details');
+  });
+
+  it.skipIf(process.platform === 'win32')('writes backup files with mode 0600', () => {
+    const { backup } = prepare();
+
+    expect(fs.statSync(backup.filePath).mode & 0o777).toBe(0o600);
   });
 });
 

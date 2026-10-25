@@ -1,3 +1,4 @@
+import path from 'node:path';
 import Database from 'better-sqlite3';
 import express from 'express';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -57,10 +58,17 @@ describe('settings routes', () => {
 
     expect(res.status).toBe(200);
     expect(res.body.enabled).toBe(true);
-    expect(res.body.directory).toBe('/config/backup');
+    expect(res.body.directory).toBe(path.resolve(process.env['FILTARR_DATA_DIR'] ?? '', 'backup'));
     expect(res.body.retentionCount).toBe(30);
     expect(res.body.frequency).toBe('daily');
     expect(Array.isArray(res.body.redactionNotes)).toBe(true);
+  });
+
+  it('rejects a backup directory outside the data directory', async () => {
+    const res = await request(app).put('/api/v1/settings/backup').send({ directory: '/etc' });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('Backup directory must be inside the Filtarr data directory');
   });
 
   it('sends a Slack test notification with the provided Slack settings', async () => {

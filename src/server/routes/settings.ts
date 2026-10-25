@@ -30,6 +30,7 @@ import {
   maskApiKey,
 } from '../../services/encryption.js';
 import { getAuthMode } from '../lib/authMode.js';
+import { validateWebhookUrl } from '../../services/security.js';
 
 /** Body size limit for backup imports (the global JSON parser uses the 100kb default). */
 export const BACKUP_IMPORT_BODY_LIMIT = '10mb';
@@ -417,6 +418,16 @@ export function createSettingsRoutes(
         defaultSlackChannel,
       } = req.body as Partial<NotificationSettings>;
 
+      const webhookUrlUpdate = getSecretUpdate(defaultWebhookUrl);
+      if (webhookUrlUpdate !== undefined) {
+        try {
+          validateWebhookUrl(webhookUrlUpdate, { fieldName: 'defaultWebhookUrl' });
+        } catch (err) {
+          res.status(400).json({ error: err instanceof Error ? err.message : 'Invalid webhook URL' });
+          return;
+        }
+      }
+
       if (typeof slackEnabled === 'boolean') {
         upsertSetting(db, 'slack_enabled', slackEnabled ? '1' : '0');
       }
@@ -425,7 +436,6 @@ export function createSettingsRoutes(
         upsertSetting(db, 'webhook_enabled', webhookEnabled ? '1' : '0');
       }
 
-      const webhookUrlUpdate = getSecretUpdate(defaultWebhookUrl);
       if (webhookUrlUpdate !== undefined) {
         upsertSecretSetting(db, 'default_webhook_url', webhookUrlUpdate);
       }

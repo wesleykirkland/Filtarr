@@ -7,9 +7,17 @@ interface ThemeContextType {
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
+function readStoredPreference(): string | null {
+  try {
+    return localStorage.getItem('darkMode');
+  } catch {
+    return null;
+  }
+}
+
 export function ThemeProvider({ children }: { readonly children: React.ReactNode }) {
   const [darkMode, setDarkMode] = useState(() => {
-    const saved = localStorage.getItem('darkMode');
+    const saved = readStoredPreference();
     if (saved !== null) return saved === 'true';
     return typeof globalThis.matchMedia === 'function' && globalThis.matchMedia('(prefers-color-scheme: dark)').matches;
   });
@@ -17,7 +25,11 @@ export function ThemeProvider({ children }: { readonly children: React.ReactNode
   useEffect(() => {
     document.documentElement.classList.toggle('dark', darkMode);
     document.documentElement.classList.toggle('light', !darkMode);
-    localStorage.setItem('darkMode', String(darkMode));
+    try {
+      localStorage.setItem('darkMode', String(darkMode));
+    } catch {
+      // Storage may be unavailable (private mode, blocked site data); theme still applies for this session.
+    }
   }, [darkMode]);
 
   const toggleDarkMode = useCallback(() => setDarkMode((prev) => !prev), []);

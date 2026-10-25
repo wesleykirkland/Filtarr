@@ -112,4 +112,29 @@ describe('ThemeProvider', () => {
 
     await view.unmount();
   });
+
+  it('falls back to the system preference when storage throws', async () => {
+    installMatchMediaMock(true);
+    Object.defineProperty(globalThis, 'localStorage', {
+      configurable: true,
+      value: {
+        getItem: () => { throw new Error('SecurityError'); },
+        setItem: () => { throw new Error('SecurityError'); },
+        clear: () => {},
+      },
+    });
+
+    const view = await render(
+      <ThemeProvider>
+        <ThemeConsumer />
+      </ThemeProvider>,
+    );
+
+    const button = view.container.querySelector<HTMLButtonElement>('button');
+    expect(button?.dataset.mode).toBe('dark');
+    await click(button);
+    expect(button?.dataset.mode).toBe('light');
+
+    await view.unmount();
+  });
 });

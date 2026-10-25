@@ -2,7 +2,7 @@
  * Settings API routes for app configuration.
  */
 
-import { Router, type Request, type Response, type NextFunction } from 'express';
+import express, { Router, type Request, type Response, type NextFunction } from 'express';
 import bcrypt from 'bcrypt';
 import type Database from 'better-sqlite3';
 import {
@@ -21,6 +21,9 @@ import {
   type BackupSettingsState,
 } from '../services/settingsBackup.js';
 import { reloadSettingsBackupScheduler } from '../cron/settingsBackup.js';
+
+/** Body size limit for backup imports (the global JSON parser uses the 100kb default). */
+export const BACKUP_IMPORT_BODY_LIMIT = '10mb';
 
 interface ChangeAuthModeRequest {
   authMode: AuthMode;
@@ -435,43 +438,48 @@ export function createSettingsRoutes(
   });
 
   // POST /api/v1/settings/backup/import — import a redacted SQL backup
-  router.post('/backup/import', (req: Request, res: Response): void => {
-    try {
-      const body = req.body as BackupImportRequest;
-      const sqlInput: unknown = body.sql;
+  router.post(
+    '/backup/import',
+    express.json({ limit: BACKUP_IMPORT_BODY_LIMIT }),
+    (req: Request, res: Response): void => {
+      try {
+        const body = req.body as BackupImportRequest;
+        const sqlInput: unknown = body.sql;
 
-      // Validate that the input is a non-empty string before proceeding.
-      // This uses a type-narrowing guard so CodeQL sees the check as structural,
-      // not as a user-controlled bypass of a security gate.
-      if (typeof sqlInput !== 'string') {
-        res.status(400).json({ error: 'Backup SQL is required' });
-        return;
+        // Validate that the input is a non-empty string before proceeding.
+        // This uses a type-narrowing guard so CodeQL sees the check as structural,
+        // not as a user-controlled bypass of a security gate.
+        if (typeof sqlInput !== 'string') {
+          res.status(400).json({ error: 'Backup SQL is required' });
+          return;
+        }
+
+        const trimmedSql = sqlInput.trim();
+        // codeql[js/user-controlled-bypass] - intentional input validation, not a security gate; real SQL content validation occurs in importBackup → validateBackupSql
+        if (trimmedSql.length === 0) {
+          res.status(400).json({ error: 'Backup SQL is required' });
+          return;
+        }
+
+        const result = backupService.importBackup(trimmedSql);
+        onAuthModeChange?.(getCurrentAuthMode(db));
+        reloadSettingsBackupScheduler();
+
+        res.json({
+          success: true,
+          message:
+            'Backup imported successfully. Sensitive values were redacted and must be re-entered.',
+          ...result,
+          redactionNotes: SettingsBackupService.getRedactionNotes(),
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Failed to import backup';
+        const statusCode =
+          message.includes('required') || message.includes('Backup SQL') ? 400 : 500;
+        res.status(statusCode).json({ error: message });
       }
-
-      const trimmedSql = sqlInput.trim();
-      // codeql[js/user-controlled-bypass] - intentional input validation, not a security gate; real SQL content validation occurs in importBackup → validateBackupSql
-      if (trimmedSql.length === 0) {
-        res.status(400).json({ error: 'Backup SQL is required' });
-        return;
-      }
-
-      const result = backupService.importBackup(trimmedSql);
-      onAuthModeChange?.(getCurrentAuthMode(db));
-      reloadSettingsBackupScheduler();
-
-      res.json({
-        success: true,
-        message:
-          'Backup imported successfully. Sensitive values were redacted and must be re-entered.',
-        ...result,
-        redactionNotes: SettingsBackupService.getRedactionNotes(),
-      });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to import backup';
-      const statusCode = message.includes('required') || message.includes('could not be imported') ? 400 : 500;
-      res.status(statusCode).json({ error: message });
-    }
-  });
+    },
+  );
 
   return router;
 }

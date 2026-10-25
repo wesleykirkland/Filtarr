@@ -15,6 +15,17 @@ import { resetConfigCache } from '../../src/config/index.js';
 import { closeDatabase, openDatabase } from '../../src/db/index.js';
 import { createApp } from '../../src/server/app.js';
 
+type HeaderMap = Record<string, string>;
+
+/** POST /api/v1/filters with the given headers and an empty JSON body. */
+function postFilters(app: express.Express, headers: HeaderMap = {}, body: unknown = {}) {
+  let req = request(app).post('/api/v1/filters');
+  for (const [name, value] of Object.entries(headers)) req = req.set(name, value);
+  return req.send(body);
+}
+
+const LOCAL_HOST = 'filtarr.local:3000';
+
 function makeApp(allowedOrigins: string | string[] = []) {
   const app = express();
   app.use('/api', noStoreApiResponses());
@@ -55,20 +66,14 @@ describe('requireJsonBody', () => {
   it('accepts JSON (with charset or +json) and bodyless requests', async () => {
     const app = makeApp();
 
-    const json = await request(app).post('/api/v1/filters').send({ name: 'x' });
+    const json = await postFilters(app, {}, { name: 'x' });
     expect(json.status).toBe(200);
     expect(json.body.body).toEqual({ name: 'x' });
 
-    const charset = await request(app)
-      .post('/api/v1/filters')
-      .set('Content-Type', 'application/json; charset=utf-8')
-      .send('{"name":"y"}');
+    const charset = await postFilters(app, { 'Content-Type': 'application/json; charset=utf-8' }, '{"name":"y"}');
     expect(charset.status).toBe(200);
 
-    const vendor = await request(app)
-      .post('/api/v1/filters')
-      .set('Content-Type', 'application/vnd.filtarr+json')
-      .send('{"name":"z"}');
+    const vendor = await postFilters(app, { 'Content-Type': 'application/vnd.filtarr+json' }, '{"name":"z"}');
     expect(vendor.status).toBe(200);
 
     expect((await request(app).post('/api/v1/auth/logout')).status).toBe(200);
@@ -86,57 +91,44 @@ describe('rejectCrossSiteRequests', () => {
   it('rejects cross-site cookie/basic requests by Origin, Referer, or Sec-Fetch-Site', async () => {
     const app = makeApp();
 
-    const byOrigin = await request(app)
-      .post('/api/v1/filters')
-      .set('Host', 'filtarr.local:3000')
-      .set('Origin', 'https://evil.example')
-      .set('Cookie', 'filtarr.sid=abc')
-      .send({ name: 'x' });
+    const byOrigin = await postFilters(
+      app,
+      { Host: LOCAL_HOST, Origin: 'https://evil.example', Cookie: 'filtarr.sid=abc' },
+      { name: 'x' },
+    );
     expect(byOrigin.status).toBe(403);
     expect(byOrigin.body).toEqual({ error: 'Cross-site request rejected' });
 
     const byReferer = await request(app)
       .delete('/api/v1/instances/1')
-      .set('Host', 'filtarr.local:3000')
+      .set('Host', LOCAL_HOST)
       .set('Referer', 'https://evil.example/page');
     expect(byReferer.status).toBe(403);
 
-    const nullOrigin = await request(app)
-      .post('/api/v1/filters')
-      .set('Host', 'filtarr.local:3000')
-      .set('Origin', 'null')
-      .send({});
+    const nullOrigin = await postFilters(app, { Host: LOCAL_HOST, Origin: 'null' });
     expect(nullOrigin.status).toBe(403);
 
-    const crossSiteNoOrigin = await request(app)
-      .post('/api/v1/filters')
-      .set('Sec-Fetch-Site', 'cross-site')
-      .send({});
+    const crossSiteNoOrigin = await postFilters(app, { 'Sec-Fetch-Site': 'cross-site' });
     expect(crossSiteNoOrigin.status).toBe(403);
   });
 
   it('allows same-origin browser requests and non-browser clients', async () => {
     const app = makeApp();
 
-    const sameOrigin = await request(app)
-      .post('/api/v1/filters')
-      .set('Host', 'filtarr.local:3000')
-      .set('Origin', 'http://filtarr.local:3000')
-      .set('Sec-Fetch-Site', 'same-origin')
-      .send({});
+    const sameOrigin = await postFilters(app, {
+      Host: LOCAL_HOST,
+      Origin: `http://${LOCAL_HOST}`,
+      'Sec-Fetch-Site': 'same-origin',
+    });
     expect(sameOrigin.status).toBe(200);
 
-    const fetchSiteOnly = await request(app).post('/api/v1/filters').set('Sec-Fetch-Site', 'same-origin').send({});
+    const fetchSiteOnly = await postFilters(app, { 'Sec-Fetch-Site': 'same-origin' });
     expect(fetchSiteOnly.status).toBe(200);
 
-    const originMatchesHost = await request(app)
-      .post('/api/v1/filters')
-      .set('Host', 'filtarr.local:3000')
-      .set('Origin', 'http://filtarr.local:3000')
-      .send({});
+    const originMatchesHost = await postFilters(app, { Host: LOCAL_HOST, Origin: `http://${LOCAL_HOST}` });
     expect(originMatchesHost.status).toBe(200);
 
-    const noHeaders = await request(app).post('/api/v1/filters').send({});
+    const noHeaders = await postFilters(app);
     expect(noHeaders.status).toBe(200);
 
     const safeMethod = await request(app).get('/api/v1/filters').set('Origin', 'https://evil.example');
@@ -146,21 +138,19 @@ describe('rejectCrossSiteRequests', () => {
   it('exempts x-api-key requests and honors configured CORS origins', async () => {
     const app = makeApp(['https://app.example.com']);
 
-    const apiKey = await request(app)
-      .post('/api/v1/filters')
-      .set('Host', 'filtarr.local:3000')
-      .set('Origin', 'https://evil.example')
-      .set('Sec-Fetch-Site', 'cross-site')
-      .set('X-Api-Key', 'flt_test')
-      .send({});
+    const apiKey = await postFilters(app, {
+      Host: LOCAL_HOST,
+      Origin: 'https://evil.example',
+      'Sec-Fetch-Site': 'cross-site',
+      'X-Api-Key': 'flt_test',
+    });
     expect(apiKey.status).toBe(200);
 
-    const corsAllowed = await request(app)
-      .post('/api/v1/filters')
-      .set('Host', 'filtarr.local:3000')
-      .set('Origin', 'https://app.example.com')
-      .set('Sec-Fetch-Site', 'cross-site')
-      .send({});
+    const corsAllowed = await postFilters(app, {
+      Host: LOCAL_HOST,
+      Origin: 'https://app.example.com',
+      'Sec-Fetch-Site': 'cross-site',
+    });
     expect(corsAllowed.status).toBe(200);
   });
 });

@@ -77,6 +77,16 @@ function makeDb(options: Record<string, any> = {}) {
   const resetUpdate = { run: vi.fn() };
   const db = {
     prepare: vi.fn((sql: string) => {
+      if (sql.includes('AS setupComplete')) {
+        if (options.authModeThrows) throw new Error('settings unavailable');
+        return {
+          get: vi.fn(() => ({
+            setupComplete: options.setupPending ? null : 'true',
+            hasUsers: options.setupPending ? 0 : 1,
+            hasApiKeys: 0,
+          })),
+        };
+      }
       if (sql.includes("SELECT value FROM settings")) {
         if (options.authModeThrows) throw new Error('settings unavailable');
         return { get: vi.fn(() => (options.authMode === undefined ? undefined : { value: options.authMode })) };
@@ -162,11 +172,31 @@ describe('auth middleware helpers', () => {
     vi.useRealTimers();
   });
 
-  it('enforces requireAuth across auth modes and falls back to none when settings lookup fails', () => {
-    const noneReq = {} as any;
+  it('enforces requireAuth across auth modes and fails closed when the settings lookup throws', () => {
+    const failedRes = makeResponse();
+    const failedNext = vi.fn();
+    getHandles(makeDb({ authModeThrows: true }).db).requireAuth({} as any, failedRes, failedNext);
+    expect(failedNext).not.toHaveBeenCalled();
+    expect(failedRes.status).toHaveBeenCalledWith(503);
+    expect(failedRes.json).toHaveBeenCalledWith({ error: 'Authentication unavailable' });
+
     const noneNext = vi.fn();
-    getHandles(makeDb({ authModeThrows: true }).db).requireAuth(noneReq, makeResponse(), noneNext);
+    getHandles(makeDb({ authMode: 'none' }).db).requireAuth({} as any, makeResponse(), noneNext);
     expect(noneNext).toHaveBeenCalledTimes(1);
+
+    const unsetNext = vi.fn();
+    getHandles(makeDb().db).requireAuth({} as any, makeResponse(), unsetNext);
+    expect(unsetNext).toHaveBeenCalledTimes(1);
+
+    const pendingRes = makeResponse();
+    const pendingNext = vi.fn();
+    getHandles(makeDb({ setupPending: true }).db).requireAuth(
+      { apiKey: { id: 1 }, isAuthenticated: () => true } as any,
+      pendingRes,
+      pendingNext,
+    );
+    expect(pendingNext).not.toHaveBeenCalled();
+    expect(pendingRes.status).toHaveBeenCalledWith(401);
 
     const apiNext = vi.fn();
     getHandles(makeDb({ authMode: 'forms' }).db).requireAuth({ apiKey: { id: 1 } } as any, makeResponse(), apiNext);

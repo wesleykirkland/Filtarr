@@ -1,6 +1,10 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import request from 'supertest';
 import { createApp } from '../../src/server/app.js';
+import { getDatabase } from '../../src/db/index.js';
+import { markSetupComplete } from '../support/setupState.js';
+
+markSetupComplete(getDatabase());
 
 describe('job routes', () => {
   const app = createApp();

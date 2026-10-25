@@ -4,33 +4,20 @@ import type Database from 'better-sqlite3';
 import { generateApiKey, hashApiKey, getKeyIdentifiers } from '../middleware/apiKey.js';
 import { authRateLimiter } from '../middleware/security.js';
 import type { AuthMode } from '../../config/auth.js';
+import { needsSetup } from '../lib/authMode.js';
+import { clearSetupToken, verifySetupToken } from '../lib/setupToken.js';
 
 interface SetupRequest {
   authMode: AuthMode;
   username: string;
   password: string;
-}
-
-/**
- * Check if setup is needed.
- * Setup is complete when 'setup_complete' flag exists in settings table.
- * This is separate from user existence to support "none" auth mode.
- */
-function needsSetup(db: Database.Database): boolean {
-  try {
-    const result = db
-      .prepare<[], { value: string }>(`SELECT value FROM settings WHERE key = 'setup_complete'`)
-      .get();
-    return result?.value !== 'true';
-  } catch {
-    // Table might not exist yet
-    return true;
-  }
+  setupToken?: string;
 }
 
 /**
  * Create setup routes for initial configuration.
- * These endpoints are UNAUTHENTICATED — they only work when no admin exists.
+ * These endpoints are UNAUTHENTICATED — they only work when no admin exists, and completing
+ * setup requires the one-time setup token printed in the server log (or FILTARR_SETUP_TOKEN).
  */
 export function createSetupRoutes(
   db: Database.Database,
@@ -56,7 +43,14 @@ export function createSetupRoutes(
           return;
         }
 
-        const { authMode, username, password } = req.body as SetupRequest;
+        const { authMode, username, password, setupToken } = (req.body ?? {}) as SetupRequest;
+
+        // SECURITY: Require the one-time setup token so whoever first reaches the port
+        // cannot claim the instance. Do not reveal why the request was rejected.
+        if (!verifySetupToken(setupToken)) {
+          res.status(403).json({ error: 'Forbidden' });
+          return;
+        }
 
         // Validate authMode
         if (!['none', 'basic', 'forms'].includes(authMode)) {
@@ -134,6 +128,8 @@ export function createSetupRoutes(
           return;
         }
 
+        clearSetupToken();
+
         // Notify app of setup completion (for runtime config update)
         if (onSetupComplete) {
           onSetupComplete(authMode);
@@ -150,18 +146,4 @@ export function createSetupRoutes(
   );
 
   return router;
-}
-
-/**
- * Get stored auth mode from database, or 'none' if not set.
- */
-export function getStoredAuthMode(db: Database.Database): AuthMode {
-  try {
-    const result = db
-      .prepare<[], { value: string }>(`SELECT value FROM settings WHERE key = 'auth_mode'`)
-      .get();
-    return (result?.value as AuthMode) || 'none';
-  } catch {
-    return 'none';
-  }
 }

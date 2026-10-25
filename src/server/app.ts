@@ -5,13 +5,14 @@ import { createDirectoriesRoutes } from './routes/directories.js';
 import { createFiltersRoutes } from './routes/filters.js';
 import { createJobsRoutes } from './routes/jobs.js';
 import { createEventsRoutes } from './routes/events.js';
-import { createSetupRoutes, getStoredAuthMode } from './routes/setup.js';
+import { createSetupRoutes } from './routes/setup.js';
+import { getAuthMode } from './lib/authMode.js';
 import { createAuthRoutes } from './routes/auth.js';
 import { createSettingsRoutes } from './routes/settings.js';
 
 const BACKUP_IMPORT_PATH = '/api/v1/settings/backup/import';
 import { createAuthMiddleware } from './middleware/auth.js';
-import { applySecurityMiddleware, authRateLimiter } from './middleware/security.js';
+import { applySecurityMiddleware } from './middleware/security.js';
 import { publicSystemRoutes, protectedSystemRoutes } from './routes/system.js';
 import { getDatabase } from '../db/index.js';
 import { errorHandler } from './middleware/errorHandler.js';
@@ -21,7 +22,7 @@ import type { Database } from 'better-sqlite3';
 
 /** Get the current auth configuration from database settings */
 function getAuthConfig(db: Database): AuthConfig {
-  const mode = getStoredAuthMode(db);
+  const mode = getAuthMode(db);
   const envConfig = loadAuthConfigFromEnv();
   const config: AuthConfig = {
     mode,
@@ -75,15 +76,12 @@ export function createApp(db: Database = getDatabase()): express.Application {
   });
   app.use(express.urlencoded({ extended: false }));
 
-  // Auth-sensitive rate limiter for setup (login is limited inside the auth router)
-  const authLimiter = authRateLimiter(authConfig.rateLimitAuth);
-
   // Unauthenticated routes — setup and health check
   // SECURITY: These routes are intentionally unauthenticated
   app.use('/api/v1', publicSystemRoutes);
+  // POST /setup/complete applies its own auth rate limiter; GET /setup/status is not throttled.
   app.use(
     '/api/v1/setup',
-    authLimiter,
     createSetupRoutes(db, (authMode: AuthMode) => {
       // Runtime config update callback
       console.log(`Setup completed with auth mode: ${authMode}`);

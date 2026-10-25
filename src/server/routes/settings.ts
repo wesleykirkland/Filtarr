@@ -27,6 +27,7 @@ import {
   encryptStoredSecret,
   maskApiKey,
 } from '../../services/encryption.js';
+import { getAuthMode } from '../lib/authMode.js';
 
 /** Body size limit for backup imports (the global JSON parser uses the 100kb default). */
 export const BACKUP_IMPORT_BODY_LIMIT = '10mb';
@@ -140,20 +141,6 @@ function getOidcSettings(db: Database.Database): OidcAuthConfig {
 }
 
 /**
- * Get the current auth mode from the database settings.
- */
-function getCurrentAuthMode(db: Database.Database): AuthMode {
-  try {
-    const result = db
-      .prepare<[], { value: string }>(`SELECT value FROM settings WHERE key = 'auth_mode'`)
-      .get();
-    return (result?.value as AuthMode) || 'none';
-  } catch {
-    return 'none';
-  }
-}
-
-/**
  * Check if any admin users exist in the database.
  */
 function hasAdminUser(db: Database.Database): boolean {
@@ -178,7 +165,7 @@ export function createSettingsRoutes(
 
   // GET /api/v1/settings/auth-mode — get current auth mode
   router.get('/auth-mode', (_req: Request, res: Response): void => {
-    const authMode = getCurrentAuthMode(db);
+    const authMode = getAuthMode(db);
     const hasAdmin = hasAdminUser(db);
     const oidc = getOidcSettings(db);
     res.json({
@@ -216,6 +203,7 @@ export function createSettingsRoutes(
         }
 
         const hasAdmin = hasAdminUser(db);
+
 
         if (oidc) {
           const existingOidc = getOidcSettings(db);
@@ -512,7 +500,7 @@ export function createSettingsRoutes(
         }
 
         const result = backupService.importBackup(parsed.data.sql);
-        onAuthModeChange?.(getCurrentAuthMode(db));
+        onAuthModeChange?.(getAuthMode(db));
         reloadSettingsBackupScheduler();
 
         res.json({

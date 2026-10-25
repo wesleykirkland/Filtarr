@@ -31,6 +31,12 @@ async function setInputValue(input: HTMLInputElement, value: string) {
   });
 }
 
+async function enterSetupToken(value = 'test-setup-token') {
+  const input = document.body.querySelector('#setup-token') as HTMLInputElement | null;
+  if (!input) throw new Error('setup token input not rendered');
+  await setInputValue(input, value);
+}
+
 describe('client page smoke coverage', () => {
   beforeEach(() => {
     api.get.mockReset();
@@ -99,18 +105,20 @@ describe('client page smoke coverage', () => {
     await click(Array.from(document.body.querySelectorAll('button')).find((node) => node.textContent?.includes('Get Started')) ?? null);
     const noneRadio = Array.from(document.body.querySelectorAll('input')).find((node) => node.value === 'none');
     act(() => noneRadio!.click());
+    await enterSetupToken();
     await click(Array.from(document.body.querySelectorAll('button')).find((node) => node.textContent === 'Continue') ?? null);
     await waitFor(() => {
       expect(document.body.querySelector('[aria-label="Copy API key"]')).toBeTruthy();
     });
     await click(document.body.querySelector('[aria-label="Copy API key"]'));
-    expect(api.post).toHaveBeenCalledWith('/setup/complete', { authMode: 'none', username: 'admin', password: 'unused' });
+    expect(api.post).toHaveBeenCalledWith('/setup/complete', { authMode: 'none', username: 'admin', password: 'unused', setupToken: 'test-setup-token' });
     await noneView.unmount();
 
     const formsView = await render(wrap(<Setup />, '/setup'));
     await click(Array.from(document.body.querySelectorAll('button')).find((node) => node.textContent?.includes('Get Started')) ?? null);
     const radio = Array.from(document.body.querySelectorAll('input')).find((node) => node.value === 'forms');
     act(() => radio!.click());
+    await enterSetupToken();
     await click(Array.from(document.body.querySelectorAll('button')).find((node) => node.textContent === 'Continue') ?? null);
     await waitFor(() => {
       expect(Array.from(document.body.querySelectorAll('input')).length).toBeGreaterThanOrEqual(3);
@@ -120,7 +128,7 @@ describe('client page smoke coverage', () => {
     await setInputValue(formInputs[1]!, 'password123');
     await setInputValue(formInputs[2]!, 'password123');
     await click(Array.from(document.body.querySelectorAll('button')).find((node) => node.textContent?.includes('Complete Setup')) ?? null);
-    expect(api.post).toHaveBeenCalledWith('/setup/complete', { authMode: 'forms', username: 'admin', password: 'password123' });
+    expect(api.post).toHaveBeenCalledWith('/setup/complete', { authMode: 'forms', username: 'admin', password: 'password123', setupToken: 'test-setup-token' });
     await formsView.unmount();
   });
 });

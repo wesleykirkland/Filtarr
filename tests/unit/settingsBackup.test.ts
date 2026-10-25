@@ -10,6 +10,7 @@ import { SettingsBackupService, splitSqlStatements } from '../../src/server/serv
 import { resetConfigCache } from '../../src/config/index.js';
 import { closeDatabase, openDatabase } from '../../src/db/index.js';
 import { createApp } from '../../src/server/app.js';
+import { markSetupComplete } from '../support/setupState.js';
 import { SettingsBackupScheduler } from '../../src/server/cron/settingsBackup.js';
 
 interface SeedResult {
@@ -485,6 +486,7 @@ describe('settings backup import body limit', () => {
     process.env['FILTARR_DATA_DIR'] = tempDir;
     const openedDb = openDatabase(tempDir);
     db = openedDb;
+    markSetupComplete(openedDb);
     return { app: createApp(openedDb), db: openedDb, dataDir: tempDir };
   }
 

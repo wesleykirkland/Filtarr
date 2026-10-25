@@ -21,12 +21,19 @@ export default function Setup() {
   const [username, setUsername] = useState('admin');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [setupToken, setSetupToken] = useState('');
   const [apiKey, setApiKey] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [copied, setCopied] = useState(false);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
+
+    if (!setupToken.trim()) {
+      toast('error', 'Enter the setup token from the server log');
+      setStep('auth-mode');
+      return;
+    }
 
     if (authMode !== 'none') {
       if (password !== confirmPassword) {
@@ -45,6 +52,7 @@ export default function Setup() {
         authMode,
         username: authMode !== 'none' ? username : 'admin',
         password: authMode !== 'none' ? password : 'unused',
+        setupToken: setupToken.trim(),
       });
       setApiKey(res.apiKey);
       setStep('complete');
@@ -78,6 +86,10 @@ export default function Setup() {
   const nextStep = () => {
     if (step === 'welcome') setStep('auth-mode');
     else if (step === 'auth-mode') {
+      if (!setupToken.trim()) {
+        toast('error', 'Enter the setup token from the server log');
+        return;
+      }
       if (authMode === 'none') {
         // Skip account step for "none" mode
         handleSubmit(new Event('submit') as unknown as FormEvent);
@@ -203,6 +215,23 @@ export default function Setup() {
                 </div>
               </label>
             </div>
+
+            <Field
+              label="Setup token"
+              htmlFor="setup-token"
+              description="Printed in the Filtarr server log on startup (or the FILTARR_SETUP_TOKEN you configured)."
+            >
+              <Input
+                id="setup-token"
+                type="password"
+                autoComplete="off"
+                spellCheck={false}
+                value={setupToken}
+                onChange={(e) => setSetupToken(e.target.value)}
+                className="font-mono"
+                required
+              />
+            </Field>
 
             <Button fullWidth size="lg" onClick={nextStep} disabled={submitting}>
               {submitting ? 'Setting up...' : 'Continue'}

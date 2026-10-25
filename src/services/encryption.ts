@@ -3,12 +3,14 @@
  *
  * Encryption key is derived from FILTARR_SECRET env var using PBKDF2.
  * If FILTARR_SECRET is not set, a random key is generated and persisted
- * to the data directory on first run.
+ * to the configured data directory (FILTARR_DATA_DIR) on first run.
  */
 
 import { randomBytes, createCipheriv, createDecipheriv, pbkdf2Sync } from 'node:crypto';
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
+import { getConfig } from '../config/index.js';
+import { logger } from '../server/lib/logger.js';
 
 const ALGORITHM = 'aes-256-gcm';
 const IV_LENGTH = 12; // 96 bits for GCM
@@ -22,12 +24,18 @@ let _derivedKey: Buffer | null = null;
 /**
  * Get or derive the encryption key.
  * Priority: FILTARR_SECRET env var → persisted key file → auto-generate.
+ *
+ * When `dataDir` is omitted, the key file is resolved under the configured
+ * data directory (`getConfig().dataDir`, i.e. FILTARR_DATA_DIR) rather than a
+ * path relative to the process working directory.
  */
-export function getEncryptionKey(dataDir = './data'): Buffer {
+export function getEncryptionKey(dataDir?: string): Buffer {
   if (_derivedKey) return _derivedKey;
 
   const secret = process.env['FILTARR_SECRET'];
 
+  // An empty FILTARR_SECRET (e.g. docker-compose `${FILTARR_SECRET:-}`) is
+  // intentionally treated the same as unset and falls through to the key file.
   if (secret) {
     // Derive key from secret using PBKDF2 with a fixed salt
     // (fixed salt is OK here because the secret itself should be high-entropy)
@@ -37,7 +45,7 @@ export function getEncryptionKey(dataDir = './data'): Buffer {
   }
 
   // Fall back to persisted key file
-  const keyPath = join(dataDir, '.encryption-key');
+  const keyPath = join(dataDir ?? getConfig().dataDir, '.encryption-key');
 
   try {
     _derivedKey = Buffer.from(readFileSync(keyPath, 'utf-8').trim(), 'hex');
@@ -53,6 +61,14 @@ export function getEncryptionKey(dataDir = './data'): Buffer {
   _derivedKey = randomBytes(KEY_LENGTH);
   mkdirSync(dirname(keyPath), { recursive: true });
   writeFileSync(keyPath, _derivedKey.toString('hex'), { mode: 0o600 });
+
+  // Runs at most once per process because the key is cached above.
+  if (getConfig().nodeEnv === 'production') {
+    logger.warn(
+      { keyPath },
+      'FILTARR_SECRET is not set; generated a new encryption key file. Back up this file or set FILTARR_SECRET, otherwise stored API keys cannot be decrypted if it is lost.',
+    );
+  }
   return _derivedKey;
 }
 

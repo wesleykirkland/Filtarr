@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { resetConfigCache } from '../../src/config/index.js';
 import {
   decrypt,
   decryptStoredSecret,
@@ -26,6 +27,7 @@ describe('encryption helpers', () => {
   afterEach(() => {
     process.env = { ...originalEnv };
     resetEncryptionKey();
+    resetConfigCache();
     fs.rmSync(tempDir, { recursive: true, force: true });
   });
 
@@ -75,5 +77,42 @@ describe('encryption helpers', () => {
 
   it('rejects encrypted payloads that are too short to decode', () => {
     expect(() => decrypt('abcd', tempDir)).toThrow('Invalid encrypted data: too short');
+  });
+
+  it('persists the generated key under FILTARR_DATA_DIR when no dataDir is passed', () => {
+    process.env['FILTARR_DATA_DIR'] = tempDir;
+    delete process.env['FILTARR_SECRET'];
+    resetConfigCache();
+    resetEncryptionKey();
+
+    const cwdKeyPath = path.resolve('./data', '.encryption-key');
+    const cwdKeyBefore = fs.existsSync(cwdKeyPath) ? fs.readFileSync(cwdKeyPath, 'utf-8') : null;
+
+    const encrypted = encrypt('stored-api-key');
+    const keyPath = path.join(tempDir, '.encryption-key');
+
+    expect(fs.existsSync(keyPath)).toBe(true);
+    const keyHex = fs.readFileSync(keyPath, 'utf-8');
+    expect(keyHex).toHaveLength(64);
+    expect(getEncryptionKey().toString('hex')).toBe(keyHex);
+
+    // The cwd-relative ./data key file must not have been created or rewritten.
+    const cwdKeyAfter = fs.existsSync(cwdKeyPath) ? fs.readFileSync(cwdKeyPath, 'utf-8') : null;
+    expect(cwdKeyAfter).toBe(cwdKeyBefore);
+    expect(cwdKeyAfter).not.toBe(keyHex);
+
+    // A fresh process (cleared cache) reloads the same key from the data dir.
+    resetEncryptionKey();
+    expect(decrypt(encrypted)).toBe('stored-api-key');
+  });
+
+  it('treats an empty FILTARR_SECRET as unset and falls back to the key file', () => {
+    process.env['FILTARR_DATA_DIR'] = tempDir;
+    process.env['FILTARR_SECRET'] = '';
+    resetConfigCache();
+
+    getEncryptionKey();
+
+    expect(fs.existsSync(path.join(tempDir, '.encryption-key'))).toBe(true);
   });
 });

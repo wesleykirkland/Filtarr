@@ -13,7 +13,7 @@ const createJobSchema = z.object({
   name: z.string().min(1, 'Name is required'),
   description: z.string().optional(),
   schedule: z.string().min(1, 'Cron schedule is required'), // Could add a regex to validate basic cron
-  type: z.enum(['custom_script', 'built_in', 'filter_run']),
+  type: z.enum(JOB_TYPES),
   payload: z.string().optional(),
   enabled: z.boolean().optional(),
 });
@@ -22,7 +22,7 @@ const updateJobSchema = z.object({
   name: z.string().min(1).optional(),
   description: z.string().optional(),
   schedule: z.string().min(1).optional(),
-  type: z.enum(['custom_script', 'built_in', 'filter_run']).optional(),
+  type: z.enum(JOB_TYPES).optional(),
   payload: z.string().optional(),
   enabled: z.boolean().optional(),
 });

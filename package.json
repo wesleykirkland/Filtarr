@@ -20,7 +20,8 @@
     "lint:fix": "eslint src/ --fix",
     "format": "prettier --write 'src/**/*.ts'",
     "format:check": "prettier --check 'src/**/*.ts'",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit && npm run typecheck:client",
+    "typecheck:client": "tsc -p src/client/tsconfig.json --noEmit"
   },
   "keywords": [
     "sonarr",

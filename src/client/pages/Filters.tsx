@@ -548,11 +548,12 @@ function FilterForm({ initial, instances, onClose, onSaved }: FilterFormProps) {
                 </select>
               </div>
               <div className="sm:col-span-2">
-                <label className="block text-sm font-medium dark:text-gray-400 text-gray-700">
+                <label htmlFor="filter-rule-payload" className="block text-sm font-medium dark:text-gray-400 text-gray-700">
                   {RULE_TYPE_LABELS[ruleType]} *
                 </label>
                 {isScript ? (
                   <textarea
+                    id="filter-rule-payload"
                     value={rulePayload}
                     onChange={(e) => setRulePayload(e.target.value)}
                     required
@@ -562,6 +563,7 @@ function FilterForm({ initial, instances, onClose, onSaved }: FilterFormProps) {
                   />
                 ) : (
                   <input
+                    id="filter-rule-payload"
                     value={rulePayload}
                     onChange={(e) => setRulePayload(e.target.value)}
                     required
@@ -594,11 +596,12 @@ function FilterForm({ initial, instances, onClose, onSaved }: FilterFormProps) {
               )}
               {showActionPayload && (
                 <div className="sm:col-span-2">
-                  <label className="block text-sm font-medium dark:text-gray-400 text-gray-700">
+                  <label htmlFor="filter-action-payload" className="block text-sm font-medium dark:text-gray-400 text-gray-700">
                     {actionPayloadLabel}
                   </label>
                   {actionType === 'script' ? (
                     <textarea
+                      id="filter-action-payload"
                       value={actionPayload}
                       onChange={(e) => setActionPayload(e.target.value)}
                       rows={5}
@@ -607,6 +610,7 @@ function FilterForm({ initial, instances, onClose, onSaved }: FilterFormProps) {
                     />
                   ) : (
                     <input
+                      id="filter-action-payload"
                       value={actionPayload}
                       onChange={(e) => setActionPayload(e.target.value)}
                       placeholder="/mnt/quarantine"
@@ -788,6 +792,10 @@ function FilterCard({
       <div className="flex items-start justify-between gap-4">
         <div className="flex items-center gap-3 flex-1 min-w-0">
           <button
+            type="button"
+            role="switch"
+            aria-checked={Boolean(f.enabled)}
+            aria-label={`Enable filter ${f.name}`}
             onClick={onToggle}
             className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${f.enabled ? 'bg-blue-600' : 'dark:bg-gray-700 bg-gray-300'}`}
           >
@@ -936,6 +944,7 @@ export default function Filters() {
     mutationFn: ({ id, enabled }: { id: number; enabled: boolean }) =>
       api.put(`/filters/${id}`, { enabled }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['filters'] }),
+    onError: (e: Error) => toast('error', e.message),
   });
 
   const deleteMutation = useMutation({

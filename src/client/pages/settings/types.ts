@@ -50,10 +50,10 @@ export interface NotificationSettingsResponse {
 export interface NotificationSettingsUpdate {
   slackEnabled: boolean;
   webhookEnabled: boolean;
-  /** Omit to keep the stored secret. */
-  defaultWebhookUrl?: string;
-  /** Omit to keep the stored secret. */
-  defaultSlackToken?: string;
+  /** Omit to keep the stored secret; null asks the server to clear it. */
+  defaultWebhookUrl?: string | null;
+  /** Omit to keep the stored secret; null asks the server to clear it. */
+  defaultSlackToken?: string | null;
   defaultSlackChannel: string;
 }
 

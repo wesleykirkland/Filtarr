@@ -55,6 +55,10 @@ describe('system routes', () => {
     const success = await request(app).get('/browse').query({ path: realTempDir });
     expect(success.status).toBe(200);
     expect(success.body.entries.map((entry: { name: string }) => entry.name)).toEqual(['a-dir', 'b-dir']);
+    // At the browse root there is no parent; below it the parent is the containing directory.
+    expect(success.body.parent).toBeNull();
+    const child = await request(app).get('/browse').query({ path: path.join(realTempDir, 'a-dir') });
+    expect(child.body.parent).toBe(realTempDir);
 
     // Non-existent paths fail realpathSync in sanitizeBrowsePath → 403
     expect((await request(app).get('/browse').query({ path: path.join(realTempDir, 'missing') })).status).toBe(403);

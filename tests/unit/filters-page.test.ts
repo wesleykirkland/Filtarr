@@ -203,4 +203,23 @@ describe('Filters deletion modal', () => {
     expect(document.body.textContent).toContain('Protected');
     expect(getButtonsByLabel('Delete')).toHaveLength(0);
   });
+
+  it('exposes the enable toggle as a switch and reports toggle failures', async () => {
+    const mockPut = vi.mocked(api.put);
+    mockPut.mockReset();
+    mockPut.mockRejectedValue(new Error('Toggle failed'));
+    await renderFilters([makeFilter()]);
+
+    const toggle = document.querySelector('[role="switch"]') as HTMLButtonElement;
+    expect(toggle.getAttribute('aria-checked')).toBe('true');
+    expect(toggle.getAttribute('aria-label')).toBe('Enable filter Delete Me');
+
+    await act(async () => {
+      toggle.click();
+    });
+
+    await waitFor(() => vi.mocked(ToastModule.toast).mock.calls.length > 0);
+    expect(mockPut).toHaveBeenCalledWith('/filters/1', { enabled: false });
+    expect(ToastModule.toast).toHaveBeenCalledWith('error', 'Toggle failed');
+  });
 });

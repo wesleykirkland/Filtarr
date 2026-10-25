@@ -59,6 +59,8 @@ export function FilesystemPicker({ value, onSelect, onClose }: FilesystemPickerP
   };
 
   const parts = (data?.current || browsePath).split('/').filter(Boolean);
+  // null at the browse root: the server would reject navigating above it.
+  const parent = data?.parent ?? null;
 
   return (
     <Modal title="Browse file system" isOpen={true} onClose={onClose} size="sm">
@@ -92,9 +94,9 @@ export function FilesystemPicker({ value, onSelect, onClose }: FilesystemPickerP
           ) : null}
           {!isLoading && !error ? (
             <>
-              {data?.parent ? (
+              {parent ? (
                 <button
-                  onClick={() => navigate(data.parent)}
+                  onClick={() => navigate(parent)}
                   className={buttonStyles({
                     variant: 'ghost',
                     className: 'w-full justify-start rounded-xl px-3 py-2 text-left',

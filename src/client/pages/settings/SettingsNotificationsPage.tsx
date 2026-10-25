@@ -15,6 +15,9 @@ export default function SettingsNotificationsPage() {
   const [defaultWebhookUrl, setDefaultWebhookUrl] = useState('');
   const [defaultSlackToken, setDefaultSlackToken] = useState('');
   const [defaultSlackChannel, setDefaultSlackChannel] = useState('');
+  // Explicit "clear the stored secret" requests (an empty input means keep-existing).
+  const [clearWebhookUrl, setClearWebhookUrl] = useState(false);
+  const [clearSlackToken, setClearSlackToken] = useState(false);
   const [notificationSettingsHydrated, setNotificationSettingsHydrated] = useState(false);
   const [testingChannel, setTestingChannel] = useState<NotificationChannel | null>(null);
 
@@ -69,14 +72,18 @@ export default function SettingsNotificationsPage() {
   const normalizedDefaultSlackToken = defaultSlackToken.trim();
   const normalizedDefaultSlackChannel = defaultSlackChannel.trim();
   const hasSlackToken =
-    Boolean(normalizedDefaultSlackToken) || Boolean(notificationSettings?.hasDefaultSlackToken);
+    Boolean(normalizedDefaultSlackToken) ||
+    (!clearSlackToken && Boolean(notificationSettings?.hasDefaultSlackToken));
   const hasWebhookUrl =
-    Boolean(normalizedDefaultWebhookUrl) || Boolean(notificationSettings?.hasDefaultWebhookUrl);
+    Boolean(normalizedDefaultWebhookUrl) ||
+    (!clearWebhookUrl && Boolean(notificationSettings?.hasDefaultWebhookUrl));
   const notificationSettingsChanged = notificationSettings
     ? notificationSettings.slackEnabled !== slackEnabled ||
       notificationSettings.webhookEnabled !== webhookEnabled ||
       Boolean(normalizedDefaultWebhookUrl) ||
       Boolean(normalizedDefaultSlackToken) ||
+      clearWebhookUrl ||
+      clearSlackToken ||
       notificationSettings.defaultSlackChannel !== normalizedDefaultSlackChannel
     : false;
 
@@ -92,13 +99,16 @@ export default function SettingsNotificationsPage() {
     setDefaultWebhookUrl('');
     setDefaultSlackToken('');
     setDefaultSlackChannel(normalizedDefaultSlackChannel);
+    setClearWebhookUrl(false);
+    setClearSlackToken(false);
 
-    // Secrets are only sent when the user typed a new value; omitted means "keep existing".
+    // Secrets are only sent when the user typed a new value; omitted means "keep existing"
+    // and null means "clear the stored secret".
     updateNotificationSettingsMutation.mutate({
       slackEnabled,
       webhookEnabled,
-      defaultWebhookUrl: normalizedDefaultWebhookUrl || undefined,
-      defaultSlackToken: normalizedDefaultSlackToken || undefined,
+      defaultWebhookUrl: clearWebhookUrl ? null : normalizedDefaultWebhookUrl || undefined,
+      defaultSlackToken: clearSlackToken ? null : normalizedDefaultSlackToken || undefined,
       defaultSlackChannel: normalizedDefaultSlackChannel,
     });
   };
@@ -170,14 +180,32 @@ export default function SettingsNotificationsPage() {
               <input
                 id="settings-default-slack-token"
                 value={defaultSlackToken}
-                onChange={(e) => setDefaultSlackToken(e.target.value)}
+                onChange={(e) => {
+                  setDefaultSlackToken(e.target.value);
+                  setClearSlackToken(false);
+                }}
                 placeholder={
-                  notificationSettings?.hasDefaultSlackToken
-                    ? `Configured (${notificationSettings.defaultSlackToken}) - leave blank to keep`
-                    : 'xoxb-...'
+                  clearSlackToken
+                    ? 'Will be cleared on save'
+                    : notificationSettings?.hasDefaultSlackToken
+                      ? `Configured (${notificationSettings.defaultSlackToken}) - leave blank to keep`
+                      : 'xoxb-...'
                 }
                 className="mt-1 block w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:border-blue-500 focus:outline-none dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100"
               />
+              {notificationSettings?.hasDefaultSlackToken ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDefaultSlackToken('');
+                    setClearSlackToken((current) => !current);
+                  }}
+                  aria-pressed={clearSlackToken}
+                  className="mt-1 text-xs font-medium text-red-600 hover:underline dark:text-red-400"
+                >
+                  {clearSlackToken ? 'Keep stored token' : 'Clear stored token'}
+                </button>
+              ) : null}
             </div>
             <div>
               <label htmlFor="settings-default-slack-channel" className="block text-xs font-medium text-gray-700 dark:text-gray-300">
@@ -235,14 +263,32 @@ export default function SettingsNotificationsPage() {
               id="settings-default-webhook-url"
               type="url"
               value={defaultWebhookUrl}
-              onChange={(e) => setDefaultWebhookUrl(e.target.value)}
+              onChange={(e) => {
+                setDefaultWebhookUrl(e.target.value);
+                setClearWebhookUrl(false);
+              }}
               placeholder={
-                notificationSettings?.hasDefaultWebhookUrl
-                  ? `Configured (${notificationSettings.defaultWebhookUrl}) - leave blank to keep`
-                  : 'https://discord.com/api/webhooks/...'
+                clearWebhookUrl
+                  ? 'Will be cleared on save'
+                  : notificationSettings?.hasDefaultWebhookUrl
+                    ? `Configured (${notificationSettings.defaultWebhookUrl}) - leave blank to keep`
+                    : 'https://discord.com/api/webhooks/...'
               }
               className="mt-1 block w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:border-blue-500 focus:outline-none dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100"
             />
+            {notificationSettings?.hasDefaultWebhookUrl ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setDefaultWebhookUrl('');
+                  setClearWebhookUrl((current) => !current);
+                }}
+                aria-pressed={clearWebhookUrl}
+                className="mt-1 text-xs font-medium text-red-600 hover:underline dark:text-red-400"
+              >
+                {clearWebhookUrl ? 'Keep stored URL' : 'Clear stored URL'}
+              </button>
+            ) : null}
             <p className="mt-2 text-xs text-gray-600 dark:text-gray-400">
               Used by filters that inherit the default webhook destination.
             </p>

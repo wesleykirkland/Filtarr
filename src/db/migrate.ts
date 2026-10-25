@@ -9,6 +9,19 @@ interface TableInfoRow {
   name: string;
 }
 
+/*
+ * Schema migrations
+ * -----------------
+ * Only the baseline (001_initial.sql) is executed. It is idempotent (CREATE ... IF NOT EXISTS)
+ * and runs on every startup; its name is recorded in _migrations once. Other .sql files in
+ * migrations/ are NOT executed.
+ *
+ * To make the next schema change:
+ *   1. Update 001_initial.sql so fresh databases get the new shape.
+ *   2. Bring existing databases up to date in repairLegacySchema(), e.g. add a column with
+ *      ensureColumn(db, 'table', 'column', 'ALTER TABLE table ADD COLUMN ...;') plus any
+ *      idempotent data backfill. Every repair step must be safe to run on every startup.
+ */
 const BASELINE_MIGRATION = '001_initial.sql';
 
 function migrationWasApplied(db: Database.Database, migrationName: string): boolean {
@@ -114,7 +127,25 @@ function repairLegacyFilterInstanceLinks(db: Database.Database): void {
   `);
 }
 
-function repairLegacySchema(db: Database.Database): void {
+/**
+ * Releases before the SQLite session store declared sessions.user_id NOT NULL, which cannot
+ * hold pre-login sessions (e.g. OIDC state). The table was never written to before the store
+ * existed, so recreating it from the baseline definition loses nothing.
+ */
+function repairSessionsUserIdNullable(db: Database.Database, baselineSql: string): void {
+  if (!tableExists(db, 'sessions')) return;
+  const columns = db.prepare('PRAGMA table_info(sessions)').all() as (TableInfoRow & {
+    notnull: number;
+  })[];
+  if (!columns.some((column) => column.name === 'user_id' && column.notnull === 1)) return;
+
+  db.exec('DROP TABLE sessions;');
+  db.exec(baselineSql);
+}
+
+function repairLegacySchema(db: Database.Database, baselineSql: string): void {
+  repairSessionsUserIdNullable(db, baselineSql);
+
   ensureColumn(
     db,
     'arr_instances',
@@ -234,5 +265,5 @@ export function runMigrations(db: Database.Database): void {
     db.prepare('INSERT INTO _migrations (name) VALUES (?)').run(BASELINE_MIGRATION);
   }
 
-  repairLegacySchema(db);
+  repairLegacySchema(db, baselineSql);
 }

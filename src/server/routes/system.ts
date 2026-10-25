@@ -140,9 +140,11 @@ protectedSystemRoutes.get('/browse', (req: Request, res: Response, next: NextFun
       }))
       .sort((a, b) => a.name.localeCompare(b.name));
 
+    // No parent at the browse root: the directory above it is outside the root and would 403.
+    const atRoot = resolved === fs.realpathSync(getBrowseRoot()) || resolved === path.dirname(resolved);
     res.json({
       current: resolved,
-      parent: resolved === '/' ? null : path.dirname(resolved),
+      parent: atRoot ? null : path.dirname(resolved),
       entries: dirs,
     });
   } catch (err) {

@@ -224,4 +224,48 @@ describe('Settings subpages', () => {
     ).toBe('/config/backup');
     expect(document.body.textContent).toContain('filtarr-settings-20260307-120000.sql');
   });
+
+  it('clears a stored notification secret by sending null', async () => {
+    const baseGet = mockGet.getMockImplementation() as (path: string) => Promise<unknown>;
+    mockGet.mockImplementation((path: string) => {
+      if (path === '/settings/notifications') {
+        return Promise.resolve({
+          slackEnabled: false,
+          webhookEnabled: true,
+          defaultWebhookUrl: '••••abcd',
+          hasDefaultWebhookUrl: true,
+          defaultSlackToken: '',
+          hasDefaultSlackToken: false,
+          defaultSlackChannel: '',
+        } as never);
+      }
+      return baseGet(path);
+    });
+    const mockPut = vi.mocked(api.put);
+    mockPut.mockReset();
+    mockPut.mockResolvedValue({ success: true, message: 'Saved' } as never);
+
+    await renderSettings('/settings/notifications');
+    const findButton = (label: string) =>
+      Array.from(document.querySelectorAll('button')).find(
+        (button) => button.textContent?.trim() === label,
+      ) as HTMLButtonElement | undefined;
+    await waitFor(() => Boolean(findButton('Clear stored URL')));
+
+    await act(async () => {
+      findButton('Clear stored URL')?.click();
+    });
+    expect(
+      (document.getElementById('settings-default-webhook-url') as HTMLInputElement).placeholder,
+    ).toBe('Will be cleared on save');
+
+    await act(async () => {
+      findButton('Save Notification Settings')?.click();
+    });
+
+    expect(mockPut).toHaveBeenCalledWith(
+      '/settings/notifications',
+      expect.objectContaining({ defaultWebhookUrl: null, defaultSlackToken: undefined }),
+    );
+  });
 });

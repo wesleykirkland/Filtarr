@@ -402,3 +402,5 @@ describe('filters routes: notification secrets', () => {
     const ok = await request(app).post('/').send(body());
     const updated = await request(app).put(`/${ok.body.id}`).send({ notifyWebhookUrl: url });
     expect(updated.status).toBe(400);
+  });
+});

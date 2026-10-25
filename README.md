@@ -83,7 +83,7 @@ When you first start Filtarr, the default Authentication Mode is `None`. You can
 ### Security & Deployment Notes
 
 - Mount a persistent data directory at `FILTARR_DATA_DIR` (the container image defaults to `/config`). When `FILTARR_SECRET` is unset or empty, Filtarr generates an encryption key and stores it at `$FILTARR_DATA_DIR/.encryption-key`; if you do not inject one, it also stores a generated forms session secret there.
-- For Docker deployments, set `FILTARR_SECRET` to a long, random value from your secret manager. Stored Arr API keys are encrypted with a key derived from it, so it must stay the same across container recreations. If you rely on the generated key file instead, make sure the data directory volume persists and is backed up; losing that file makes the stored API keys undecryptable.
+- For Docker deployments, set `FILTARR_SECRET` to a long, random value (at least 32 characters; Filtarr refuses to start with a shorter one) from your secret manager. Stored Arr API keys are encrypted with a key derived from it, so it must stay the same across container recreations. If you rely on the generated key file instead, make sure the data directory volume persists and is backed up; losing that file makes the stored API keys undecryptable.
 - For production forms auth, set `FILTARR_SESSION_SECRET` from your secret manager or container/orchestrator secret mount.
 - For OIDC deployments, provide `FILTARR_OIDC_CLIENT_SECRET` and related OIDC settings through environment variables or your platform secret store rather than baking them into images.
 - Custom JavaScript filters/jobs are disabled by default. Enable them only if you accept the risk of user-authored code execution by setting `FILTARR_ENABLE_CUSTOM_SCRIPTS=true`.

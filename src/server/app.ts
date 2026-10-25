@@ -65,7 +65,7 @@ export function createApp(db: Database = getDatabase()): express.Application {
   app.use(express.json());
   app.use(express.urlencoded({ extended: false }));
 
-  // Auth-sensitive rate limiter (login, setup)
+  // Auth-sensitive rate limiter for setup (login is limited inside the auth router)
   const authLimiter = authRateLimiter(authConfig.rateLimitAuth);
 
   // Unauthenticated routes — setup and health check
@@ -87,8 +87,9 @@ export function createApp(db: Database = getDatabase()): express.Application {
   app.use('/api/v1', authRouter);
 
   // Auth routes (login, logout, session, API key management)
-  // These are mounted AFTER auth middleware so they can use session
-  app.use('/api/v1/auth', authLimiter, createAuthRoutes(db, authConfig));
+  // These are mounted AFTER auth middleware so they can use session.
+  // The login endpoint applies its own rate limiter; session/API-key routes are not login-limited.
+  app.use('/api/v1/auth', createAuthRoutes(db, authConfig));
   app.use('/api/v1', requireAuth, protectedSystemRoutes);
 
   // Protected routes - require authentication

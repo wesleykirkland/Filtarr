@@ -53,13 +53,13 @@ function hasOidcStrategy(): boolean {
 
 /**
  * Create auth routes for login, logout, session, and API key management.
- * Rate limiting is applied to auth endpoints (5 attempts/min).
+ * Rate limiting (5 attempts/min by default) is applied to the login endpoint only.
  */
 export function createAuthRoutes(db: Database.Database, config: AuthConfig): Router {
   const router = Router();
 
-  // Rate limit all auth endpoints
-  router.use(authRateLimiter(config.rateLimitAuth));
+  // Rate limit credential submission only — not session polling or API key management
+  const loginLimiter = authRateLimiter(config.rateLimitAuth);
 
   const handleOidcLogin = (req: Request, res: Response, next: NextFunction): void => {
     if (!hasOidcStrategy()) {
@@ -117,8 +117,17 @@ export function createAuthRoutes(db: Database.Database, config: AuthConfig): Rou
   };
 
   // --- Login ---
-  router.get('/login', handleLogin);
-  router.post('/login', handleLogin);
+  // Credentials must be POSTed. GET is only meaningful for the OIDC redirect flow; for every
+  // other mode it is rejected so credentials are never accepted from the query string.
+  router.get('/login', loginLimiter, (req: Request, res: Response, next: NextFunction): void => {
+    if (getCurrentAuthMode(db) === 'oidc') {
+      handleOidcLogin(req, res, next);
+      return;
+    }
+    res.setHeader('Allow', 'POST');
+    res.status(405).json({ error: 'Method not allowed. Use POST to log in.' });
+  });
+  router.post('/login', loginLimiter, handleLogin);
 
   // --- Logout ---
   router.post('/logout', (req: Request, res: Response, next: NextFunction): void => {
@@ -174,7 +183,7 @@ export function createAuthRoutes(db: Database.Database, config: AuthConfig): Rou
   });
 
   // --- OIDC callback ---
-  router.get('/oidc/callback', (req: Request, res: Response, next: NextFunction): void => {
+  router.get('/oidc/callback', (req: Request, res: Response): void => {
     if (getCurrentAuthMode(db) !== 'oidc') {
       res.status(404).json({ error: 'OIDC authentication is not enabled' });
       return;

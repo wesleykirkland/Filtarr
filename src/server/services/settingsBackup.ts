@@ -68,12 +68,89 @@ const REDACTION_NOTES = [
   'settings.default_webhook_url => blank',
   'settings.default_slack_token => blank',
   'settings.oidc_client_secret => blank',
-  'settings.auth_mode => forced to none',
+  'settings.auth_mode => exported as none; not restored (current auth mode is kept on import)',
   'arr_instances.api_key_encrypted => blank placeholder',
   'filters.notify_webhook_url => blank',
   'filters.notify_slack_token => blank',
-  'users, sessions, api_keys, and events rows => omitted',
+  'users, sessions, api_keys, and events rows => omitted from export and left untouched on import',
+  'blank secret settings in a backup do not overwrite secrets already configured on import',
 ] as const;
+const BACKUP_FILE_PATTERN = /^filtarr-settings-\d{8}-\d{6}\.sql$/;
+
+/**
+ * Split a SQL script into statements on `;`, honouring SQLite quoting rules.
+ * Semicolons and comment markers inside single-quoted strings (where `''`
+ * escapes a quote), double-quoted identifiers, backtick or bracket-quoted
+ * identifiers are treated as literal text. `--` line comments and `/* *\/`
+ * block comments outside of quotes are removed. Empty statements are dropped.
+ */
+export function splitSqlStatements(sql: string): string[] {
+  const statements: string[] = [];
+  let current = '';
+  let i = 0;
+  const length = sql.length;
+
+  const closingQuote: Record<string, string> = { "'": "'", '"': '"', '`': '`', '[': ']' };
+
+  while (i < length) {
+    const char = sql[i] as string;
+    const next = sql[i + 1];
+
+    if (char in closingQuote) {
+      const close = closingQuote[char] as string;
+      let j = i + 1;
+      while (j < length) {
+        if (sql[j] === close) {
+          // Doubled quote is an escaped quote (not applicable to [...] identifiers).
+          if (close !== ']' && sql[j + 1] === close) {
+            j += 2;
+            continue;
+          }
+          break;
+        }
+        j += 1;
+      }
+      if (j >= length) {
+        throw new Error('Backup SQL contains an unterminated quoted value');
+      }
+      current += sql.slice(i, j + 1);
+      i = j + 1;
+      continue;
+    }
+
+    if (char === '-' && next === '-') {
+      const newline = sql.indexOf('\n', i);
+      i = newline === -1 ? length : newline;
+      continue;
+    }
+
+    if (char === '/' && next === '*') {
+      const end = sql.indexOf('*/', i + 2);
+      if (end === -1) {
+        throw new Error('Backup SQL contains an unterminated comment');
+      }
+      current += ' ';
+      i = end + 2;
+      continue;
+    }
+
+    if (char === ';') {
+      const trimmed = current.trim();
+      if (trimmed.length > 0) statements.push(trimmed);
+      current = '';
+      i += 1;
+      continue;
+    }
+
+    current += char;
+    i += 1;
+  }
+
+  const trailing = current.trim();
+  if (trailing.length > 0) statements.push(trailing);
+
+  return statements;
+}
 
 export class SettingsBackupService {
   private readonly dataDir: string;
@@ -200,7 +277,7 @@ export class SettingsBackupService {
       };
     } catch (error) {
       logger.warn({ err: error }, 'Failed to import settings backup');
-      throw new Error('Backup SQL could not be imported');
+      throw new Error('Backup SQL could not be imported', { cause: error });
     } finally {
       tempDb.close();
     }
@@ -219,28 +296,13 @@ export class SettingsBackupService {
     /^(CREATE\s+(TABLE|INDEX|TRIGGER)\b|INSERT\s+INTO\b|PRAGMA\b|BEGIN\b|COMMIT\b)/i;
 
   /**
-   * Parse backup SQL into individual statements, strip comments, and
-   * validate each statement against the allowlist.  Returns the array of
-   * validated statements so the caller never passes raw user input to
-   * `exec()`.
+   * Parse backup SQL into individual statements (quote-aware, comments
+   * stripped outside of literals) and validate each statement against the
+   * allowlist.  Returns the array of validated statements so the caller never
+   * passes raw user input to `exec()`.
    */
   private static parseAndValidateBackupSql(sql: string): string[] {
-    // Strip comment lines first
-    const stripped = sql
-      .split('\n')
-      .filter((line) => {
-        const trimmed = line.trim();
-        return trimmed.length > 0 && !trimmed.startsWith('--');
-      })
-      .join('\n');
-
-    // Split on semicolons (respecting that values may contain escaped quotes,
-    // but our generated backups use single-quote escaping, not semicolons
-    // inside values).
-    const statements = stripped
-      .split(';')
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0);
+    const statements = splitSqlStatements(sql);
 
     for (const stmt of statements) {
       if (!SettingsBackupService.ALLOWED_STATEMENT.test(stmt)) {
@@ -252,12 +314,22 @@ export class SettingsBackupService {
   }
 
   private restoreFromDatabase(sourceDb: Database.Database): void {
-    const deleteOrder = [...EXPORT_TABLES].reverse();
-    const insertOrder = [...EXPORT_TABLES];
+    // Tables whose rows are never exported (users, sessions, api_keys, events)
+    // must never be cleared on restore, otherwise importing a settings backup
+    // would remove every admin account and API key.
+    const restoredTables = EXPORT_TABLES.filter((table) => !TABLES_WITHOUT_EXPORTED_ROWS.has(table));
+    const deleteOrder = [...restoredTables].reverse();
+    const insertOrder = [...restoredTables];
+
+    // Secrets and auth mode that must survive a restore when the backup does
+    // not carry a usable value for them.
+    const preservedSettings = new Map<string, string>();
+    for (const key of ['auth_mode', ...BLANKED_SETTING_KEYS]) {
+      const value = this.getSettingValue(key);
+      if (value !== undefined) preservedSettings.set(key, value);
+    }
 
     const restore = this.db.transaction(() => {
-      this.db.pragma('foreign_keys = OFF');
-
       for (const table of deleteOrder) {
         this.db.prepare(`DELETE FROM ${this.quoteIdentifier(table)}`).run();
       }
@@ -271,7 +343,8 @@ export class SettingsBackupService {
           .all() as Array<Record<string, unknown>>;
 
         for (const row of rows) {
-          const normalizedRow = this.normalizeImportedRow(table, row);
+          const normalizedRow = this.normalizeImportedRow(table, row, preservedSettings);
+          if (!normalizedRow) continue;
           const placeholders = columns.map(() => '?').join(', ');
           const columnList = columns.map((column) => this.quoteIdentifier(column)).join(', ');
           const values = columns.map((column) => normalizedRow[column]);
@@ -284,10 +357,23 @@ export class SettingsBackupService {
         }
       }
 
-      this.db.pragma('foreign_keys = ON');
+      // Re-apply preserved settings that the backup did not contain at all.
+      for (const [key, value] of preservedSettings) {
+        if (this.getSettingValue(key) === undefined) {
+          this.upsertSetting(key, value);
+        }
+      }
     });
 
-    restore();
+    // PRAGMA foreign_keys is a no-op inside a transaction, so toggle it around
+    // the transaction and restore the connection's previous setting afterwards.
+    const foreignKeysWereOn = Boolean(this.db.pragma('foreign_keys', { simple: true }));
+    this.db.pragma('foreign_keys = OFF');
+    try {
+      restore();
+    } finally {
+      if (foreignKeysWereOn) this.db.pragma('foreign_keys = ON');
+    }
   }
 
   private createRedactedDump(createdAt: string, reason: 'manual' | 'scheduled'): string {
@@ -363,15 +449,28 @@ export class SettingsBackupService {
     return row;
   }
 
-  private normalizeImportedRow(table: (typeof EXPORT_TABLES)[number], row: Record<string, unknown>) {
+  private normalizeImportedRow(
+    table: (typeof EXPORT_TABLES)[number],
+    row: Record<string, unknown>,
+    preservedSettings: ReadonlyMap<string, string>,
+  ): Record<string, unknown> | null {
     if (table === 'settings') {
       const key = typeof row['key'] === 'string' ? row['key'] : '';
 
       if (key === 'auth_mode') {
-        return { ...row, value: 'none' };
+        // Never change the live auth mode from a backup. If none is set yet,
+        // skip the row rather than silently disabling authentication.
+        const current = preservedSettings.get(key);
+        return current === undefined ? null : { ...row, value: current };
       }
 
-      if (key === 'backup_last_error' || BLANKED_SETTING_KEYS.has(key)) {
+      if (BLANKED_SETTING_KEYS.has(key)) {
+        const imported = typeof row['value'] === 'string' ? row['value'] : '';
+        if (imported.trim().length > 0) return row;
+        return { ...row, value: preservedSettings.get(key) ?? '' };
+      }
+
+      if (key === 'backup_last_error') {
         return { ...row, value: '' };
       }
 
@@ -443,7 +542,9 @@ export class SettingsBackupService {
   }
 
   private pruneBackups(directory: string, retentionCount: number): void {
-    const backups = this.listBackups(directory);
+    // Only prune files this service wrote; never touch other *.sql files that
+    // happen to live in the configured directory.
+    const backups = this.listBackups(directory).filter((backup) => BACKUP_FILE_PATTERN.test(backup.fileName));
     backups.slice(retentionCount).forEach((backup) => fs.rmSync(backup.filePath));
   }
 

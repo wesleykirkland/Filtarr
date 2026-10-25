@@ -3,9 +3,14 @@ import os from 'node:os';
 import path from 'node:path';
 import Database from 'better-sqlite3';
 import { afterEach, describe, expect, it } from 'vitest';
+import request from 'supertest';
 import { runMigrations } from '../../src/db/migrate.js';
 import { decrypt, encrypt, resetEncryptionKey } from '../../src/services/encryption.js';
-import { SettingsBackupService } from '../../src/server/services/settingsBackup.js';
+import { SettingsBackupService, splitSqlStatements } from '../../src/server/services/settingsBackup.js';
+import { resetConfigCache } from '../../src/config/index.js';
+import { closeDatabase, openDatabase } from '../../src/db/index.js';
+import { createApp } from '../../src/server/app.js';
+import { SettingsBackupScheduler } from '../../src/server/cron/settingsBackup.js';
 
 interface SeedResult {
   userId: number;
@@ -232,14 +237,15 @@ describe('SettingsBackupService', () => {
       );
     const settings = Object.fromEntries(settingsRows.map((row) => [row.key, row.value]));
 
-    expect(settings['auth_mode']).toBe('none');
+    // Auth mode and already-configured secrets survive a restore.
+    expect(settings['auth_mode']).toBe('forms');
     expect(settings['validation_interval_minutes']).toBe('45');
-    expect(settings['default_webhook_url']).toBe('');
-    expect(settings['default_slack_token']).toBe('');
+    expect(settings['default_webhook_url']).toBe('https://secret-webhook.example.test/token');
+    expect(settings['default_slack_token']).toBe('xoxb-default-secret');
     expect(settings['default_slack_channel']).toBe('#alerts');
     expect(settings['oidc_issuer_url']).toBe('https://issuer.example.test/realms/filtarr');
     expect(settings['oidc_client_id']).toBe('filtarr-web');
-    expect(settings['oidc_client_secret']).toBe('');
+    expect(settings['oidc_client_secret']).toBe('oidc-client-secret');
 
     const importedInstance = targetDb
       .prepare<[], { url: string; api_key_encrypted: string }>('SELECT url, api_key_encrypted FROM arr_instances')
@@ -257,23 +263,265 @@ describe('SettingsBackupService', () => {
     expect(importedFilter?.notify_slack_token).toBe('');
     expect(importedFilter?.notify_slack_channel).toBe('#filter-alerts');
 
+    // Users, sessions, API keys, and events are never touched by a restore.
     expect(
       targetDb.prepare<[], { count: number }>('SELECT COUNT(*) as count FROM users').get()?.count,
-    ).toBe(0);
+    ).toBe(1);
     expect(
       targetDb.prepare<[], { count: number }>('SELECT COUNT(*) as count FROM sessions').get()?.count,
-    ).toBe(0);
+    ).toBe(1);
     expect(
       targetDb.prepare<[], { count: number }>('SELECT COUNT(*) as count FROM api_keys').get()?.count,
-    ).toBe(0);
+    ).toBe(1);
     expect(
       targetDb.prepare<[], { count: number }>('SELECT COUNT(*) as count FROM events').get()?.count,
-    ).toBe(0);
+    ).toBe(1);
     expect(
       targetDb.prepare<[], { count: number }>('SELECT COUNT(*) as count FROM jobs').get()?.count,
     ).toBe(1);
     expect(
       targetDb.prepare<[], { count: number }>('SELECT COUNT(*) as count FROM filter_instances').get()?.count,
     ).toBe(1);
+  });
+
+  it('blanks secrets on import when the target has none configured and leaves auth mode unset', () => {
+    const sourceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'filtarr-backup-source-'));
+    const targetRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'filtarr-backup-target-'));
+    cleanupPaths.push(sourceRoot, targetRoot);
+
+    const sourceDb = createDatabase();
+    const targetDb = createDatabase();
+    cleanupDbs.push(sourceDb, targetDb);
+    seedDatabase(sourceDb, path.join(sourceRoot, 'data'));
+
+    const sourceService = new SettingsBackupService(sourceDb, {
+      dataDir: path.join(sourceRoot, 'data'),
+      defaultDirectory: path.join(sourceRoot, 'backups'),
+    });
+    const targetService = new SettingsBackupService(targetDb, {
+      dataDir: path.join(targetRoot, 'data'),
+      defaultDirectory: path.join(targetRoot, 'backups'),
+    });
+
+    const sql = fs.readFileSync(sourceService.createBackup('manual').filePath, 'utf8');
+    targetService.importBackup(sql);
+
+    const get = (key: string) =>
+      targetDb.prepare<[string], { value: string }>('SELECT value FROM settings WHERE key = ?').get(key)?.value;
+    expect(get('auth_mode')).toBeUndefined();
+    expect(get('default_webhook_url')).toBe('');
+    expect(get('oidc_client_secret')).toBe('');
+    expect(get('validation_interval_minutes')).toBe('45');
+  });
+
+  it('round-trips values containing semicolons, quotes, newlines, and comment markers', () => {
+    const sourceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'filtarr-backup-source-'));
+    const targetRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'filtarr-backup-target-'));
+    cleanupPaths.push(sourceRoot, targetRoot);
+
+    const sourceDb = createDatabase();
+    const targetDb = createDatabase();
+    cleanupDbs.push(sourceDb, targetDb);
+    const { filterId } = seedDatabase(sourceDb, path.join(sourceRoot, 'data'));
+
+    const scriptPayload = [
+      "const name = 'O''Brien'; // it's fine;",
+      '-- this line starts with a comment marker',
+      '/* not a comment */ return name.includes(";");',
+      "';DELETE FROM settings;--",
+    ].join('\n');
+    const regexPayload = '{"pattern":"^(a|b);\\\\s*--x$"}';
+    const jobPayload = "a;b\n--c\n;'d'";
+    const channel = "#it's;\n-- channel";
+    sourceDb
+      .prepare('UPDATE filters SET rule_payload = ?, action_payload = ? WHERE id = ?')
+      .run(regexPayload, scriptPayload, filterId);
+    sourceDb.prepare('UPDATE jobs SET payload = ?').run(jobPayload);
+    insertSetting(sourceDb, 'default_slack_channel', channel);
+
+    const sourceService = new SettingsBackupService(sourceDb, {
+      dataDir: path.join(sourceRoot, 'data'),
+      defaultDirectory: path.join(sourceRoot, 'backups'),
+    });
+    const targetService = new SettingsBackupService(targetDb, {
+      dataDir: path.join(targetRoot, 'data'),
+      defaultDirectory: path.join(targetRoot, 'backups'),
+    });
+
+    const sql = fs.readFileSync(sourceService.createBackup('manual').filePath, 'utf8');
+    expect(() => targetService.importBackup(sql)).not.toThrow();
+
+    const filter = targetDb
+      .prepare<[], { rule_payload: string; action_payload: string }>('SELECT rule_payload, action_payload FROM filters')
+      .get();
+    expect(filter?.rule_payload).toBe(regexPayload);
+    expect(filter?.action_payload).toBe(scriptPayload);
+    expect(targetDb.prepare<[], { payload: string }>('SELECT payload FROM jobs').get()?.payload).toBe(jobPayload);
+    expect(
+      targetDb
+        .prepare<[string], { value: string }>('SELECT value FROM settings WHERE key = ?')
+        .get('default_slack_channel')?.value,
+    ).toBe(channel);
+  });
+
+  it('restores foreign key enforcement after import', () => {
+    const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'filtarr-backup-fk-'));
+    cleanupPaths.push(rootDir);
+    const db = createDatabase();
+    cleanupDbs.push(db);
+    seedDatabase(db, path.join(rootDir, 'data'));
+    db.pragma('foreign_keys = ON');
+
+    const service = new SettingsBackupService(db, {
+      dataDir: path.join(rootDir, 'data'),
+      defaultDirectory: path.join(rootDir, 'backups'),
+    });
+    service.importBackup(fs.readFileSync(service.createBackup('manual').filePath, 'utf8'));
+
+    expect(db.pragma('foreign_keys', { simple: true })).toBe(1);
+    expect(db.prepare<[], { count: number }>('SELECT COUNT(*) as count FROM users').get()?.count).toBe(1);
+    expect(db.prepare<[], { count: number }>('SELECT COUNT(*) as count FROM directory_filters').get()?.count).toBe(1);
+  });
+
+  it('rejects disallowed statements even when hidden after a quoted semicolon', () => {
+    const db = createDatabase();
+    cleanupDbs.push(db);
+    const service = new SettingsBackupService(db, { dataDir: os.tmpdir(), defaultDirectory: os.tmpdir() });
+
+    expect(() =>
+      service.importBackup("INSERT INTO settings (key, value) VALUES ('a', 'x;y'); DELETE FROM users;"),
+    ).toThrow(/disallowed statement/);
+    expect(() => service.importBackup("INSERT INTO settings (key, value) VALUES ('a', 'unterminated")).toThrow(
+      /unterminated/,
+    );
+  });
+
+  it('only prunes backup files written by the service', () => {
+    const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'filtarr-backup-prune-'));
+    const backupDir = path.join(rootDir, 'backups');
+    cleanupPaths.push(rootDir);
+    fs.mkdirSync(backupDir, { recursive: true });
+    const unrelated = path.join(backupDir, 'my-database-dump.sql');
+    fs.writeFileSync(unrelated, '-- keep me');
+    fs.utimesSync(unrelated, new Date('2020-01-01'), new Date('2020-01-01'));
+
+    const db = createDatabase();
+    cleanupDbs.push(db);
+    insertSetting(db, 'backup_retention_count', '1');
+    let current = new Date('2026-03-08T12:00:00.000Z');
+    const service = new SettingsBackupService(db, {
+      dataDir: path.join(rootDir, 'data'),
+      defaultDirectory: backupDir,
+      now: () => current,
+    });
+
+    const first = service.createBackup('manual');
+    fs.utimesSync(first.filePath, new Date('2026-03-08'), new Date('2026-03-08'));
+    current = new Date('2026-03-09T12:00:00.000Z');
+    const second = service.createBackup('manual');
+
+    expect(fs.readdirSync(backupDir).toSorted()).toEqual([second.fileName, 'my-database-dump.sql'].toSorted());
+  });
+});
+
+describe('SettingsBackupScheduler', () => {
+  it('re-arms when backups are enabled after starting disabled', () => {
+    const db = createDatabase();
+    insertSetting(db, 'backup_enabled', '0');
+    const service = new SettingsBackupService(db, { dataDir: os.tmpdir(), defaultDirectory: os.tmpdir() });
+    const scheduler = new SettingsBackupScheduler(db, service);
+
+    try {
+      scheduler.start();
+      expect(scheduler.hasPendingRun()).toBe(false);
+
+      service.updateSettings({ enabled: true });
+      scheduler.reload();
+      expect(scheduler.hasPendingRun()).toBe(true);
+
+      service.updateSettings({ enabled: false });
+      scheduler.reload();
+      expect(scheduler.hasPendingRun()).toBe(false);
+    } finally {
+      scheduler.stop();
+      db.close();
+    }
+  });
+});
+
+describe('splitSqlStatements', () => {
+  it('splits only on semicolons outside of quotes and strips comments', () => {
+    const sql = [
+      '-- header comment',
+      "INSERT INTO t VALUES ('a;b', 'it''s', 'x\n-- not a comment\ny');",
+      'CREATE TABLE "we;ird" (id INTEGER); /* block; comment */',
+      'PRAGMA foreign_keys=ON',
+    ].join('\n');
+
+    expect(splitSqlStatements(sql)).toEqual([
+      "INSERT INTO t VALUES ('a;b', 'it''s', 'x\n-- not a comment\ny')",
+      'CREATE TABLE "we;ird" (id INTEGER)',
+      'PRAGMA foreign_keys=ON',
+    ]);
+  });
+});
+
+describe('settings backup import body limit', () => {
+  let tempDir: string | undefined;
+  let db: ReturnType<typeof openDatabase> | undefined;
+
+  afterEach(() => {
+    if (db) closeDatabase(db);
+    db = undefined;
+    resetConfigCache();
+    delete process.env['FILTARR_DATA_DIR'];
+    if (tempDir) fs.rmSync(tempDir, { recursive: true, force: true });
+    tempDir = undefined;
+  });
+
+  function setup() {
+    resetConfigCache();
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'filtarr-backup-limit-'));
+    process.env['FILTARR_DATA_DIR'] = tempDir;
+    const openedDb = openDatabase(tempDir);
+    db = openedDb;
+    return { app: createApp(openedDb), db: openedDb, dataDir: tempDir };
+  }
+
+  it('accepts backup imports larger than the default 100kb JSON limit', async () => {
+    const { app, db: appDb, dataDir } = setup();
+    const service = new SettingsBackupService(appDb, {
+      dataDir,
+      defaultDirectory: path.join(dataDir, 'backups'),
+    });
+    const dump = fs.readFileSync(service.createBackup('manual').filePath, 'utf8');
+    const sql = `-- ${'x'.repeat(300 * 1024)}\n${dump}`;
+
+    const res = await request(app).post('/api/v1/settings/backup/import').send({ sql });
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+  });
+
+  it('returns a JSON error when the backup import body exceeds the limit', async () => {
+    const { app } = setup();
+
+    const res = await request(app)
+      .post('/api/v1/settings/backup/import')
+      .send({ sql: 'x'.repeat(11 * 1024 * 1024) });
+
+    expect(res.status).toBe(413);
+    expect(res.headers['content-type']).toMatch(/application\/json/);
+  });
+
+  it('keeps the default JSON limit for other routes', async () => {
+    const { app } = setup();
+
+    const res = await request(app)
+      .put('/api/v1/settings/app')
+      .send({ filler: 'x'.repeat(200 * 1024) });
+
+    expect(res.status).toBe(413);
+    expect(res.headers['content-type']).toMatch(/application\/json/);
   });
 });

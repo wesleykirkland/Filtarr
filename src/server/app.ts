@@ -8,6 +8,8 @@ import { createEventsRoutes } from './routes/events.js';
 import { createSetupRoutes, getStoredAuthMode } from './routes/setup.js';
 import { createAuthRoutes } from './routes/auth.js';
 import { createSettingsRoutes } from './routes/settings.js';
+
+const BACKUP_IMPORT_PATH = '/api/v1/settings/backup/import';
 import { createAuthMiddleware } from './middleware/auth.js';
 import { applySecurityMiddleware, authRateLimiter } from './middleware/security.js';
 import { publicSystemRoutes, protectedSystemRoutes } from './routes/system.js';
@@ -61,8 +63,16 @@ export function createApp(db: Database = getDatabase()): express.Application {
 
   applySecurityMiddleware(app, authConfig);
 
-  // Body parsing
-  app.use(express.json());
+  // Body parsing. The backup import route installs its own JSON parser with a
+  // larger limit (after authentication), so skip the default 100kb parser there.
+  const defaultJsonParser = express.json();
+  app.use((req, res, next) => {
+    if (req.method === 'POST' && req.path === BACKUP_IMPORT_PATH) {
+      next();
+      return;
+    }
+    defaultJsonParser(req, res, next);
+  });
   app.use(express.urlencoded({ extended: false }));
 
   // Auth-sensitive rate limiter for setup (login is limited inside the auth router)

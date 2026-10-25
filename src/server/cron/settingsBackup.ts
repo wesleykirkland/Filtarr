@@ -28,9 +28,27 @@ export class SettingsBackupScheduler {
     logger.info('Stopped settings backup scheduler');
   }
 
+  /**
+   * Re-evaluate the schedule after backup settings change. Clears any pending
+   * timer and re-arms it if backups are enabled.
+   */
+  public reload(): void {
+    if (this.isStopping) return;
+    if (this.timeoutId) {
+      clearTimeout(this.timeoutId);
+      this.timeoutId = null;
+    }
+    this.scheduleNextRun();
+  }
+
+  public hasPendingRun(): boolean {
+    return this.timeoutId !== null;
+  }
+
   private scheduleNextRun(): void {
     if (this.isStopping) return;
 
+    this.timeoutId = null;
     const state = this.backupService.getState();
     if (!state.enabled) {
       logger.info('Settings backup scheduler is disabled');
@@ -68,4 +86,8 @@ export function stopSettingsBackupScheduler(): void {
     schedulerInstance.stop();
     schedulerInstance = null;
   }
+}
+
+export function reloadSettingsBackupScheduler(): void {
+  schedulerInstance?.reload();
 }

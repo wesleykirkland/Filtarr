@@ -18,6 +18,8 @@ import {
   type NotificationChannel,
 } from '../services/NotificationService.js';
 import {
+  BackupDirectoryError,
+  BackupImportValidationError,
   SettingsBackupService,
   type BackupSettingsState,
 } from '../services/settingsBackup.js';
@@ -492,9 +494,13 @@ export function createSettingsRoutes(
         redactionNotes: SettingsBackupService.getRedactionNotes(),
       });
     } catch (err) {
+      if (err instanceof BackupDirectoryError) {
+        res.status(400).json({ error: err.message });
+        return;
+      }
       const message = err instanceof Error ? err.message : 'Failed to update backup settings';
       const statusCode = message.includes('positive integer') ? 400 : 500;
-      res.status(statusCode).json({ error: message });
+      res.status(statusCode).json({ error: statusCode === 400 ? message : 'Failed to update backup settings' });
     }
   });
 
@@ -536,6 +542,10 @@ export function createSettingsRoutes(
           redactionNotes: SettingsBackupService.getRedactionNotes(),
         });
       } catch (err) {
+        if (err instanceof BackupImportValidationError) {
+          res.status(400).json({ error: err.message });
+          return;
+        }
         const message = err instanceof Error ? err.message : 'Failed to import backup';
         const statusCode =
           message.includes('required') || message.includes('Backup SQL') ? 400 : 500;

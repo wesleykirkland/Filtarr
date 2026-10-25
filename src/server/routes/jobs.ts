@@ -23,7 +23,7 @@ const cronScheduleSchema = z
   })
   .refine((value) => cron.validate(value), { message: 'Cron schedule is not a valid cron expression' });
 
-const createJobSchema = z.object({
+export const createJobSchema = z.object({
   name: z.string().min(1, 'Name is required'),
   description: z.string().optional(),
   schedule: cronScheduleSchema,

@@ -12,6 +12,7 @@ import { createSettingsRoutes } from './routes/settings.js';
 
 const BACKUP_IMPORT_PATH = '/api/v1/settings/backup/import';
 import { createAuthMiddleware } from './middleware/auth.js';
+import { scopedRouter } from './middleware/apiKey.js';
 import { applySecurityMiddleware } from './middleware/security.js';
 import { publicSystemRoutes, protectedSystemRoutes } from './routes/system.js';
 import { getDatabase } from '../db/index.js';
@@ -38,14 +39,12 @@ function getAuthConfig(db: Database): AuthConfig {
     allowedHosts: envConfig.allowedHosts,
   };
 
-  // For forms mode, we need session config
-  if (mode === 'forms') {
-    config.forms = {
-      sessionSecret: envConfig.forms?.sessionSecret,
-      sessionMaxAge: envConfig.forms?.sessionMaxAge ?? 86400000,
-      cookieName: envConfig.forms?.cookieName ?? 'filtarr.sid',
-    };
-  }
+  // Session config is needed in every mode: the mode can switch to forms at runtime.
+  config.forms = {
+    sessionSecret: envConfig.forms?.sessionSecret,
+    sessionMaxAge: envConfig.forms?.sessionMaxAge ?? 86400000,
+    cookieName: envConfig.forms?.cookieName ?? 'filtarr.sid',
+  };
 
   if (mode === 'oidc' && envConfig.oidc) {
     config.oidc = envConfig.oidc;
@@ -121,20 +120,24 @@ export function createApp(db: Database = getDatabase()): express.Application {
   // These are mounted AFTER auth middleware so they can use session.
   // The login endpoint applies its own rate limiter; session/API-key routes are not login-limited.
   app.use('/api/v1/auth', createAuthRoutes(db, authConfig));
-  app.use('/api/v1', requireAuth, protectedSystemRoutes);
+  app.use('/api/v1', requireAuth, scopedRouter(protectedSystemRoutes));
 
   // Protected routes - require authentication
-  app.use('/api/v1/instances', requireAuth, createInstancesRouter(db));
-  app.use('/api/v1/directories', requireAuth, createDirectoriesRoutes(db));
-  app.use('/api/v1/filters', requireAuth, createFiltersRoutes(db));
-  app.use('/api/v1/jobs', requireAuth, createJobsRoutes(db));
-  app.use('/api/v1/events', requireAuth, createEventsRoutes(db));
+  // scopedRouter: API keys need 'read' for GET, 'write' for mutations, 'admin' for listed paths.
+  app.use('/api/v1/instances', requireAuth, scopedRouter(createInstancesRouter(db)));
+  app.use('/api/v1/directories', requireAuth, scopedRouter(createDirectoriesRoutes(db)));
+  app.use('/api/v1/filters', requireAuth, scopedRouter(createFiltersRoutes(db)));
+  app.use('/api/v1/jobs', requireAuth, scopedRouter(createJobsRoutes(db)));
+  app.use('/api/v1/events', requireAuth, scopedRouter(createEventsRoutes(db)));
   app.use(
     '/api/v1/settings',
     requireAuth,
-    createSettingsRoutes(db, (authMode: AuthMode) => {
-      console.log(`Auth mode changed to: ${authMode}`);
-    }),
+    scopedRouter(
+      createSettingsRoutes(db, (authMode: AuthMode) => {
+        console.log(`Auth mode changed to: ${authMode}`);
+      }),
+      { admin: ['/auth-mode', '/backup/import'] },
+    ),
   );
 
   // Serve client static files (built by Vite into dist/client/)

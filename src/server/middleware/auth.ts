@@ -11,6 +11,7 @@ import passport from 'passport';
 import { Strategy as LocalStrategy } from 'passport-local';
 import bcrypt from 'bcrypt';
 import crypto from 'node:crypto';
+import { inspect } from 'node:util';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type Database from 'better-sqlite3';
@@ -339,7 +340,7 @@ export async function invalidateAllSessions(): Promise<void> {
               resolve();
               return;
             }
-            reject(err instanceof Error ? err : new Error(String(err)));
+            reject(err instanceof Error ? err : new Error(`Session store clear failed: ${inspect(err)}`));
           });
         }),
     ),

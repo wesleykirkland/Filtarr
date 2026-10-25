@@ -76,15 +76,18 @@ export function findUnsafeRegexConstruct(source: string): string | null {
   const stack: RegexGroupState[] = [{ risky: false }];
   let inClass = false;
 
-  for (let i = 0; i < source.length; i += 1) {
+  let i = 0;
+  while (i < source.length) {
     const ch = source[i];
     const top = stack.at(-1) as RegexGroupState;
+    // Index of the last character consumed by this step; the loop resumes after it.
+    let last = i;
 
     if (ch === '\\') {
       if (!inClass && isBackreferenceEscape(source[i + 1] ?? '')) {
         return 'backreferences are not allowed';
       }
-      i += 1;
+      last = i + 1;
     } else if (inClass) {
       if (ch === ']') inClass = false;
     } else if (ch === '[') {
@@ -92,7 +95,7 @@ export function findUnsafeRegexConstruct(source: string): string | null {
     } else if (ch === '(') {
       stack.push({ risky: false });
       // Skip group modifiers so their `?` is not mistaken for a quantifier.
-      i += groupModifierLength(source, i + 1);
+      last = i + groupModifierLength(source, i + 1);
     } else if (ch === '|') {
       top.risky = true;
     } else if (ch === ')') {
@@ -100,14 +103,16 @@ export function findUnsafeRegexConstruct(source: string): string | null {
       const parent = stack.at(-1) as RegexGroupState;
       const result = closeGroup(source, i, closed, parent);
       if (typeof result === 'string') return result;
-      i = result;
+      last = result;
     } else {
       const quantifier = quantifierAt(source, i);
       if (quantifier) {
         top.risky = true;
-        i = skipLazyModifier(source, i + quantifier.length - 1);
+        last = skipLazyModifier(source, i + quantifier.length - 1);
       }
     }
+
+    i = last + 1;
   }
   return null;
 }

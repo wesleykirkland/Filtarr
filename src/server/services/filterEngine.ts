@@ -5,9 +5,11 @@ import { logger } from '../lib/logger.js';
 import { getAllFilters, type FilterRow } from '../../db/schemas/filters.js';
 import { getInstanceConfigById } from '../../db/schemas/instances.js';
 import { createArrClient } from '../routes/instances.js';
-import { SonarrClient } from '../../services/arr/sonarr.js';
-import { RadarrClient } from '../../services/arr/radarr.js';
-import { LidarrClient } from '../../services/arr/lidarr.js';
+import {
+  DEFAULT_BLOCKLIST_BEHAVIOR,
+  isBlocklistBehavior,
+  type BlocklistBehavior,
+} from '../../shared/blocklistBehavior.js';
 import { isPathWithinTarget, normalizeFilterTargetPath } from './filterPaths.js';
 import { NotificationService } from './NotificationService.js';
 import { normalizeScriptRuntime, runConfiguredScript } from './scriptRunner.js';
@@ -234,13 +236,10 @@ export class FilterEngine {
       return;
     }
 
-    const behavior = (filter.action_payload || 'blocklist_and_search') as
-      | 'blocklist_and_search'
-      | 'blocklist_only'
-      | 'do_not_blocklist';
+    const behavior = this.resolveBlocklistBehavior(filter);
 
     const client = createArrClient(
-      config.type as any,
+      config.type,
       config.url,
       config.apiKey,
       config.timeout,
@@ -268,9 +267,7 @@ export class FilterEngine {
 
       const matchingItem = queueItems.find((r) => {
         if (!r.outputPath) return false;
-        const resPath = path.resolve(translatedPath);
-        const outPath = path.resolve(r.outputPath);
-        return resPath.startsWith(outPath);
+        return isPathWithinTarget(translatedPath, r.outputPath);
       });
 
       if (!matchingItem) {
@@ -288,11 +285,15 @@ export class FilterEngine {
 
       switch (behavior) {
         case 'blocklist_and_search':
-          await client.blocklistAndRemove(matchingItem.id);
-          await this.triggerSearch(client, config.type, matchingItem);
+          // Arr-native redownload: the Arr searches for a replacement itself.
+          await client.deleteQueueItem(matchingItem.id, {
+            blocklist: true,
+            removeFromClient: true,
+            skipRedownload: false,
+          });
           logger.info(
             { instance: config.name, title: matchingItem.title },
-            'Blocklisted release and triggered search',
+            'Blocklisted release and requested redownload',
           );
           break;
 
@@ -308,16 +309,26 @@ export class FilterEngine {
           );
           break;
 
-        case 'do_not_blocklist':
+        case 'remove_only':
+          // skipRedownload only matters when blocklisting; keep the Arr default.
           await client.deleteQueueItem(matchingItem.id, {
             blocklist: false,
             removeFromClient: true,
+            skipRedownload: false,
           });
           logger.info(
             { instance: config.name, title: matchingItem.title },
             'Removed release from queue without blocklisting',
           );
           break;
+
+        default: {
+          const unhandled: never = behavior;
+          logger.error(
+            { filterId: filter.id, behavior: unhandled },
+            'Unhandled blocklist behavior; no action taken',
+          );
+        }
       }
     } catch (err: any) {
       logger.error(
@@ -327,22 +338,15 @@ export class FilterEngine {
     }
   }
 
-  private async triggerSearch(
-    client: ReturnType<typeof createArrClient>,
-    instanceType: string,
-    queueItem: { seriesId?: number; episodeId?: number; movieId?: number; artistId?: number; albumId?: number },
-  ) {
-    if (client instanceof SonarrClient && queueItem.episodeId) {
-      await client.searchEpisodes([queueItem.episodeId]);
-    } else if (client instanceof RadarrClient && queueItem.movieId) {
-      await client.searchMovies([queueItem.movieId]);
-    } else if (client instanceof LidarrClient && queueItem.albumId) {
-      await client.searchAlbum(queueItem.albumId);
-    } else {
-      logger.warn(
-        { instanceType },
-        'Could not determine search command for instance type',
-      );
-    }
+  private resolveBlocklistBehavior(filter: FilterRow): BlocklistBehavior {
+    const stored = filter.action_payload;
+    if (stored === null || stored === '') return DEFAULT_BLOCKLIST_BEHAVIOR;
+    if (isBlocklistBehavior(stored)) return stored;
+
+    logger.error(
+      { filterId: filter.id, actionPayload: stored, fallback: DEFAULT_BLOCKLIST_BEHAVIOR },
+      'Invalid blocklist behavior stored on filter; falling back to default',
+    );
+    return DEFAULT_BLOCKLIST_BEHAVIOR;
   }
 }

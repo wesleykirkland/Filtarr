@@ -30,6 +30,7 @@ import {
   maskApiKey,
 } from '../../services/encryption.js';
 import { getAuthMode } from '../lib/authMode.js';
+import { routerRateLimiter } from '../middleware/requestPolicy.js';
 import { validateWebhookUrl } from '../../services/security.js';
 
 /** Body size limit for backup imports (the global JSON parser uses the 100kb default). */
@@ -172,6 +173,7 @@ export function createSettingsRoutes(
   backupService: SettingsBackupService = new SettingsBackupService(db),
 ): Router {
   const router = Router();
+  router.use(routerRateLimiter());
 
   // GET /api/v1/settings/auth-mode — get current auth mode
   router.get('/auth-mode', (_req: Request, res: Response): void => {

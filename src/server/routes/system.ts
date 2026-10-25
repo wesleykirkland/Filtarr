@@ -2,9 +2,11 @@ import { Router, type NextFunction, type Request, type Response } from 'express'
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import { routerRateLimiter } from '../middleware/requestPolicy.js';
 
 export const publicSystemRoutes = Router();
 export const protectedSystemRoutes = Router();
+protectedSystemRoutes.use(routerRateLimiter());
 
 // Read version from package.json
 function getVersion(): string {

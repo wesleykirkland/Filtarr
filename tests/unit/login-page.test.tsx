@@ -7,12 +7,19 @@ import { click, render, waitFor } from '../support/render';
 const state = vi.hoisted(() => ({
   auth: { login: vi.fn(), session: { authenticated: false, mode: 'forms' }, isLoading: false },
   navigate: vi.fn(),
+  redirect: vi.fn(),
   toast: vi.fn(),
 }));
 
 vi.mock('../../src/client/hooks/useAuth', () => ({ useAuth: () => state.auth }));
 vi.mock('../../src/client/components/Toast', () => ({ toast: state.toast }));
-vi.mock('react-router', () => ({ useNavigate: () => state.navigate }));
+vi.mock('react-router', () => ({
+  useNavigate: () => state.navigate,
+  Navigate: ({ to, replace }: { to: string; replace?: boolean }) => {
+    state.redirect(to, { replace });
+    return null;
+  },
+}));
 
 async function setInputValue(input: HTMLInputElement, value: string) {
   await act(async () => {
@@ -27,6 +34,7 @@ describe('Login page', () => {
     document.body.innerHTML = '';
     state.auth.login.mockReset();
     state.navigate.mockReset();
+    state.redirect.mockReset();
     state.toast.mockReset();
     state.auth.isLoading = false;
     state.auth.session = { authenticated: false, mode: 'forms' };
@@ -37,7 +45,8 @@ describe('Login page', () => {
 
     const view = await render(<Login />);
 
-    expect(state.navigate).toHaveBeenCalledWith('/', { replace: true });
+    expect(state.redirect).toHaveBeenCalledWith('/', { replace: true });
+    expect(state.navigate).not.toHaveBeenCalled();
     await view.unmount();
   });
 

@@ -4,7 +4,10 @@ import os from 'node:os';
 import path from 'node:path';
 import request from 'supertest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { protectedSystemRoutes, publicSystemRoutes } from '../../src/server/routes/system.js';
+import { errorHandler } from '../../src/server/middleware/errorHandler.js';
+import { isPathWithinBrowseRoot, protectedSystemRoutes, publicSystemRoutes } from '../../src/server/routes/system.js';
+
+vi.mock('../../src/server/lib/logger.js', () => ({ logger: { error: vi.fn(), debug: vi.fn(), info: vi.fn(), warn: vi.fn() } }));
 
 describe('system routes', () => {
   const originalEnv = { ...process.env };
@@ -47,6 +50,7 @@ describe('system routes', () => {
 
     const app = express();
     app.use(protectedSystemRoutes);
+    app.use(errorHandler);
 
     const success = await request(app).get('/browse').query({ path: realTempDir });
     expect(success.status).toBe(200);
@@ -61,6 +65,35 @@ describe('system routes', () => {
     });
     const failure = await request(app).get('/browse').query({ path: realTempDir });
     expect(failure.status).toBe(500);
-    expect(failure.body.error).toContain('boom');
+    expect(failure.body.error.message).toBe('Internal Server Error');
+    expect(JSON.stringify(failure.body)).not.toContain('boom');
+  });
+
+  it('allows browsing below the default "/" root', async () => {
+    delete process.env['FILTARR_BROWSE_ROOT'];
+    const realTempDir = fs.realpathSync(tempDir);
+    const app = express();
+    app.use(protectedSystemRoutes);
+
+    const res = await request(app).get('/browse').query({ path: realTempDir });
+    expect(res.status).toBe(200);
+    expect(res.body.current).toBe(realTempDir);
+  });
+
+  it('checks whether existing and not-yet-created paths are inside the browse root', () => {
+    const realTempDir = fs.realpathSync(tempDir);
+    fs.mkdirSync(path.join(realTempDir, 'media'));
+    process.env['FILTARR_BROWSE_ROOT'] = path.join(realTempDir, 'media');
+
+    expect(isPathWithinBrowseRoot(path.join(realTempDir, 'media'))).toBe(true);
+    expect(isPathWithinBrowseRoot(path.join(realTempDir, 'media', 'not-yet', 'created'))).toBe(true);
+    expect(isPathWithinBrowseRoot(path.join(realTempDir, 'media', '..', 'escape'))).toBe(false);
+    expect(isPathWithinBrowseRoot(path.join(realTempDir, 'media-sibling'))).toBe(false);
+
+    fs.symlinkSync(realTempDir, path.join(realTempDir, 'media', 'link-out'));
+    expect(isPathWithinBrowseRoot(path.join(realTempDir, 'media', 'link-out', 'x'))).toBe(false);
+
+    delete process.env['FILTARR_BROWSE_ROOT'];
+    expect(isPathWithinBrowseRoot('/anything/at/all')).toBe(true);
   });
 });

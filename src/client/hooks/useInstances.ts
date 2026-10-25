@@ -31,6 +31,11 @@ export interface CreateInstanceInput {
   localPath?: string | null;
 }
 
+/** Input for testing an unsaved config. When `instanceId` is set and `apiKey` is empty, the server uses the stored key. */
+export interface TestUnsavedInstanceInput extends CreateInstanceInput {
+  instanceId?: number;
+}
+
 export interface TestResult {
   success: boolean;
   version?: string;
@@ -108,7 +113,7 @@ export function useTestInstance() {
 
 export function useTestUnsavedInstance() {
   return useMutation({
-    mutationFn: (input: CreateInstanceInput) => api.post<TestResult>('/instances/test', input),
+    mutationFn: (input: TestUnsavedInstanceInput) => api.post<TestResult>('/instances/test', input),
     onSuccess: notifyInstanceTestResult,
     onError: notifyInstanceTestError,
   });

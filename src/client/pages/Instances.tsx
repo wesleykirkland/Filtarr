@@ -84,7 +84,9 @@ function InstanceForm({
         name: name || 'Test',
         type,
         url,
-        apiKey: apiKey || (initial ? initial.api_key_masked : ''),
+        apiKey,
+        // Editing without a new key: let the server use the stored key.
+        instanceId: initial && !apiKey ? initial.id : undefined,
         timeout: Number.parseInt(timeout, 10) || undefined,
         skipSslVerify,
         remotePath: remotePath || null,
@@ -107,7 +109,7 @@ function InstanceForm({
       name,
       type,
       url,
-      apiKey: apiKey || (initial ? '' : apiKey), // empty = don't update
+      apiKey, // empty when editing = keep the stored key
       timeout: Number.parseInt(timeout, 10) || undefined,
       skipSslVerify,
       remotePath: remotePath || null,

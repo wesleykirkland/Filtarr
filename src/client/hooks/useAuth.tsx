@@ -18,15 +18,22 @@ interface AuthContextValue {
   retrySession: () => Promise<void>;
 }
 
+const SESSION_QUERY_KEY = ['auth', 'session'] as const;
+
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: Readonly<{ children: React.ReactNode }>) {
   const queryClient = useQueryClient();
 
   useEffect(() => {
+    // Mark only the session as signed out so the route guard redirects to /login,
+    // instead of clearing every query (which flashed all pages to Loading).
+    // Acting only on an authenticated cached session also prevents a refetch loop.
     const handleAuthError = () => {
-      queryClient.clear();
-      // Optional: force a reload or redirect, but clearing cache will make the protected route component do the redirect eventually when the session query fails.
+      const current = queryClient.getQueryData<AuthSession>(SESSION_QUERY_KEY);
+      if (!current?.authenticated || current.mode === 'none') return;
+      queryClient.setQueryData<AuthSession>(SESSION_QUERY_KEY, { authenticated: false, mode: current.mode });
+      void queryClient.invalidateQueries({ queryKey: SESSION_QUERY_KEY });
     };
 
     globalThis.addEventListener('auth:401', handleAuthError);
@@ -34,7 +41,7 @@ export function AuthProvider({ children }: Readonly<{ children: React.ReactNode 
   }, [queryClient]);
 
   const { data: session, isLoading, error, refetch } = useQuery({
-    queryKey: ['auth', 'session'],
+    queryKey: SESSION_QUERY_KEY,
     queryFn: () => api.get<AuthSession>('/auth/session'),
     retry: false,
     staleTime: 60_000,
@@ -47,14 +54,14 @@ export function AuthProvider({ children }: Readonly<{ children: React.ReactNode 
   const login = useCallback(
     async (username: string, password: string) => {
       await api.post('/auth/login', { username, password });
-      await queryClient.invalidateQueries({ queryKey: ['auth', 'session'] });
+      await queryClient.invalidateQueries({ queryKey: SESSION_QUERY_KEY });
     },
     [queryClient],
   );
 
   const logout = useCallback(async () => {
     await api.post('/auth/logout');
-    await queryClient.invalidateQueries({ queryKey: ['auth', 'session'] });
+    await queryClient.invalidateQueries({ queryKey: SESSION_QUERY_KEY });
   }, [queryClient]);
 
   const value = useMemo(

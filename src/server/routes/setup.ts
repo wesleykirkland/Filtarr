@@ -85,40 +85,54 @@ export function createSetupRoutes(
           )
         `);
 
-        // Create admin user only for non-"none" modes
-        let userId: number | null = null;
-        if (authMode !== 'none') {
-          const passwordHash = await bcrypt.hash(password, 12);
-          const result = db
-            .prepare(
-              `INSERT INTO users (username, password_hash, display_name)
-             VALUES (?, ?, ?)`,
-            )
-            .run(username, passwordHash, 'Administrator');
-          userId = Number(result.lastInsertRowid);
-        }
-
-        // Store auth mode in settings table
-        db.prepare(
-          `INSERT OR REPLACE INTO settings (key, value, updated_at)
-           VALUES ('auth_mode', ?, datetime('now'))`,
-        ).run(authMode);
-
-        // Mark setup as complete (this is what needsSetup checks)
-        db.prepare(
-          `INSERT OR REPLACE INTO settings (key, value, updated_at)
-           VALUES ('setup_complete', 'true', datetime('now'))`,
-        ).run();
-
-        // Generate initial API key
+        // Do the slow async hashing up front so all writes can happen in one
+        // synchronous transaction: a failure leaves no half-complete setup.
+        const passwordHash = authMode === 'none' ? null : await bcrypt.hash(password, 12);
         const apiKey = generateApiKey();
         const keyHash = await hashApiKey(apiKey, 12);
         const { prefix, last4 } = getKeyIdentifiers(apiKey);
 
-        db.prepare(
-          `INSERT INTO api_keys (name, key_hash, key_prefix, key_last4, user_id, scopes)
-           VALUES (?, ?, ?, ?, ?, ?)`,
-        ).run('Initial API Key', keyHash, prefix, last4, userId, '["*"]');
+        const completeSetup = db.transaction((): boolean => {
+          // Re-check inside the transaction to guard against concurrent setup requests.
+          if (!needsSetup(db)) return false;
+
+          // Create admin user only for non-"none" modes
+          let userId: number | null = null;
+          if (passwordHash !== null) {
+            const result = db
+              .prepare(
+                `INSERT INTO users (username, password_hash, display_name)
+               VALUES (?, ?, ?)`,
+              )
+              .run(username, passwordHash, 'Administrator');
+            userId = Number(result.lastInsertRowid);
+          }
+
+          // Store auth mode in settings table
+          db.prepare(
+            `INSERT OR REPLACE INTO settings (key, value, updated_at)
+             VALUES ('auth_mode', ?, datetime('now'))`,
+          ).run(authMode);
+
+          // Mark setup as complete (this is what needsSetup checks)
+          db.prepare(
+            `INSERT OR REPLACE INTO settings (key, value, updated_at)
+             VALUES ('setup_complete', 'true', datetime('now'))`,
+          ).run();
+
+          // Store the initial API key
+          db.prepare(
+            `INSERT INTO api_keys (name, key_hash, key_prefix, key_last4, user_id, scopes)
+             VALUES (?, ?, ?, ?, ?, ?)`,
+          ).run('Initial API Key', keyHash, prefix, last4, userId, '["*"]');
+
+          return true;
+        });
+
+        if (!completeSetup()) {
+          res.status(403).json({ error: 'Setup already completed' });
+          return;
+        }
 
         // Notify app of setup completion (for runtime config update)
         if (onSetupComplete) {

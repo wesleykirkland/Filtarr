@@ -68,11 +68,9 @@ describe('API Client', () => {
     await expect(api.put('/widgets/1', { enabled: true })).resolves.toEqual({ updated: true });
     await expect(api.delete('/widgets/1')).resolves.toBeUndefined();
 
-    expect(mockFetch).toHaveBeenNthCalledWith(
-      1,
-      '/api/v1/widgets',
-      expect.objectContaining({ headers: { 'Content-Type': 'application/json' } }),
-    );
+    expect(mockFetch).toHaveBeenNthCalledWith(1, '/api/v1/widgets', expect.objectContaining({ headers: expect.any(Headers) }));
+    const firstInit = mockFetch.mock.calls[0]?.[1] as RequestInit | undefined;
+    expect(new Headers(firstInit?.headers).get('Content-Type')).toBe('application/json');
     expect(mockFetch).toHaveBeenNthCalledWith(
       2,
       '/api/v1/widgets',

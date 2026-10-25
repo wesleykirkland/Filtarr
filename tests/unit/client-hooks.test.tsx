@@ -30,7 +30,7 @@ function AuthHarness() {
   const { session, login, logout, retrySession } = useAuth();
   return (
     <div>
-      <div data-session={session?.user?.displayName ?? session?.mode ?? 'none'} />
+      <div data-session={session?.user?.displayName ?? session?.mode ?? 'none'} data-authenticated={String(session?.authenticated ?? false)} />
       <button onClick={() => login('admin', 'secret')}>login</button>
       <button onClick={() => logout()}>logout</button>
       <button onClick={() => retrySession()}>retry</button>
@@ -90,7 +90,14 @@ describe('client hooks', () => {
       expect(api.post).toHaveBeenCalledWith('/auth/logout');
     });
 
+    await waitFor(() => {
+      expect(document.body.querySelector('[data-authenticated]')?.getAttribute('data-authenticated')).toBe('true');
+    });
+    api.get.mockResolvedValue({ authenticated: false, mode: 'forms' });
     globalThis.dispatchEvent(new Event('auth:401'));
+    await waitFor(() => {
+      expect(document.body.querySelector('[data-authenticated]')?.getAttribute('data-authenticated')).toBe('false');
+    });
     await view.unmount();
   });
 

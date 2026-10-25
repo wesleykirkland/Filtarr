@@ -824,7 +824,12 @@ export class SettingsBackupService {
     // data directory. This is the check static analysis recognises; the
     // realpath-based checks below additionally defeat symlink escapes.
     const lexicalRoot = path.resolve(this.dataDir);
-    if (requested !== lexicalRoot && !requested.startsWith(lexicalRoot + path.sep)) {
+    if (!requested.startsWith(lexicalRoot)) {
+      throw new BackupDirectoryError();
+    }
+    // startsWith alone would accept a sibling such as `<dataDir>-other`; require a boundary.
+    const boundary = requested.charAt(lexicalRoot.length);
+    if (boundary !== '' && boundary !== path.sep) {
       throw new BackupDirectoryError();
     }
     const candidate = requested;

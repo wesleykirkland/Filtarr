@@ -817,10 +817,19 @@ export class SettingsBackupService {
    * missing and re-checked afterwards. Throws BackupDirectoryError otherwise.
    */
   private resolveBackupDirectory(directory: string, create: boolean): string {
-    const candidate = this.normalizeDirectory(directory);
+    const requested = path.resolve(this.normalizeDirectory(directory));
     fs.mkdirSync(this.dataDir, { recursive: true });
-    const dataRoot = fs.realpathSync(this.dataDir);
 
+    // Lexical containment first: the resolved path must sit under the resolved
+    // data directory. This is the check static analysis recognises; the
+    // realpath-based checks below additionally defeat symlink escapes.
+    const lexicalRoot = path.resolve(this.dataDir);
+    if (requested !== lexicalRoot && !requested.startsWith(lexicalRoot + path.sep)) {
+      throw new BackupDirectoryError();
+    }
+    const candidate = requested;
+
+    const dataRoot = fs.realpathSync(this.dataDir);
     if (!isPathInside(dataRoot, realpathOfNearestAncestor(candidate))) {
       throw new BackupDirectoryError();
     }

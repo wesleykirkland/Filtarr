@@ -30,11 +30,6 @@ vi.mock('../../src/server/services/NotificationService.js', () => ({
   },
 }));
 
-vi.mock('../../src/server/services/filterPaths.js', () => ({
-  isPathWithinTarget: vi.fn(() => true),
-  normalizeFilterTargetPath: vi.fn((p: string) => p),
-}));
-
 vi.mock('../../src/server/services/scriptRunner.js', () => ({
   normalizeScriptRuntime: vi.fn((r: string) => r),
   runConfiguredScript: vi.fn(),
@@ -43,9 +38,7 @@ vi.mock('../../src/server/services/scriptRunner.js', () => ({
 import { FilterEngine } from '../../src/server/services/filterEngine.js';
 import { getInstanceConfigById } from '../../src/db/schemas/instances.js';
 import { createArrClient } from '../../src/server/routes/instances.js';
-import { SonarrClient } from '../../src/services/arr/sonarr.js';
-import { RadarrClient } from '../../src/services/arr/radarr.js';
-import { LidarrClient } from '../../src/services/arr/lidarr.js';
+import { logger } from '../../src/server/lib/logger.js';
 
 const mockGetInstanceConfigById = vi.mocked(getInstanceConfigById);
 const mockCreateArrClient = vi.mocked(createArrClient);
@@ -119,6 +112,33 @@ function makeQueueRecord(overrides: Record<string, unknown> = {}) {
 
 const fakeDb = {} as any;
 
+function makeMockClient(queue: ReturnType<typeof makeQueueRecord>[]) {
+  return {
+    getAllQueueItems: vi.fn().mockResolvedValue(queue),
+    deleteQueueItem: vi.fn().mockResolvedValue(undefined),
+    blocklistAndRemove: vi.fn().mockResolvedValue(undefined),
+    searchEpisodes: vi.fn(),
+    searchMovies: vi.fn(),
+    searchAlbum: vi.fn(),
+  };
+}
+
+type MockClient = ReturnType<typeof makeMockClient>;
+
+function expectNoSearch(client: MockClient) {
+  expect(client.searchEpisodes).not.toHaveBeenCalled();
+  expect(client.searchMovies).not.toHaveBeenCalled();
+  expect(client.searchAlbum).not.toHaveBeenCalled();
+  expect(client.blocklistAndRemove).not.toHaveBeenCalled();
+}
+
+const fileEvent = (filePath: string) => ({
+  path: filePath,
+  name: filePath.split('/').pop() ?? '',
+  size: 100,
+  extension: filePath.split('.').pop() ?? '',
+});
+
 describe('handleBlocklist behaviors', () => {
   let engine: FilterEngine;
 
@@ -127,126 +147,135 @@ describe('handleBlocklist behaviors', () => {
     engine = new FilterEngine(fakeDb);
   });
 
-  it('defaults to blocklist_and_search when action_payload is null (sonarr)', async () => {
-    const filter = makeFilter({ action_payload: null, instance_id: 1 });
-    const config = makeInstanceConfig({ type: 'sonarr' });
-    mockGetInstanceConfigById.mockReturnValue(config);
+  function setup(type: ArrInstanceConfig['type'], queue = [makeQueueRecord()]) {
+    mockGetInstanceConfigById.mockReturnValue(makeInstanceConfig({ type }));
+    const client = makeMockClient(queue);
+    mockCreateArrClient.mockReturnValue(client as any);
+    return client;
+  }
 
-    const mockClient = Object.create(SonarrClient.prototype);
-    mockClient.getAllQueueItems = vi.fn().mockResolvedValue(
-      [makeQueueRecord({ seriesId: 5, episodeId: 10 })],
-    );
-    mockClient.blocklistAndRemove = vi.fn().mockResolvedValue(undefined);
-    mockClient.searchEpisodes = vi.fn().mockResolvedValue({});
-    mockCreateArrClient.mockReturnValue(mockClient);
+  it.each(['sonarr', 'radarr', 'lidarr'] as const)(
+    'blocklist_and_search uses Arr-native redownload without an explicit search (%s)',
+    async (type) => {
+      const client = setup(type);
+      const filter = makeFilter({ action_payload: 'blocklist_and_search' });
 
-    // Access private method via any
-    await (engine as any).handleBlocklist(filter, { path: '/downloads/test.exe', name: 'test.exe', size: 100, extension: 'exe' });
+      await (engine as any).handleBlocklist(filter, fileEvent('/downloads/test.exe'));
 
-    expect(mockClient.blocklistAndRemove).toHaveBeenCalledWith(42);
-    expect(mockClient.searchEpisodes).toHaveBeenCalledWith([10]);
-  });
+      expect(client.deleteQueueItem).toHaveBeenCalledWith(42, {
+        blocklist: true,
+        removeFromClient: true,
+        skipRedownload: false,
+      });
+      expectNoSearch(client);
+    },
+  );
 
-  it('blocklist_and_search triggers searchMovies for radarr', async () => {
-    const filter = makeFilter({ action_payload: 'blocklist_and_search', instance_id: 1 });
-    const config = makeInstanceConfig({ type: 'radarr', name: 'Radarr' });
-    mockGetInstanceConfigById.mockReturnValue(config);
+  it.each([null, ''])('defaults to blocklist_and_search when action_payload is %j', async (payload) => {
+    const client = setup('sonarr');
+    const filter = makeFilter({ action_payload: payload as string | null });
 
-    const mockClient = Object.create(RadarrClient.prototype);
-    mockClient.getAllQueueItems = vi.fn().mockResolvedValue(
-      [makeQueueRecord({ movieId: 7 })],
-    );
-    mockClient.blocklistAndRemove = vi.fn().mockResolvedValue(undefined);
-    mockClient.searchMovies = vi.fn().mockResolvedValue({});
-    mockCreateArrClient.mockReturnValue(mockClient);
+    await (engine as any).handleBlocklist(filter, fileEvent('/downloads/test.exe'));
 
-    await (engine as any).handleBlocklist(filter, { path: '/downloads/movie.mkv', name: 'movie.mkv', size: 100, extension: 'mkv' });
-
-    expect(mockClient.blocklistAndRemove).toHaveBeenCalledWith(42);
-    expect(mockClient.searchMovies).toHaveBeenCalledWith([7]);
-  });
-
-  it('blocklist_and_search triggers searchAlbum for lidarr', async () => {
-    const filter = makeFilter({ action_payload: 'blocklist_and_search', instance_id: 1 });
-    const config = makeInstanceConfig({ type: 'lidarr', name: 'Lidarr' });
-    mockGetInstanceConfigById.mockReturnValue(config);
-
-    const mockClient = Object.create(LidarrClient.prototype);
-    mockClient.getAllQueueItems = vi.fn().mockResolvedValue(
-      [makeQueueRecord({ artistId: 3, albumId: 15 })],
-    );
-    mockClient.blocklistAndRemove = vi.fn().mockResolvedValue(undefined);
-    mockClient.searchAlbum = vi.fn().mockResolvedValue({});
-    mockCreateArrClient.mockReturnValue(mockClient);
-
-    await (engine as any).handleBlocklist(filter, { path: '/downloads/album.flac', name: 'album.flac', size: 100, extension: 'flac' });
-
-    expect(mockClient.blocklistAndRemove).toHaveBeenCalledWith(42);
-    expect(mockClient.searchAlbum).toHaveBeenCalledWith(15);
+    expect(client.deleteQueueItem).toHaveBeenCalledWith(42, {
+      blocklist: true,
+      removeFromClient: true,
+      skipRedownload: false,
+    });
+    expect(logger.error).not.toHaveBeenCalled();
   });
 
   it('blocklist_only calls deleteQueueItem with blocklist=true and skipRedownload=true', async () => {
-    const filter = makeFilter({ action_payload: 'blocklist_only', instance_id: 1 });
-    const config = makeInstanceConfig({ type: 'sonarr' });
-    mockGetInstanceConfigById.mockReturnValue(config);
+    const client = setup('sonarr');
+    const filter = makeFilter({ action_payload: 'blocklist_only' });
 
-    const mockClient = Object.create(SonarrClient.prototype);
-    mockClient.getAllQueueItems = vi.fn().mockResolvedValue(
-      [makeQueueRecord({ seriesId: 5, episodeId: 10 })],
-    );
-    mockClient.deleteQueueItem = vi.fn().mockResolvedValue(undefined);
-    mockCreateArrClient.mockReturnValue(mockClient);
+    await (engine as any).handleBlocklist(filter, fileEvent('/downloads/test.exe'));
 
-    await (engine as any).handleBlocklist(filter, { path: '/downloads/test.exe', name: 'test.exe', size: 100, extension: 'exe' });
-
-    expect(mockClient.deleteQueueItem).toHaveBeenCalledWith(42, {
+    expect(client.deleteQueueItem).toHaveBeenCalledWith(42, {
       blocklist: true,
       removeFromClient: true,
       skipRedownload: true,
     });
+    expectNoSearch(client);
   });
 
-  it('do_not_blocklist calls deleteQueueItem with blocklist=false', async () => {
-    const filter = makeFilter({ action_payload: 'do_not_blocklist', instance_id: 1 });
-    const config = makeInstanceConfig({ type: 'radarr', name: 'Radarr' });
-    mockGetInstanceConfigById.mockReturnValue(config);
+  it('remove_only calls deleteQueueItem with blocklist=false', async () => {
+    const client = setup('radarr');
+    const filter = makeFilter({ action_payload: 'remove_only' });
 
-    const mockClient = Object.create(RadarrClient.prototype);
-    mockClient.getAllQueueItems = vi.fn().mockResolvedValue(
-      [makeQueueRecord({ movieId: 7 })],
-    );
-    mockClient.deleteQueueItem = vi.fn().mockResolvedValue(undefined);
-    mockCreateArrClient.mockReturnValue(mockClient);
+    await (engine as any).handleBlocklist(filter, fileEvent('/downloads/movie.mkv'));
 
-    await (engine as any).handleBlocklist(filter, { path: '/downloads/movie.mkv', name: 'movie.mkv', size: 100, extension: 'mkv' });
-
-    expect(mockClient.deleteQueueItem).toHaveBeenCalledWith(42, {
+    expect(client.deleteQueueItem).toHaveBeenCalledWith(42, {
       blocklist: false,
       removeFromClient: true,
+      skipRedownload: false,
+    });
+    expectNoSearch(client);
+  });
+
+  it('falls back to the default behavior and logs an error for an invalid stored payload', async () => {
+    const client = setup('sonarr');
+    const filter = makeFilter({ action_payload: 'do_not_blocklist' });
+
+    await (engine as any).handleBlocklist(filter, fileEvent('/downloads/test.exe'));
+
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.objectContaining({ filterId: 1, actionPayload: 'do_not_blocklist' }),
+      expect.stringContaining('Invalid blocklist behavior'),
+    );
+    expect(client.deleteQueueItem).toHaveBeenCalledWith(42, {
+      blocklist: true,
+      removeFromClient: true,
+      skipRedownload: false,
     });
   });
 
+  it('does not match a queue item whose outputPath is only a string prefix of the file path', async () => {
+    const client = setup('sonarr', [makeQueueRecord({ outputPath: '/downloads/Show.S02' })]);
+    const filter = makeFilter({ action_payload: 'blocklist_and_search' });
+
+    await (engine as any).handleBlocklist(filter, fileEvent('/downloads/Show/episode.exe'));
+
+    expect(client.deleteQueueItem).not.toHaveBeenCalled();
+  });
+
+  it('does not match a sibling directory that shares the outputPath as a string prefix', async () => {
+    // Regression: a bare startsWith('/downloads/Show') would match '/downloads/Show.S02/...'
+    const client = setup('sonarr', [makeQueueRecord({ outputPath: '/downloads/Show' })]);
+    const filter = makeFilter({ action_payload: 'blocklist_and_search' });
+
+    await (engine as any).handleBlocklist(filter, fileEvent('/downloads/Show.S02/episode.exe'));
+
+    expect(client.deleteQueueItem).not.toHaveBeenCalled();
+  });
+
+  it('matches a file nested under the queue item outputPath', async () => {
+    const client = setup('sonarr', [
+      makeQueueRecord({ id: 1, outputPath: '/downloads/Show.S02' }),
+      makeQueueRecord({ id: 2, outputPath: '/downloads/Show' }),
+    ]);
+    const filter = makeFilter({ action_payload: 'blocklist_only' });
+
+    await (engine as any).handleBlocklist(filter, fileEvent('/downloads/Show/Season 1/episode.exe'));
+
+    expect(client.deleteQueueItem).toHaveBeenCalledTimes(1);
+    expect(client.deleteQueueItem).toHaveBeenCalledWith(2, expect.any(Object));
+  });
+
   it('does nothing when no matching queue item is found', async () => {
-    const filter = makeFilter({ action_payload: 'blocklist_and_search', instance_id: 1 });
-    const config = makeInstanceConfig({ type: 'sonarr' });
-    mockGetInstanceConfigById.mockReturnValue(config);
+    const client = setup('sonarr', []);
+    const filter = makeFilter({ action_payload: 'blocklist_and_search' });
 
-    const mockClient = Object.create(SonarrClient.prototype);
-    mockClient.getAllQueueItems = vi.fn().mockResolvedValue([]);
-    mockClient.blocklistAndRemove = vi.fn();
-    mockClient.deleteQueueItem = vi.fn();
-    mockCreateArrClient.mockReturnValue(mockClient);
+    await (engine as any).handleBlocklist(filter, fileEvent('/other/test.exe'));
 
-    await (engine as any).handleBlocklist(filter, { path: '/other/test.exe', name: 'test.exe', size: 100, extension: 'exe' });
-
-    expect(mockClient.blocklistAndRemove).not.toHaveBeenCalled();
-    expect(mockClient.deleteQueueItem).not.toHaveBeenCalled();
+    expect(client.deleteQueueItem).not.toHaveBeenCalled();
+    expect(client.blocklistAndRemove).not.toHaveBeenCalled();
   });
 
   it('returns early when no instance_id is set', async () => {
     const filter = makeFilter({ instance_id: null });
 
-    await (engine as any).handleBlocklist(filter, { path: '/downloads/test.exe', name: 'test.exe', size: 100, extension: 'exe' });
+    await (engine as any).handleBlocklist(filter, fileEvent('/downloads/test.exe'));
 
     expect(mockCreateArrClient).not.toHaveBeenCalled();
   });

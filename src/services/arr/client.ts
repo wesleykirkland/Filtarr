@@ -26,11 +26,19 @@ import {
 } from './types.js';
 
 const DEFAULT_TIMEOUT = 30_000; // 30 seconds
+const MIN_TIMEOUT = 1_000; // 1 second
+const MAX_TIMEOUT = 300_000; // 5 minutes
 const DEFAULT_MAX_RETRIES = 3;
 const RETRY_BASE_DELAY = 1000; // 1 second
 const RETRYABLE_STATUS_CODES = new Set([408, 429, 500, 502, 503, 504]);
 
 type QueryParams = Record<string, string | number | boolean>;
+
+/** Bound a caller-supplied timeout so request-controlled values cannot create unbounded timers. */
+function clampTimeout(value: number | undefined): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return DEFAULT_TIMEOUT;
+  return Math.min(Math.max(Math.trunc(value), MIN_TIMEOUT), MAX_TIMEOUT);
+}
 
 export class ArrClient {
   protected readonly baseUrl: string;
@@ -47,7 +55,7 @@ export class ArrClient {
     // Normalize URL: remove trailing slash
     this.baseUrl = stripTrailingSlashes(normalizedBaseUrl);
     this.apiKey = options.apiKey;
-    this.timeout = options.timeout ?? DEFAULT_TIMEOUT;
+    this.timeout = clampTimeout(options.timeout);
     this.maxRetries = options.maxRetries ?? DEFAULT_MAX_RETRIES;
     this.skipSslVerify = options.skipSslVerify ?? false;
   }

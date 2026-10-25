@@ -246,3 +246,19 @@ describe('ArrClient', () => {
     expect(post).toHaveBeenCalledWith('/api/v3/command', { name: 'RefreshSeries' });
   });
 });
+
+describe('ArrClient timeout bounds', () => {
+  const base = { baseUrl: 'http://localhost:8989', apiKey: 'k' };
+  const timeoutOf = (client: ArrClient) => (client as unknown as { timeout: number }).timeout;
+
+  it('defaults to 30 seconds when no timeout is given', () => {
+    expect(timeoutOf(new ArrClient(base))).toBe(30_000);
+  });
+
+  it('clamps out-of-range and non-finite timeouts', () => {
+    expect(timeoutOf(new ArrClient({ ...base, timeout: 1 }))).toBe(1_000);
+    expect(timeoutOf(new ArrClient({ ...base, timeout: 10_000_000 }))).toBe(300_000);
+    expect(timeoutOf(new ArrClient({ ...base, timeout: Number.NaN }))).toBe(30_000);
+    expect(timeoutOf(new ArrClient({ ...base, timeout: 45_000 }))).toBe(45_000);
+  });
+});

@@ -117,7 +117,12 @@ function maskSecret(value: string): string {
  * Secrets are never echoed back in plaintext, so an omitted/empty value or the masked
  * placeholder means "keep the existing stored secret".
  */
-function getSecretUpdate(value: string | undefined): string | undefined {
+/**
+ * Interpret a secret field from a PUT body: `undefined`, empty, or a masked value keeps the
+ * stored secret; an explicit `null` clears it; anything else replaces it.
+ */
+function getSecretUpdate(value: string | null | undefined): string | undefined {
+  if (value === null) return '';
   const trimmed = value?.trim();
   if (!trimmed || trimmed.startsWith('••••')) return undefined;
   return trimmed;

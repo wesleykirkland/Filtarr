@@ -609,6 +609,12 @@ describe('SettingsBackupService import hardening', () => {
     expect(sql).not.toContain('https://hooks.slack.test/secret');
   });
 
+  it('omits the install-specific encryption canary from exports', () => {
+    const { sql } = prepare((db) => insertSetting(db, 'encryption_canary', 'enc:v2:deadbeef'));
+
+    expect(sql).not.toContain('encryption_canary');
+  });
+
   it('rejects backup directories outside the data directory', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'filtarr-backup-dir-'));
     const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'filtarr-backup-outside-'));

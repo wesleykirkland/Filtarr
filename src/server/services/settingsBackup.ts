@@ -641,6 +641,7 @@ export class SettingsBackupService {
 
       for (const row of rows) {
         const redactedRow = this.redactExportRow(table, row);
+        if (!redactedRow) continue;
         const values = columns.map((column) => this.toSqlLiteral(redactedRow[column]));
         const columnList = columns.map((column) => this.quoteIdentifier(column)).join(', ');
 
@@ -667,6 +668,11 @@ export class SettingsBackupService {
 
       if (key === 'backup_last_error' || BLANKED_SETTING_KEYS.has(key)) {
         return { ...row, value: '' };
+      }
+
+      // The encryption canary is bound to this install's key; it is meaningless elsewhere.
+      if (key === 'encryption_canary') {
+        return null;
       }
 
       return row;

@@ -71,14 +71,23 @@ jobs:
             echo "created_at=${created_at}"
           } >> "${GITHUB_OUTPUT}"
 
-      - name: Check out repository
+      - name: Check out main
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ steps.context.outputs.release_sha }}
+          ref: main
           fetch-depth: 0
 
-      - name: Fetch release tags
-        run: git fetch --force --tags origin
+      - name: Switch to the validated release commit
+        # The commit comes from the CI run on a push to main (guarded by the job `if`).
+        # Require it to be an ancestor of main before checking it out, so a stray
+        # workflow_run from any other ref can never be released.
+        shell: bash
+        env:
+          RELEASE_SHA: ${{ steps.context.outputs.release_sha }}
+        run: |
+          git fetch --force --tags origin
+          git merge-base --is-ancestor "${RELEASE_SHA}" origin/main
+          git checkout --detach "${RELEASE_SHA}"
 
       - name: Use Node.js ${{ env.NODE_VERSION }}
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -150,10 +159,19 @@ jobs:
       attestations: write
       id-token: write
     steps:
-      - name: Check out release commit
+      - name: Check out main
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ needs.release.outputs.release_sha }}
+          ref: main
+          fetch-depth: 0
+
+      - name: Switch to the released commit
+        shell: bash
+        env:
+          RELEASE_SHA: ${{ needs.release.outputs.release_sha }}
+        run: |
+          git merge-base --is-ancestor "${RELEASE_SHA}" origin/main
+          git checkout --detach "${RELEASE_SHA}"
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0

@@ -34,6 +34,7 @@ services:
       # Encryption Secret (IMPORTANT: Set this to a secure random value)
       # Used for encrypting API keys in the database
       # Generate with: openssl rand -base64 32
+      # Must be at least 32 characters when set.
       FILTARR_SECRET: ${FILTARR_SECRET:-}
 
       # Authentication mode (none, basic, forms, oidc) and admin credentials are

@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import { describe, expect, it } from 'vitest';
 import { decryptStoredSecret, encryptStoredSecret } from '../../src/services/encryption.js';
 import { migrateEncryptedSecrets } from '../../src/db/secretMigration.js';
+import { FILTER_SECRET_CONTEXTS } from '../../src/db/schemas/filters.js';
 
 describe('migrateEncryptedSecrets', () => {
   it('encrypts legacy filter and settings secrets while leaving encrypted rows intact', () => {
@@ -42,7 +43,7 @@ describe('migrateEncryptedSecrets', () => {
       .get();
 
     expect(filterRow?.notify_webhook_url).toMatch(/^enc:/);
-    expect(decryptStoredSecret(filterRow?.notify_webhook_url, '.')).toBe('https://hooks.example.com/plain');
+    expect(decryptStoredSecret(filterRow?.notify_webhook_url, '.', FILTER_SECRET_CONTEXTS.webhookUrl)).toBe('https://hooks.example.com/plain');
     expect(filterRow?.notify_slack_token).toBe(existingEncrypted);
     expect(settingsRow?.value).toMatch(/^enc:/);
     expect(decryptStoredSecret(settingsRow?.value, '.')).toBe('https://hooks.slack.com/services/plain');

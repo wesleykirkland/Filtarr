@@ -1,7 +1,7 @@
 import type Database from 'better-sqlite3';
-import type { FilterRow } from '../../db/schemas/filters.js';
+import { FILTER_SECRET_CONTEXTS, type FilterRow } from '../../db/schemas/filters.js';
 import type { ArrInstanceConfig } from '../../services/arr/types.js';
-import { validateWebhookUrl } from '../../services/security.js';
+import { resolvePinnedWebhookTarget } from '../../services/security.js';
 import { decryptStoredSecret } from '../../services/encryption.js';
 import { logger } from '../lib/logger.js';
 import type { FileEvent } from './filterEngine.js';
@@ -255,10 +255,10 @@ export class NotificationService {
     if (filter.override_notifications === 1) {
       return {
         webhookUrl: filter.notify_on_match
-          ? this.trimToUndefined(decryptStoredSecret(filter.notify_webhook_url))
+          ? this.trimToUndefined(decryptStoredSecret(filter.notify_webhook_url, undefined, FILTER_SECRET_CONTEXTS.webhookUrl))
           : undefined,
         slackToken: filter.notify_slack
-          ? this.trimToUndefined(decryptStoredSecret(filter.notify_slack_token))
+          ? this.trimToUndefined(decryptStoredSecret(filter.notify_slack_token, undefined, FILTER_SECRET_CONTEXTS.slackToken))
           : undefined,
         slackChannel: filter.notify_slack
           ? this.trimToUndefined(filter.notify_slack_channel)
@@ -410,27 +410,40 @@ export class NotificationService {
     failureMessage: string,
     successMessage: string,
   ): Promise<boolean> {
-    // Validate the webhook URL to prevent SSRF (must be HTTPS, non-private).
+    // Validate the webhook URL to prevent SSRF (must be HTTPS, and every address
+    // the host resolves to must be public). The connection is pinned to those
+    // validated addresses so the request cannot be re-resolved (DNS rebinding),
+    // and redirects are refused so a public host cannot bounce us inward.
+    const { url, dispatcher } = await resolvePinnedWebhookTarget(webhookUrl, {
+      fieldName: 'Webhook URL',
+    });
     // Reconstruct from parsed URL components to break the taint chain so
     // static-analysis tools (CodeQL) do not flag the fetch as SSRF.
-    validateWebhookUrl(webhookUrl, { fieldName: 'Webhook URL' });
-    const sanitizedUrl = new URL(webhookUrl);
+    const sanitizedUrl = new URL(url);
     const fetchUrl = `${sanitizedUrl.protocol}//${sanitizedUrl.host}${sanitizedUrl.pathname}${sanitizedUrl.search}${sanitizedUrl.hash}`;
 
-    const response = await fetch(fetchUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(NOTIFICATION_TIMEOUT_MS),
-    });
+    try {
+      const response = await fetch(fetchUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        redirect: 'error',
+        signal: AbortSignal.timeout(NOTIFICATION_TIMEOUT_MS),
+        dispatcher,
+      } as RequestInit & { dispatcher?: unknown });
+      // The webhook response body is not used; release it so the pinned agent can close.
+      await response.body?.cancel().catch(() => undefined);
 
-    if (!response.ok) {
-      logger.warn({ ...logContext, status: response.status }, failureMessage);
-      return false;
+      if (!response.ok) {
+        logger.warn({ ...logContext, status: response.status }, failureMessage);
+        return false;
+      }
+
+      logger.debug(logContext, successMessage);
+      return true;
+    } finally {
+      dispatcher.close().catch(() => undefined);
     }
-
-    logger.debug(logContext, successMessage);
-    return true;
   }
 
   private async sendSlackMessage(
@@ -448,6 +461,7 @@ export class NotificationService {
         'Content-Type': 'application/json; charset=utf-8',
       },
       body: JSON.stringify({ channel, text }),
+      redirect: 'error',
       signal: AbortSignal.timeout(NOTIFICATION_TIMEOUT_MS),
     });
 

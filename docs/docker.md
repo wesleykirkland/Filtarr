@@ -57,7 +57,7 @@ Navigate to `http://localhost:9898/setup` to complete the initial configuration:
 
 ### Required
 
-- **`FILTARR_SECRET`**: Encryption key for API keys stored in database
+- **`FILTARR_SECRET`**: Encryption key for API keys stored in database (minimum 32 characters; startup fails if it is set but shorter)
   - Generate with: `openssl rand -base64 32`
   - **IMPORTANT**: Keep this secret safe and persistent
 

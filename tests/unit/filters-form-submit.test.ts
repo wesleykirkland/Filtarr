@@ -206,4 +206,54 @@ describe('FilterForm submission', () => {
       expect.objectContaining({ description: '', actionType: 'delete', actionPayload: '' }),
     );
   });
+
+  it('shows configured secrets as placeholders and only sends newly typed values', async () => {
+    const withSecrets = {
+      ...existingFilter,
+      override_notifications: 1,
+      notify_on_match: 1,
+      notify_webhook_url: '••••••••wxyz',
+      notify_slack: 1,
+      notify_slack_token: '••••••••abcd',
+      notify_slack_channel: '#alerts',
+      hasNotifyWebhookUrl: true,
+      hasNotifySlackToken: true,
+    };
+    const baseGet = mockGet.getMockImplementation();
+    if (!baseGet) throw new Error('Missing base GET mock');
+    mockGet.mockImplementation((path: string) =>
+      path === '/filters' ? Promise.resolve([withSecrets] as never) : baseGet(path),
+    );
+
+    await renderPage();
+    await act(async () => {
+      getButton('Edit').click();
+    });
+    await waitFor(() => document.getElementById('filter-webhook-url') !== null);
+
+    const webhookInput = byId<HTMLInputElement>('filter-webhook-url');
+    const tokenInput = byId<HTMLInputElement>('filter-slack-bot-token');
+    expect(webhookInput.value).toBe('');
+    expect(webhookInput.placeholder).toContain('Configured (••••••••wxyz)');
+    expect(webhookInput.required).toBe(false);
+    expect(tokenInput.value).toBe('');
+    expect(tokenInput.placeholder).toContain('Configured (••••••••abcd)');
+
+    await submitForm();
+    await waitFor(() => mockPut.mock.calls.length === 1);
+    const sent = mockPut.mock.calls[0]?.[1] as Record<string, unknown>;
+    expect(sent.notifyWebhookUrl).toBeUndefined();
+    expect(sent.notifySlackToken).toBeUndefined();
+    expect(sent.notifySlackChannel).toBe('#alerts');
+
+    await waitFor(() => document.getElementById('filter-slack-bot-token') === null);
+    await act(async () => {
+      getButton('Edit').click();
+    });
+    await waitFor(() => document.getElementById('filter-slack-bot-token') !== null);
+    await setValue(byId<HTMLInputElement>('filter-slack-bot-token'), 'xoxb-new-token');
+    await submitForm();
+    await waitFor(() => mockPut.mock.calls.length === 2);
+    expect(mockPut.mock.calls[1]?.[1]).toMatchObject({ notifySlackToken: 'xoxb-new-token' });
+  });
 });

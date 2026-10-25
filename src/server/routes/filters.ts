@@ -7,12 +7,19 @@ import {
   createFilter,
   updateFilter,
   deleteFilter,
+  FILTER_SECRET_CONTEXTS,
+  MASKED_SECRET_PREFIX,
   type FilterRow,
 } from '../../db/schemas/filters.js';
+import { decryptStoredSecret, maskApiKey } from '../../services/encryption.js';
 import { FILTER_PRESETS } from '../lib/filterPresets.js';
 import { logger } from '../lib/logger.js';
 import { reloadWatcher } from '../services/watcher.js';
-import { SecurityPolicyError, assertCustomScriptsEnabled } from '../../services/security.js';
+import {
+  SecurityPolicyError,
+  assertCustomScriptsEnabled,
+  validateWebhookUrl,
+} from '../../services/security.js';
 import {
   BLOCKLIST_BEHAVIORS,
   DEFAULT_BLOCKLIST_BEHAVIOR,
@@ -164,6 +171,52 @@ const updateFilterSchema = z.object({
   sortOrder: z.number().int().optional(),
 }).transform(normalizeBlocklistPayload);
 
+export type FilterResponse = FilterRow & {
+  hasNotifyWebhookUrl: boolean;
+  hasNotifySlackToken: boolean;
+};
+
+function maskStoredSecret(value: string | null, context: string): string | null {
+  if (!value) return null;
+  try {
+    const plaintext = decryptStoredSecret(value, undefined, context);
+    return plaintext ? maskApiKey(plaintext) : null;
+  } catch {
+    // Undecryptable (e.g. the encryption key changed): still never expose ciphertext.
+    return maskApiKey('');
+  }
+}
+
+/**
+ * Shape a filter row for API responses. Per-filter notification secrets are
+ * never returned; clients get a masked placeholder plus `has*` flags, and may
+ * send the placeholder back unchanged to keep the stored value.
+ */
+export function toFilterResponse(row: FilterRow): FilterResponse {
+  return {
+    ...row,
+    notify_webhook_url: maskStoredSecret(row.notify_webhook_url, FILTER_SECRET_CONTEXTS.webhookUrl),
+    notify_slack_token: maskStoredSecret(row.notify_slack_token, FILTER_SECRET_CONTEXTS.slackToken),
+    hasNotifyWebhookUrl: Boolean(row.notify_webhook_url),
+    hasNotifySlackToken: Boolean(row.notify_slack_token),
+  };
+}
+
+/**
+ * Save-time SSRF check for a per-filter webhook. Empty (clear) and the masked
+ * placeholder (keep existing) are allowed through. Returns an error message or null.
+ */
+function getWebhookUrlError(value: string | undefined): string | null {
+  const trimmed = value?.trim();
+  if (!trimmed || trimmed.startsWith(MASKED_SECRET_PREFIX)) return null;
+  try {
+    validateWebhookUrl(trimmed, { fieldName: 'notifyWebhookUrl' });
+    return null;
+  } catch (err) {
+    return err instanceof Error ? err.message : 'Invalid webhook URL';
+  }
+}
+
 export function createFiltersRoutes(db: Database.Database): Router {
   const router = Router();
 
@@ -171,7 +224,7 @@ export function createFiltersRoutes(db: Database.Database): Router {
   router.get('/', (_req: Request, res: Response, next: NextFunction): void => {
     try {
       const filters = getAllFilters(db);
-      res.json(filters);
+      res.json(filters.map(toFilterResponse));
     } catch (err) {
       next(err);
     }
@@ -195,7 +248,7 @@ export function createFiltersRoutes(db: Database.Database): Router {
         res.status(404).json({ error: 'Filter not found' });
         return;
       }
-      res.json(filter);
+      res.json(toFilterResponse(filter));
     } catch (err) {
       next(err);
     }
@@ -205,13 +258,18 @@ export function createFiltersRoutes(db: Database.Database): Router {
   router.post('/', (req: Request, res: Response, next: NextFunction): void => {
     try {
       const data = applyFilterInputPolicy(createFilterSchema.parse(req.body));
+      const webhookUrlError = getWebhookUrlError(data.notifyWebhookUrl);
+      if (webhookUrlError) {
+        res.status(400).json({ error: webhookUrlError });
+        return;
+      }
       if (data.ruleType === 'script' || data.actionType === 'script') {
         assertCustomScriptsEnabled('Custom script filters');
       }
       const filter = createFilter(db, data);
       logger.info({ filterId: filter.id, name: filter.name }, 'Filter created');
       reloadWatcher();
-      res.status(201).json(filter);
+      res.status(201).json(toFilterResponse(filter));
     } catch (err: unknown) {
       if (err instanceof z.ZodError) {
         res.status(400).json({ error: err.issues[0]?.message || 'Invalid input' });
@@ -236,6 +294,11 @@ export function createFiltersRoutes(db: Database.Database): Router {
         return;
       }
       const parsed = updateFilterSchema.parse(req.body);
+      const webhookUrlError = getWebhookUrlError(parsed.notifyWebhookUrl);
+      if (webhookUrlError) {
+        res.status(400).json({ error: webhookUrlError });
+        return;
+      }
       // Block introducing or editing script logic while the feature is disabled.
       // Other edits (e.g. disabling an existing script filter) remain allowed.
       const current = getFilterById(db, id);
@@ -254,7 +317,7 @@ export function createFiltersRoutes(db: Database.Database): Router {
       const filter = updateFilter(db, id, data);
       logger.info({ filterId: filter.id }, 'Filter updated');
       reloadWatcher();
-      res.json(filter);
+      res.json(toFilterResponse(filter));
     } catch (err: unknown) {
       if (err instanceof z.ZodError) {
         res.status(400).json({ error: err.issues[0]?.message || 'Invalid input' });

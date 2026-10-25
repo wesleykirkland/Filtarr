@@ -1,3 +1,4 @@
+import dns from 'node:dns';
 import path from 'node:path';
 import Database from 'better-sqlite3';
 import express from 'express';
@@ -18,6 +19,10 @@ describe('settings routes', () => {
 
   beforeEach(() => {
     mockFetch.mockReset();
+    // Webhook hosts are resolved before sending; keep tests off the real network.
+    vi.spyOn(dns.promises, 'lookup').mockResolvedValue([
+      { address: '93.184.216.34', family: 4 },
+    ] as never);
 
     db = new Database(':memory:');
     db.exec(`
@@ -36,6 +41,18 @@ describe('settings routes', () => {
   afterEach(() => {
     db.close();
     vi.restoreAllMocks();
+  });
+
+  it('rejects a private default webhook URL at save time without writing anything', async () => {
+    const res = await request(app)
+      .put('/api/v1/settings/notifications')
+      .send({ webhookEnabled: true, defaultWebhookUrl: 'https://[::ffff:10.0.0.1]/hook' });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain('private network');
+    expect(
+      db.prepare('SELECT COUNT(*) AS n FROM settings').get() as { n: number },
+    ).toEqual({ n: 0 });
   });
 
   it('defaults the validation interval to 15 minutes when unset', async () => {

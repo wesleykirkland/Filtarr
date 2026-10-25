@@ -54,6 +54,9 @@ interface Filter {
   notify_slack: number;
   notify_slack_token?: string;
   notify_slack_channel?: string;
+  /** Server-side flags: the secret fields above are masked placeholders, never the real value. */
+  hasNotifyWebhookUrl?: boolean;
+  hasNotifySlackToken?: boolean;
   override_notifications: number;
   instance_id: number | null;
   enabled: number;
@@ -133,6 +136,8 @@ function NotificationOverrideFields({
   setNotifySlackToken,
   notifySlackChannel,
   setNotifySlackChannel,
+  configuredWebhookUrl,
+  configuredSlackToken,
 }: Readonly<{
   overrideNotifications: boolean;
   notifyOnMatch: boolean;
@@ -145,6 +150,10 @@ function NotificationOverrideFields({
   setNotifySlackToken: (v: string) => void;
   notifySlackChannel: string;
   setNotifySlackChannel: (v: string) => void;
+  /** Masked placeholder for an already-stored webhook URL, if any. */
+  configuredWebhookUrl?: string;
+  /** Masked placeholder for an already-stored Slack token, if any. */
+  configuredSlackToken?: string;
 }>) {
   if (!overrideNotifications) {
     return (
@@ -188,8 +197,12 @@ function NotificationOverrideFields({
               type="url"
               value={notifyWebhookUrl}
               onChange={(e) => setNotifyWebhookUrl(e.target.value)}
-              placeholder="https://discord.com/api/webhooks/..."
-              required={overrideNotifications && notifyOnMatch}
+              placeholder={
+                configuredWebhookUrl
+                  ? `Configured (${configuredWebhookUrl}) - leave blank to keep`
+                  : 'https://discord.com/api/webhooks/...'
+              }
+              required={overrideNotifications && notifyOnMatch && !configuredWebhookUrl}
               className="block w-full rounded-lg border dark:border-gray-700 border-gray-300 dark:bg-gray-800 bg-white px-3 py-2 text-sm dark:text-gray-100 text-gray-900 focus:border-blue-500 focus:outline-none"
             />
           </div>
@@ -227,8 +240,14 @@ function NotificationOverrideFields({
                 id="filter-slack-bot-token"
                 value={notifySlackToken}
                 onChange={(e) => setNotifySlackToken(e.target.value)}
-                placeholder="xoxb-..."
-                required={overrideNotifications && notifySlack}
+                type="password"
+                autoComplete="off"
+                placeholder={
+                  configuredSlackToken
+                    ? `Configured (${configuredSlackToken}) - leave blank to keep`
+                    : 'xoxb-...'
+                }
+                required={overrideNotifications && notifySlack && !configuredSlackToken}
                 className="block w-full rounded-lg border dark:border-gray-700 border-gray-300 dark:bg-gray-800 bg-white px-3 py-2 text-sm dark:text-gray-100 text-gray-900 focus:border-blue-500 focus:outline-none"
               />
             </div>
@@ -283,9 +302,16 @@ function FilterForm({ initial, instances, onClose, onSaved }: FilterFormProps) {
     initial?.instance_id ?? (instances.length === 1 ? instances[0].id : undefined),
   );
   const [notifyOnMatch, setNotifyOnMatch] = useState(!!initial?.notify_on_match);
-  const [notifyWebhookUrl, setNotifyWebhookUrl] = useState(initial?.notify_webhook_url ?? '');
+  // Stored secrets are never sent to the client; these inputs hold only newly typed values.
+  const configuredWebhookUrl = initial?.hasNotifyWebhookUrl
+    ? (initial.notify_webhook_url ?? '••••••••')
+    : undefined;
+  const configuredSlackToken = initial?.hasNotifySlackToken
+    ? (initial.notify_slack_token ?? '••••••••')
+    : undefined;
+  const [notifyWebhookUrl, setNotifyWebhookUrl] = useState('');
   const [notifySlack, setNotifySlack] = useState(!!initial?.notify_slack);
-  const [notifySlackToken, setNotifySlackToken] = useState(initial?.notify_slack_token ?? '');
+  const [notifySlackToken, setNotifySlackToken] = useState('');
   const [notifySlackChannel, setNotifySlackChannel] = useState(initial?.notify_slack_channel ?? '');
   const [overrideNotifications, setOverrideNotifications] = useState(
     initial?.override_notifications === 1,
@@ -330,10 +356,11 @@ function FilterForm({ initial, instances, onClose, onSaved }: FilterFormProps) {
   ): string | null => {
     if (!trimmedTargetPath) return 'Please choose a watched directory for this filter';
     if (!instanceId) return 'Please select an Arr instance';
-    if (overrideNotifications && notifyOnMatch && !trimmedWebhookUrl) {
+    if (overrideNotifications && notifyOnMatch && !trimmedWebhookUrl && !configuredWebhookUrl) {
       return 'Please provide a webhook URL or turn off webhook notifications';
     }
-    if (overrideNotifications && notifySlack && (!trimmedSlackToken || !trimmedSlackChannel)) {
+    const hasSlackToken = Boolean(trimmedSlackToken) || Boolean(configuredSlackToken);
+    if (overrideNotifications && notifySlack && (!hasSlackToken || !trimmedSlackChannel)) {
       return 'Slack notifications require both a bot token and a channel';
     }
     return null;
@@ -350,6 +377,7 @@ function FilterForm({ initial, instances, onClose, onSaved }: FilterFormProps) {
     return {
       overrideNotifications,
       notifyOnMatch,
+      // Secrets are sent only when the user typed a new value; omitted keeps the stored one.
       notifyWebhookUrl: notifyOnMatch ? trimmedWebhookUrl : undefined,
       notifySlack,
       notifySlackToken: notifySlack ? trimmedSlackToken : undefined,
@@ -722,6 +750,8 @@ function FilterForm({ initial, instances, onClose, onSaved }: FilterFormProps) {
                 setNotifySlackToken={setNotifySlackToken}
                 notifySlackChannel={notifySlackChannel}
                 setNotifySlackChannel={setNotifySlackChannel}
+                configuredWebhookUrl={configuredWebhookUrl}
+                configuredSlackToken={configuredSlackToken}
               />
             </div>
           </div>

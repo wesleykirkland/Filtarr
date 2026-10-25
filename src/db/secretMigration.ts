@@ -7,6 +7,14 @@ interface FilterSecretRow {
   notify_slack_token: string | null;
 }
 
+/** Settings rows whose values are secrets and must be encrypted at rest. */
+export const ENCRYPTED_SETTING_KEYS = [
+  'slack_webhook_url',
+  'default_webhook_url',
+  'default_slack_token',
+  'oidc_client_secret',
+] as const;
+
 function normalizeSecret(value: string | null): string | null {
   if (!value || isEncryptedStoredSecret(value)) return value;
   return encryptStoredSecret(value);
@@ -43,14 +51,18 @@ export function migrateEncryptedSecrets(db: Database): void {
 
   migrateFilters();
 
-  const slackWebhook = db
-    .prepare<[], { value: string }>(`SELECT value FROM settings WHERE key = 'slack_webhook_url'`)
-    .get();
+  const updateSetting = db.prepare(
+    `INSERT OR REPLACE INTO settings (key, value, updated_at)
+     VALUES (?, ?, datetime('now'))`,
+  );
 
-  if (slackWebhook?.value && !isEncryptedStoredSecret(slackWebhook.value)) {
-    db.prepare(
-      `INSERT OR REPLACE INTO settings (key, value, updated_at)
-       VALUES ('slack_webhook_url', ?, datetime('now'))`,
-    ).run(encryptStoredSecret(slackWebhook.value));
+  for (const key of ENCRYPTED_SETTING_KEYS) {
+    const row = db
+      .prepare<[string], { value: string }>('SELECT value FROM settings WHERE key = ?')
+      .get(key);
+
+    if (row?.value && !isEncryptedStoredSecret(row.value)) {
+      updateSetting.run(key, encryptStoredSecret(row.value));
+    }
   }
 }

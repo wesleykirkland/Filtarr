@@ -337,8 +337,11 @@ describe('Global notification settings', () => {
       const getRes1 = await request(app).get('/api/v1/settings/notifications');
       expect(getRes1.body.slackEnabled).toBe(true);
       expect(getRes1.body.webhookEnabled).toBe(false);
-      expect(getRes1.body.defaultWebhookUrl).toBe('https://example.com/default-webhook');
-      expect(getRes1.body.defaultSlackToken).toBe('xoxb-default-token');
+      // Secrets are masked on read.
+      expect(getRes1.body.defaultWebhookUrl).toBe('••••••••hook');
+      expect(getRes1.body.defaultSlackToken).toBe('••••••••oken');
+      expect(getRes1.body.hasDefaultWebhookUrl).toBe(true);
+      expect(getRes1.body.hasDefaultSlackToken).toBe(true);
       expect(getRes1.body.defaultSlackChannel).toBe('#default-alerts');
 
       const res2 = await request(app)
@@ -372,8 +375,10 @@ describe('Global notification settings', () => {
       const getRes = await request(app).get('/api/v1/settings/notifications');
       expect(getRes.body.slackEnabled).toBe(true);
       expect(getRes.body.webhookEnabled).toBe(true);
-      expect(getRes.body.defaultWebhookUrl).toBe('https://example.com/original-webhook');
-      expect(getRes.body.defaultSlackToken).toBe('xoxb-original-token');
+      expect(getRes.body.defaultWebhookUrl).toBe('••••••••hook');
+      expect(getRes.body.defaultSlackToken).toBe('••••••••oken');
+      expect(getRes.body.hasDefaultWebhookUrl).toBe(true);
+      expect(getRes.body.hasDefaultSlackToken).toBe(true);
       expect(getRes.body.defaultSlackChannel).toBe('#original-alerts');
     });
   });

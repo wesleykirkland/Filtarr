@@ -3,6 +3,7 @@ import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { getDatabase } from '../../src/db/index.js';
 import { createSettingsRoutes } from '../../src/server/routes/settings.js';
+import { decryptStoredSecret } from '../../src/services/encryption.js';
 
 const db = getDatabase();
 const app = express();
@@ -108,7 +109,8 @@ describe('settings auth mode OIDC configuration', () => {
     expect(stored.auth_mode).toBe('none');
     expect(stored.oidc_issuer_url).toBe('https://issuer.example.com/realms/filtarr');
     expect(stored.oidc_client_id).toBe('filtarr-web');
-    expect(stored.oidc_client_secret).toBe('super-secret-value');
+    expect(stored.oidc_client_secret).toMatch(/^enc:/);
+    expect(decryptStoredSecret(stored.oidc_client_secret)).toBe('super-secret-value');
     expect(stored.oidc_callback_url).toBe('http://localhost:9898/api/v1/auth/oidc/callback');
     expect(stored.oidc_scopes).toBe('openid,profile,email,groups');
   });

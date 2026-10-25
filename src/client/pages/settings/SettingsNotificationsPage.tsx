@@ -2,7 +2,11 @@ import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from '../../components/Toast';
 import { api } from '../../lib/api';
-import type { NotificationChannel, NotificationSettingsResponse } from './types';
+import type {
+  NotificationChannel,
+  NotificationSettingsResponse,
+  NotificationSettingsUpdate,
+} from './types';
 
 export default function SettingsNotificationsPage() {
   const queryClient = useQueryClient();
@@ -24,14 +28,15 @@ export default function SettingsNotificationsPage() {
 
     setSlackEnabled(notificationSettings.slackEnabled);
     setWebhookEnabled(notificationSettings.webhookEnabled);
-    setDefaultWebhookUrl(notificationSettings.defaultWebhookUrl);
-    setDefaultSlackToken(notificationSettings.defaultSlackToken);
+    // Stored secrets are never returned in plaintext; inputs only hold newly typed values.
+    setDefaultWebhookUrl('');
+    setDefaultSlackToken('');
     setDefaultSlackChannel(notificationSettings.defaultSlackChannel);
     setNotificationSettingsHydrated(true);
   }, [notificationSettings, notificationSettingsHydrated]);
 
   const updateNotificationSettingsMutation = useMutation({
-    mutationFn: (data: NotificationSettingsResponse) =>
+    mutationFn: (data: NotificationSettingsUpdate) =>
       api.put<{ success: boolean; message: string }>('/settings/notifications', data),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['settings', 'notifications'] });
@@ -63,39 +68,44 @@ export default function SettingsNotificationsPage() {
   const normalizedDefaultWebhookUrl = defaultWebhookUrl.trim();
   const normalizedDefaultSlackToken = defaultSlackToken.trim();
   const normalizedDefaultSlackChannel = defaultSlackChannel.trim();
+  const hasSlackToken =
+    Boolean(normalizedDefaultSlackToken) || Boolean(notificationSettings?.hasDefaultSlackToken);
+  const hasWebhookUrl =
+    Boolean(normalizedDefaultWebhookUrl) || Boolean(notificationSettings?.hasDefaultWebhookUrl);
   const notificationSettingsChanged = notificationSettings
     ? notificationSettings.slackEnabled !== slackEnabled ||
       notificationSettings.webhookEnabled !== webhookEnabled ||
-      notificationSettings.defaultWebhookUrl !== normalizedDefaultWebhookUrl ||
-      notificationSettings.defaultSlackToken !== normalizedDefaultSlackToken ||
+      Boolean(normalizedDefaultWebhookUrl) ||
+      Boolean(normalizedDefaultSlackToken) ||
       notificationSettings.defaultSlackChannel !== normalizedDefaultSlackChannel
     : false;
 
   const handleSaveNotificationSettings = () => {
     if (
       (normalizedDefaultSlackToken && !normalizedDefaultSlackChannel) ||
-      (!normalizedDefaultSlackToken && normalizedDefaultSlackChannel)
+      (!hasSlackToken && normalizedDefaultSlackChannel)
     ) {
       toast('error', 'Default Slack notifications require both a bot token and a channel');
       return;
     }
 
-    setDefaultWebhookUrl(normalizedDefaultWebhookUrl);
-    setDefaultSlackToken(normalizedDefaultSlackToken);
+    setDefaultWebhookUrl('');
+    setDefaultSlackToken('');
     setDefaultSlackChannel(normalizedDefaultSlackChannel);
 
+    // Secrets are only sent when the user typed a new value; omitted means "keep existing".
     updateNotificationSettingsMutation.mutate({
       slackEnabled,
       webhookEnabled,
-      defaultWebhookUrl: normalizedDefaultWebhookUrl,
-      defaultSlackToken: normalizedDefaultSlackToken,
+      defaultWebhookUrl: normalizedDefaultWebhookUrl || undefined,
+      defaultSlackToken: normalizedDefaultSlackToken || undefined,
       defaultSlackChannel: normalizedDefaultSlackChannel,
     });
   };
 
   const handleTestNotificationChannel = (channel: NotificationChannel) => {
     if (channel === 'slack') {
-      if (!normalizedDefaultSlackToken || !normalizedDefaultSlackChannel) {
+      if (!hasSlackToken || !normalizedDefaultSlackChannel) {
         toast('error', 'Default Slack notifications require both a bot token and a channel');
         return;
       }
@@ -105,13 +115,13 @@ export default function SettingsNotificationsPage() {
       setTestingChannel(channel);
       testNotificationChannelMutation.mutate({
         channel,
-        defaultSlackToken: normalizedDefaultSlackToken,
+        defaultSlackToken: normalizedDefaultSlackToken || undefined,
         defaultSlackChannel: normalizedDefaultSlackChannel,
       });
       return;
     }
 
-    if (!normalizedDefaultWebhookUrl) {
+    if (!hasWebhookUrl) {
       toast('error', 'Default webhook URL is required to send a webhook test');
       return;
     }
@@ -120,7 +130,7 @@ export default function SettingsNotificationsPage() {
     setTestingChannel(channel);
     testNotificationChannelMutation.mutate({
       channel,
-      defaultWebhookUrl: normalizedDefaultWebhookUrl,
+      defaultWebhookUrl: normalizedDefaultWebhookUrl || undefined,
     });
   };
 
@@ -161,7 +171,11 @@ export default function SettingsNotificationsPage() {
                 id="settings-default-slack-token"
                 value={defaultSlackToken}
                 onChange={(e) => setDefaultSlackToken(e.target.value)}
-                placeholder="xoxb-..."
+                placeholder={
+                  notificationSettings?.hasDefaultSlackToken
+                    ? `Configured (${notificationSettings.defaultSlackToken}) - leave blank to keep`
+                    : 'xoxb-...'
+                }
                 className="mt-1 block w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:border-blue-500 focus:outline-none dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100"
               />
             </div>
@@ -222,7 +236,11 @@ export default function SettingsNotificationsPage() {
               type="url"
               value={defaultWebhookUrl}
               onChange={(e) => setDefaultWebhookUrl(e.target.value)}
-              placeholder="https://discord.com/api/webhooks/..."
+              placeholder={
+                notificationSettings?.hasDefaultWebhookUrl
+                  ? `Configured (${notificationSettings.defaultWebhookUrl}) - leave blank to keep`
+                  : 'https://discord.com/api/webhooks/...'
+              }
               className="mt-1 block w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:border-blue-500 focus:outline-none dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100"
             />
             <p className="mt-2 text-xs text-gray-600 dark:text-gray-400">

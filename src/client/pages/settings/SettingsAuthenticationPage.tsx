@@ -8,7 +8,7 @@ import type {
   AuthMode,
   AuthModeResponse,
   ChangeAuthModeResponse,
-  OidcSettingsResponse,
+  OidcSettingsUpdate,
 } from './types';
 
 // The server has no OIDC strategy yet and rejects switching to it; keep the option visible but disabled.
@@ -46,7 +46,7 @@ export default function SettingsAuthenticationPage() {
       authMode: AuthMode;
       username?: string;
       password?: string;
-      oidc?: OidcSettingsResponse;
+      oidc?: OidcSettingsUpdate;
     }) => api.put<ChangeAuthModeResponse>('/settings/auth-mode', data),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['settings', 'auth-mode'] });
@@ -70,17 +70,18 @@ export default function SettingsAuthenticationPage() {
     setSelectedAuthMode(authModeData?.authMode ?? 'none');
     setOidcIssuerUrl(authModeData?.oidc.issuerUrl ?? '');
     setOidcClientId(authModeData?.oidc.clientId ?? '');
-    setOidcClientSecret(authModeData?.oidc.clientSecret ?? '');
+    // The stored secret is never returned; leave blank to keep it.
+    setOidcClientSecret('');
     setOidcCallbackUrl(authModeData?.oidc.callbackUrl ?? '');
     setOidcScopes(authModeData?.oidc.scopes.join(', ') ?? 'openid, profile, email');
     setShowAuthModeChange(true);
   };
 
   const handleAuthModeSubmit = () => {
-    const normalizedOidc: OidcSettingsResponse = {
+    const normalizedOidc: OidcSettingsUpdate = {
       issuerUrl: oidcIssuerUrl.trim(),
       clientId: oidcClientId.trim(),
-      clientSecret: oidcClientSecret.trim(),
+      clientSecret: oidcClientSecret.trim() || undefined,
       callbackUrl: oidcCallbackUrl.trim(),
       scopes: oidcScopes
         .split(',')
@@ -92,7 +93,7 @@ export default function SettingsAuthenticationPage() {
       if (
         !normalizedOidc.issuerUrl ||
         !normalizedOidc.clientId ||
-        !normalizedOidc.clientSecret ||
+        (!normalizedOidc.clientSecret && !authModeData?.oidc.hasClientSecret) ||
         !normalizedOidc.callbackUrl ||
         normalizedOidc.scopes.length === 0
       ) {
@@ -213,6 +214,11 @@ export default function SettingsAuthenticationPage() {
                     type="password"
                     value={oidcClientSecret}
                     onChange={(e) => setOidcClientSecret(e.target.value)}
+                    placeholder={
+                      authModeData?.oidc.hasClientSecret
+                        ? `Configured (${authModeData.oidc.clientSecret}) - leave blank to keep`
+                        : ''
+                    }
                     className="mt-1 block w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:border-blue-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
                   />
                 </div>

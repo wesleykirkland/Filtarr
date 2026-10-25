@@ -49,4 +49,42 @@ describe('migrateEncryptedSecrets', () => {
 
     db.close();
   });
+
+  it('encrypts plaintext default notification and OIDC secrets in settings', () => {
+    const db = new Database(':memory:');
+    db.exec(`
+      CREATE TABLE filters (
+        id INTEGER PRIMARY KEY,
+        notify_webhook_url TEXT,
+        notify_slack_token TEXT,
+        updated_at TEXT
+      );
+      CREATE TABLE settings (
+        key TEXT PRIMARY KEY,
+        value TEXT,
+        updated_at TEXT
+      );
+    `);
+
+    const alreadyEncrypted = encryptStoredSecret('xoxb-already', '.');
+    const insert = db.prepare('INSERT INTO settings (key, value) VALUES (?, ?)');
+    insert.run('default_webhook_url', 'https://hooks.example.com/default');
+    insert.run('default_slack_token', alreadyEncrypted);
+    insert.run('oidc_client_secret', 'oidc-plain-secret');
+    insert.run('default_slack_channel', '#alerts');
+
+    migrateEncryptedSecrets(db);
+
+    const read = (key: string) =>
+      db.prepare<[string], { value: string }>('SELECT value FROM settings WHERE key = ?').get(key)?.value;
+
+    expect(read('default_webhook_url')).toMatch(/^enc:/);
+    expect(decryptStoredSecret(read('default_webhook_url'), '.')).toBe('https://hooks.example.com/default');
+    expect(read('default_slack_token')).toBe(alreadyEncrypted);
+    expect(read('oidc_client_secret')).toMatch(/^enc:/);
+    expect(decryptStoredSecret(read('oidc_client_secret'), '.')).toBe('oidc-plain-secret');
+    expect(read('default_slack_channel')).toBe('#alerts');
+
+    db.close();
+  });
 });

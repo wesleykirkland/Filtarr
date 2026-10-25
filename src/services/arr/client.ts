@@ -9,7 +9,6 @@
 
 import { Agent } from 'undici';
 import { validateArrInstanceUrl, stripTrailingSlashes } from '../security.js';
-import { logger } from '../../server/lib/logger.js';
 
 import {
   type ArrClientOptions,
@@ -144,13 +143,8 @@ export class ArrClient {
       all.push(...next.records);
     }
 
-    if (totalPages > lastPage) {
-      logger.debug(
-        { baseUrl: this.baseUrl, totalRecords: first.totalRecords, maxPages, fetched: all.length },
-        'Queue pagination truncated at maxPages',
-      );
-    }
-
+    // Results are capped at maxPages * pageSize; callers that need to know
+    // whether the queue was truncated can compare all.length to first.totalRecords.
     return all;
   }
 

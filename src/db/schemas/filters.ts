@@ -1,4 +1,30 @@
 import type Database from 'better-sqlite3';
+import { encryptStoredSecret } from '../../services/encryption.js';
+
+/** AAD contexts binding per-filter notification secrets to their column. */
+export const FILTER_SECRET_CONTEXTS = {
+  webhookUrl: 'filters.notify_webhook_url',
+  slackToken: 'filters.notify_slack_token',
+} as const;
+
+/** Prefix of the masked placeholder returned to clients instead of a stored secret. */
+export const MASKED_SECRET_PREFIX = '••••';
+
+/**
+ * Resolve a secret column on update. Secrets are never echoed to clients, so an
+ * omitted value or the masked placeholder keeps the stored ciphertext; an empty
+ * string clears it; anything else is encrypted.
+ */
+function resolveSecret(
+  inputValue: string | undefined,
+  currentValue: string | null,
+  context: string,
+): string | null {
+  if (inputValue === undefined) return currentValue;
+  const trimmed = inputValue.trim();
+  if (trimmed.startsWith(MASKED_SECRET_PREFIX)) return currentValue;
+  return encryptStoredSecret(trimmed, undefined, context);
+}
 
 interface FilterSchemaError extends Error {
   code?: string;
@@ -113,9 +139,9 @@ export function createFilter(db: Database.Database, input: CreateFilterInput): F
       input.scriptRuntime || 'shell',
       input.targetPath || null,
       input.notifyOnMatch ? 1 : 0,
-      input.notifyWebhookUrl || null,
+      encryptStoredSecret(input.notifyWebhookUrl?.trim(), undefined, FILTER_SECRET_CONTEXTS.webhookUrl),
       input.notifySlack ? 1 : 0,
-      input.notifySlackToken || null,
+      encryptStoredSecret(input.notifySlackToken?.trim(), undefined, FILTER_SECRET_CONTEXTS.slackToken),
       input.notifySlackChannel || null,
       input.overrideNotifications ? 1 : 0,
       input.instanceId || null,
@@ -197,9 +223,17 @@ function resolveFilterFields(
     scriptRuntime: input.scriptRuntime ?? current.script_runtime,
     targetPath: resolve(input.targetPath, current.target_path),
     notifyOnMatch: resolveBool(input.notifyOnMatch, current.notify_on_match),
-    notifyWebhookUrl: resolve(input.notifyWebhookUrl, current.notify_webhook_url),
+    notifyWebhookUrl: resolveSecret(
+      input.notifyWebhookUrl,
+      current.notify_webhook_url,
+      FILTER_SECRET_CONTEXTS.webhookUrl,
+    ),
     notifySlack: resolveBool(input.notifySlack, current.notify_slack),
-    notifySlackToken: resolve(input.notifySlackToken, current.notify_slack_token),
+    notifySlackToken: resolveSecret(
+      input.notifySlackToken,
+      current.notify_slack_token,
+      FILTER_SECRET_CONTEXTS.slackToken,
+    ),
     notifySlackChannel: resolve(input.notifySlackChannel, current.notify_slack_channel),
     overrideNotifications: resolveBool(input.overrideNotifications, current.override_notifications),
     instanceId: resolveInstanceId(db, input, current),

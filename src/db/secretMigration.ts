@@ -1,5 +1,6 @@
 import type { Database } from 'better-sqlite3';
 import { encryptStoredSecret, isEncryptedStoredSecret } from '../services/encryption.js';
+import { FILTER_SECRET_CONTEXTS } from './schemas/filters.js';
 
 interface FilterSecretRow {
   id: number;
@@ -15,9 +16,9 @@ export const ENCRYPTED_SETTING_KEYS = [
   'oidc_client_secret',
 ] as const;
 
-function normalizeSecret(value: string | null): string | null {
+function normalizeSecret(value: string | null, context?: string): string | null {
   if (!value || isEncryptedStoredSecret(value)) return value;
-  return encryptStoredSecret(value);
+  return encryptStoredSecret(value, undefined, context);
 }
 
 export function migrateEncryptedSecrets(db: Database): void {
@@ -37,8 +38,8 @@ export function migrateEncryptedSecrets(db: Database): void {
     );
 
     for (const row of rows) {
-      const nextWebhook = normalizeSecret(row.notify_webhook_url);
-      const nextSlackToken = normalizeSecret(row.notify_slack_token);
+      const nextWebhook = normalizeSecret(row.notify_webhook_url, FILTER_SECRET_CONTEXTS.webhookUrl);
+      const nextSlackToken = normalizeSecret(row.notify_slack_token, FILTER_SECRET_CONTEXTS.slackToken);
 
       if (
         nextWebhook !== row.notify_webhook_url ||

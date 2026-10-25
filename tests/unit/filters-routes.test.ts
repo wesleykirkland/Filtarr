@@ -284,3 +284,121 @@ describe('filters routes: path, rule and trigger validation', () => {
     expect(res.body.rule_payload).toBe('<10MB');
   });
 });
+
+describe('filters routes: notification secrets', () => {
+  let db: Database.Database;
+  let app: express.Express;
+  let instanceId: number;
+
+  const body = (overrides: Record<string, unknown> = {}) => ({
+    name: `Notify ${Math.random()}`,
+    triggerSource: 'watcher',
+    ruleType: 'extension',
+    rulePayload: 'exe',
+    actionType: 'notify',
+    targetPath: '/downloads',
+    instanceId,
+    overrideNotifications: true,
+    notifyOnMatch: true,
+    notifyWebhookUrl: 'https://hooks.example.com/secret-path-wxyz',
+    notifySlack: true,
+    notifySlackToken: 'xoxb-secret-token-abcd',
+    notifySlackChannel: '#alerts',
+    ...overrides,
+  });
+
+  const rawSecrets = (id: number) =>
+    db
+      .prepare<[number], { notify_webhook_url: string | null; notify_slack_token: string | null }>(
+        'SELECT notify_webhook_url, notify_slack_token FROM filters WHERE id = ?',
+      )
+      .get(id);
+
+  beforeEach(() => {
+    db = new Database(':memory:');
+    runMigrations(db);
+    instanceId = createInstance(db, {
+      name: 'Sonarr',
+      type: 'sonarr',
+      url: 'http://localhost:8989',
+      apiKey: 'test-api-key',
+    }).id;
+    app = express();
+    app.use(express.json());
+    app.use('/', createFiltersRoutes(db));
+  });
+
+  afterEach(() => {
+    db.close();
+  });
+
+  it('encrypts secrets at rest and masks them in every response', async () => {
+    const created = await request(app).post('/').send(body());
+    expect(created.status).toBe(201);
+    expect(created.body).toMatchObject({
+      notify_webhook_url: '••••••••wxyz',
+      notify_slack_token: '••••••••abcd',
+      hasNotifyWebhookUrl: true,
+      hasNotifySlackToken: true,
+    });
+
+    const raw = rawSecrets(created.body.id);
+    expect(raw?.notify_webhook_url).toMatch(/^enc:v2:/);
+    expect(raw?.notify_slack_token).toMatch(/^enc:v2:/);
+
+    const list = await request(app).get('/');
+    const single = await request(app).get(`/${created.body.id}`);
+    for (const payload of [JSON.stringify(list.body), JSON.stringify(single.body)]) {
+      expect(payload).not.toContain('secret-path');
+      expect(payload).not.toContain('xoxb-secret');
+      expect(payload).not.toContain('enc:');
+    }
+    expect(single.body).toMatchObject({ hasNotifyWebhookUrl: true, hasNotifySlackToken: true });
+  });
+
+  it('reports has* flags as false when no secrets are stored', async () => {
+    const created = await request(app)
+      .post('/')
+      .send(body({ overrideNotifications: false, notifyWebhookUrl: undefined, notifySlackToken: undefined }));
+    expect(created.body).toMatchObject({
+      notify_webhook_url: null,
+      notify_slack_token: null,
+      hasNotifyWebhookUrl: false,
+      hasNotifySlackToken: false,
+    });
+  });
+
+  it('keeps existing secrets when the masked value is sent back or the field is omitted', async () => {
+    const created = await request(app).post('/').send(body());
+    const before = rawSecrets(created.body.id);
+
+    const echoed = await request(app)
+      .put(`/${created.body.id}`)
+      .send({ notifySlackToken: created.body.notify_slack_token, notifySlackChannel: '#ops' });
+    expect(echoed.status).toBe(200);
+    expect(rawSecrets(created.body.id)).toEqual(before);
+
+    const omitted = await request(app).put(`/${created.body.id}`).send({ name: 'Renamed' });
+    expect(omitted.status).toBe(200);
+    expect(omitted.body.notify_slack_token).toBe('••••••••abcd');
+    expect(rawSecrets(created.body.id)).toEqual(before);
+
+    const rotated = await request(app)
+      .put(`/${created.body.id}`)
+      .send({ notifySlackToken: 'xoxb-rotated-9999' });
+    expect(rotated.body.notify_slack_token).toBe('••••••••9999');
+    expect(rawSecrets(created.body.id)?.notify_slack_token).not.toBe(before?.notify_slack_token);
+  });
+
+  it.each([
+    'https://127.0.0.1/hook',
+    'https://[::ffff:127.0.0.1]/hook',
+    'https://169.254.169.254/latest',
+    'http://hooks.example.com/hook',
+  ])('rejects the webhook URL %s at save time', async (url) => {
+    const created = await request(app).post('/').send(body({ notifyWebhookUrl: url }));
+    expect(created.status).toBe(400);
+
+    const ok = await request(app).post('/').send(body());
+    const updated = await request(app).put(`/${ok.body.id}`).send({ notifyWebhookUrl: url });
+    expect(updated.status).toBe(400);

@@ -1,12 +1,15 @@
+import dns from 'node:dns';
 import Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { FilterRow } from '../../src/db/schemas/filters.js';
+import { FILTER_SECRET_CONTEXTS, type FilterRow } from '../../src/db/schemas/filters.js';
+import { encryptStoredSecret } from '../../src/services/encryption.js';
 import { logger } from '../../src/server/lib/logger.js';
 import {
   NOTIFICATION_TIMEOUT_MS,
   NotificationService,
 } from '../../src/server/services/NotificationService.js';
 
+const SLACK_URL = 'https://slack.com/api/chat.postMessage';
 const mockFetch = vi.fn();
 globalThis.fetch = mockFetch;
 
@@ -44,6 +47,10 @@ describe('NotificationService', () => {
 
   beforeEach(() => {
     mockFetch.mockReset();
+    // Webhook hosts are resolved before sending; keep tests off the real network.
+    vi.spyOn(dns.promises, 'lookup').mockResolvedValue([
+      { address: '93.184.216.34', family: 4 },
+    ] as never);
 
     db = new Database(':memory:');
     db.exec(`
@@ -225,9 +232,11 @@ describe('NotificationService', () => {
 
   it('logs a warning with channel, host, and reason when a webhook fetch rejects', async () => {
     const warn = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
-    mockFetch
-      .mockRejectedValueOnce(new Error('connect ECONNREFUSED'))
-      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ ok: true }) });
+    // Webhook delivery awaits DNS resolution first, so route responses by URL, not call order.
+    mockFetch.mockImplementation(async (url: string) => {
+      if (url === SLACK_URL) return { ok: true, status: 200, json: async () => ({ ok: true }) };
+      throw new Error('connect ECONNREFUSED');
+    });
 
     await expect(
       service.notifyFilterMatch(
@@ -252,9 +261,10 @@ describe('NotificationService', () => {
 
   it('logs a warning without leaking the token when the Slack fetch rejects', async () => {
     const warn = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
-    mockFetch
-      .mockResolvedValueOnce({ ok: true, status: 200 })
-      .mockRejectedValueOnce(new Error('socket hang up'));
+    mockFetch.mockImplementation(async (url: string) => {
+      if (url === SLACK_URL) throw new Error('socket hang up');
+      return { ok: true, status: 200 };
+    });
 
     await expect(service.notifyFilterMatch(makeFilter(), fileEvent)).resolves.toBeUndefined();
 
@@ -337,5 +347,100 @@ describe('NotificationService', () => {
       service.sendTestNotification('webhook', { defaultWebhookUrl: 'http://insecure.example.com' }),
     ).rejects.toThrow();
     expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('refuses to send a webhook whose host resolves to a private address', async () => {
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+    vi.mocked(dns.promises.lookup).mockResolvedValue([
+      { address: '203.0.114.10', family: 4 },
+      { address: '10.0.0.5', family: 4 },
+    ] as never);
+    mockFetch.mockResolvedValue({ ok: true, status: 200, json: async () => ({ ok: true }) });
+
+    await service.notifyFilterMatch(
+      makeFilter({ notify_webhook_url: 'https://rebind.attacker.example/hook' }),
+      fileEvent,
+    );
+
+    expect(dns.promises.lookup).toHaveBeenCalledWith('rebind.attacker.example', {
+      all: true,
+      verbatim: true,
+    });
+    expect(mockFetch.mock.calls.map(([url]) => url)).toEqual([SLACK_URL]);
+    expect(warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        deliveryChannel: 'webhook',
+        reason: 'Webhook URL resolves to localhost or a private network',
+      }),
+      'Webhook notification failed',
+    );
+  });
+
+  it('rejects a test webhook that resolves to an IPv4-mapped loopback address', async () => {
+    vi.mocked(dns.promises.lookup).mockResolvedValue([
+      { address: '::ffff:127.0.0.1', family: 6 },
+    ] as never);
+
+    await expect(
+      service.sendTestNotification('webhook', { defaultWebhookUrl: 'https://mapped.example/hook' }),
+    ).rejects.toThrow('private network');
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('pins the webhook connection and refuses redirects for webhook and Slack', async () => {
+    mockFetch.mockImplementation(async (url: string) =>
+      url === SLACK_URL
+        ? { ok: true, status: 200, json: async () => ({ ok: true }) }
+        : { ok: true, status: 200 },
+    );
+
+    await service.notifyFilterMatch(makeFilter(), fileEvent);
+
+    const webhookInit = mockFetch.mock.calls.find(([url]) => url !== SLACK_URL)?.[1];
+    const slackInit = mockFetch.mock.calls.find(([url]) => url === SLACK_URL)?.[1];
+    expect(webhookInit).toMatchObject({ redirect: 'error' });
+    expect(webhookInit.dispatcher).toBeDefined();
+    expect(slackInit).toMatchObject({ redirect: 'error' });
+  });
+
+  it('treats a redirect response as a delivery failure', async () => {
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+    db.prepare('UPDATE settings SET value = ? WHERE key = ?').run('0', 'slack_enabled');
+    mockFetch.mockRejectedValue(new TypeError('fetch failed: unexpected redirect'));
+
+    await service.notifyFilterMatch(makeFilter(), fileEvent);
+
+    expect(warn).toHaveBeenCalledWith(
+      expect.objectContaining({ deliveryChannel: 'webhook', reason: 'fetch failed: unexpected redirect' }),
+      'Webhook notification failed',
+    );
+  });
+
+  it('decrypts per-filter secrets stored with their column context', async () => {
+    mockFetch.mockImplementation(async (url: string) =>
+      url === SLACK_URL
+        ? { ok: true, status: 200, json: async () => ({ ok: true }) }
+        : { ok: true, status: 200 },
+    );
+
+    await service.notifyFilterMatch(
+      makeFilter({
+        notify_webhook_url: encryptStoredSecret(
+          'https://example.com/encrypted-hook',
+          undefined,
+          FILTER_SECRET_CONTEXTS.webhookUrl,
+        ),
+        notify_slack_token: encryptStoredSecret(
+          'xoxb-encrypted',
+          undefined,
+          FILTER_SECRET_CONTEXTS.slackToken,
+        ),
+      }),
+      fileEvent,
+    );
+
+    expect(mockFetch.mock.calls.some(([url]) => url === 'https://example.com/encrypted-hook')).toBe(true);
+    const slackInit = mockFetch.mock.calls.find(([url]) => url === SLACK_URL)?.[1];
+    expect(slackInit.headers).toMatchObject({ Authorization: 'Bearer xoxb-encrypted' });
   });
 });

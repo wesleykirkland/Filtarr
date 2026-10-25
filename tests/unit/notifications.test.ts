@@ -43,7 +43,7 @@ describe('Filter notification overrides', () => {
       expect(res.body).toHaveProperty('id');
       expect(res.body).toHaveProperty('override_notifications', 1);
       expect(res.body).toHaveProperty('notify_slack', 1);
-      expect(res.body).toHaveProperty('notify_slack_token', 'xoxb-test-token-12345');
+      expect(res.body).toHaveProperty('notify_slack_token', '••••••••2345');
       expect(res.body).toHaveProperty('notify_slack_channel', '#alerts');
       createdFilterId = res.body.id;
     });
@@ -138,9 +138,9 @@ describe('Filter notification overrides', () => {
       expect(updateRes.body).toHaveProperty('instance_id', instance.id);
       expect(updateRes.body).toHaveProperty('override_notifications', 1);
       expect(updateRes.body).toHaveProperty('notify_on_match', 1);
-      expect(updateRes.body).toHaveProperty('notify_webhook_url', 'https://example.com/filter-webhook');
+      expect(updateRes.body).toHaveProperty('notify_webhook_url', '••••••••hook');
       expect(updateRes.body).toHaveProperty('notify_slack', 1);
-      expect(updateRes.body).toHaveProperty('notify_slack_token', 'xoxb-full-update-token');
+      expect(updateRes.body).toHaveProperty('notify_slack_token', '••••••••oken');
       expect(updateRes.body).toHaveProperty('notify_slack_channel', '#full-update');
       expect(updateRes.body).toHaveProperty('enabled', 0);
 
@@ -174,7 +174,7 @@ describe('Filter notification overrides', () => {
       expect(updateRes.status).toBe(200);
       expect(updateRes.body).toHaveProperty('override_notifications', 1);
       expect(updateRes.body).toHaveProperty('notify_slack', 1);
-      expect(updateRes.body).toHaveProperty('notify_slack_token', 'xoxb-updated-token');
+      expect(updateRes.body).toHaveProperty('notify_slack_token', '••••••••oken');
       expect(updateRes.body).toHaveProperty('notify_slack_channel', 'C01234567');
 
       await request(app).delete(`/api/v1/filters/${filterId}`);
@@ -205,7 +205,7 @@ describe('Filter notification overrides', () => {
       expect(updateRes.body).toHaveProperty('name', 'Test Preserve Slack Filter Renamed');
       expect(updateRes.body).toHaveProperty('override_notifications', 1);
       expect(updateRes.body).toHaveProperty('notify_slack', 1);
-      expect(updateRes.body).toHaveProperty('notify_slack_token', 'xoxb-preserve-token');
+      expect(updateRes.body).toHaveProperty('notify_slack_token', '••••••••oken');
       expect(updateRes.body).toHaveProperty('notify_slack_channel', '#preserved');
 
       await request(app).delete(`/api/v1/filters/${filterId}`);
@@ -239,9 +239,9 @@ describe('Filter notification overrides', () => {
       expect(updateRes.status).toBe(200);
       expect(updateRes.body).toHaveProperty('override_notifications', 0);
       expect(updateRes.body).toHaveProperty('notify_on_match', 1);
-      expect(updateRes.body).toHaveProperty('notify_webhook_url', 'https://example.com/custom-webhook');
+      expect(updateRes.body).toHaveProperty('notify_webhook_url', '••••••••hook');
       expect(updateRes.body).toHaveProperty('notify_slack', 1);
-      expect(updateRes.body).toHaveProperty('notify_slack_token', 'xoxb-custom-token');
+      expect(updateRes.body).toHaveProperty('notify_slack_token', '••••••••oken');
       expect(updateRes.body).toHaveProperty('notify_slack_channel', '#custom');
 
       await request(app).delete(`/api/v1/filters/${filterId}`);
@@ -299,9 +299,9 @@ describe('Filter notification overrides', () => {
         expect(updateRes.body).toHaveProperty('name', `${uniqueName} Renamed`);
         expect(updateRes.body).toHaveProperty('instance_id', null);
         expect(updateRes.body).toHaveProperty('override_notifications', 1);
-        expect(updateRes.body).toHaveProperty('notify_webhook_url', 'https://example.com/stale-webhook');
+        expect(updateRes.body).toHaveProperty('notify_webhook_url', '••••••••hook');
         expect(updateRes.body).toHaveProperty('notify_slack', 1);
-        expect(updateRes.body).toHaveProperty('notify_slack_token', 'xoxb-stale-token');
+        expect(updateRes.body).toHaveProperty('notify_slack_token', '••••••••oken');
         expect(updateRes.body).toHaveProperty('notify_slack_channel', '#stale');
       } finally {
         db.prepare('DELETE FROM filters WHERE id = ?').run(filterId);

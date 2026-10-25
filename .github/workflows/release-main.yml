@@ -87,10 +87,6 @@ jobs:
           existing_tag="$(git tag --points-at "${RELEASE_SHA}" 'v*' | sort -V | tail -n1)"
           echo "tag=${existing_tag}" >> "${GITHUB_OUTPUT}"
 
-      - name: Install locked release tooling
-        # semantic-release needs no lifecycle scripts; skip them in a job holding write tokens.
-        run: npm ci --ignore-scripts
-
       - name: Run semantic-release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -98,7 +94,7 @@ jobs:
           GITHUB_REF: ${{ steps.context.outputs.release_ref }}
           GITHUB_REF_NAME: ${{ steps.context.outputs.release_ref_name }}
           GITHUB_SHA: ${{ steps.context.outputs.release_sha }}
-        run: npx --no-install semantic-release
+        run: npx --yes semantic-release@25.0.3
 
       - name: Determine release outcome
         id: release_version

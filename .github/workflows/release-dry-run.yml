@@ -6,17 +6,13 @@ on:
 env:
   NODE_VERSION: 24.22.1
 
-permissions: {}
+permissions:
+  contents: write
 
 jobs:
   semantic-release-dry-run:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    permissions:
-      # semantic-release runs `git push --dry-run` to verify push access even with
-      # --dry-run, and aborts with EGITNOPERMISSION on a read-only token, so this
-      # job needs contents: write. It needs nothing else.
-      contents: write
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -28,12 +24,8 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
 
-      - name: Install locked release tooling
-        # semantic-release needs no lifecycle scripts; skip them in a job holding a write token.
-        run: npm ci --ignore-scripts
-
       - name: Run semantic-release in dry-run mode
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npx --no-install semantic-release --dry-run
+        run: npx --yes semantic-release@25.0.3 --dry-run

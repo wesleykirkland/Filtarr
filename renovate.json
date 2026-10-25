@@ -4,7 +4,8 @@
     "config:recommended",
     ":semanticCommits",
     ":semanticCommitTypeAll(chore)",
-    ":semanticCommitScope(deps)"
+    ":semanticCommitScope(deps)",
+    "helpers:pinGitHubActionDigests"
   ],
   "labels": ["dependencies"],
   "schedule": ["before 6am on monday"],

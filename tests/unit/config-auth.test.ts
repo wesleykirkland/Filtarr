@@ -79,6 +79,11 @@ describe('auth config helpers', () => {
     });
   });
 
+  it('splits a comma-separated FILTARR_CORS_ORIGIN into an array', () => {
+    process.env['FILTARR_CORS_ORIGIN'] = 'https://a.example.com, https://b.example.com,';
+    expect(loadAuthConfigFromEnv().corsOrigin).toEqual(['https://a.example.com', 'https://b.example.com']);
+  });
+
   it('returns an empty override object when auth env vars are absent', () => {
     expect(loadAuthConfigFromEnv()).toEqual({});
   });

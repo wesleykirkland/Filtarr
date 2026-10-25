@@ -83,6 +83,8 @@ async function validateApiKey(
         apiKeyId: candidate.id,
         apiKeyName: candidate.name,
         userId: candidate.user_id,
+        // TODO(security): scopes are parsed and attached to req.apiKey but never enforced by any
+        // route or middleware, so every valid key currently has full access regardless of scope.
         scopes: JSON.parse(candidate.scopes || '["*"]'),
       };
     }

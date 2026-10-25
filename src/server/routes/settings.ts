@@ -22,6 +22,11 @@ import {
   type BackupSettingsState,
 } from '../services/settingsBackup.js';
 import { reloadSettingsBackupScheduler } from '../cron/settingsBackup.js';
+import {
+  decryptStoredSecret,
+  encryptStoredSecret,
+  maskApiKey,
+} from '../../services/encryption.js';
 
 /** Body size limit for backup imports (the global JSON parser uses the 100kb default). */
 export const BACKUP_IMPORT_BODY_LIMIT = '10mb';
@@ -84,6 +89,34 @@ function upsertSetting(db: Database.Database, key: string, value: string): void 
   ).run(key, value);
 }
 
+/**
+ * Read a secret setting stored with `enc:` encryption-at-rest.
+ * Returns undefined when the row does not exist so callers can fall back to env defaults.
+ */
+function getSecretSetting(db: Database.Database, key: string): string | undefined {
+  const value = getSettingValue(db, key);
+  if (value === undefined) return undefined;
+  return decryptStoredSecret(value) ?? '';
+}
+
+function upsertSecretSetting(db: Database.Database, key: string, value: string): void {
+  upsertSetting(db, key, encryptStoredSecret(value) ?? '');
+}
+
+function maskSecret(value: string): string {
+  return value ? maskApiKey(value) : '';
+}
+
+/**
+ * Secrets are never echoed back in plaintext, so an omitted/empty value or the masked
+ * placeholder means "keep the existing stored secret".
+ */
+function getSecretUpdate(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  if (!trimmed || trimmed.startsWith('••••')) return undefined;
+  return trimmed;
+}
+
 function normalizeScopes(value: string[] | string | undefined): string[] {
   const rawValues = Array.isArray(value) ? value : (value || '').split(',');
   const normalized = rawValues.map((scope) => scope.trim()).filter(Boolean);
@@ -95,7 +128,7 @@ function getOidcSettings(db: Database.Database): OidcAuthConfig {
     issuerUrl: getSettingValue(db, 'oidc_issuer_url') ?? process.env['FILTARR_OIDC_ISSUER'] ?? '',
     clientId: getSettingValue(db, 'oidc_client_id') ?? process.env['FILTARR_OIDC_CLIENT_ID'] ?? '',
     clientSecret:
-      getSettingValue(db, 'oidc_client_secret') ?? process.env['FILTARR_OIDC_CLIENT_SECRET'] ?? '',
+      getSecretSetting(db, 'oidc_client_secret') ?? process.env['FILTARR_OIDC_CLIENT_SECRET'] ?? '',
     callbackUrl:
       getSettingValue(db, 'oidc_callback_url') ??
       process.env['FILTARR_OIDC_CALLBACK_URL'] ??
@@ -147,7 +180,16 @@ export function createSettingsRoutes(
   router.get('/auth-mode', (_req: Request, res: Response): void => {
     const authMode = getCurrentAuthMode(db);
     const hasAdmin = hasAdminUser(db);
-    res.json({ authMode, hasAdminUser: hasAdmin, oidc: getOidcSettings(db) });
+    const oidc = getOidcSettings(db);
+    res.json({
+      authMode,
+      hasAdminUser: hasAdmin,
+      oidc: {
+        ...oidc,
+        clientSecret: maskSecret(oidc.clientSecret),
+        hasClientSecret: oidc.clientSecret.length > 0,
+      },
+    });
   });
 
   // PUT /api/v1/settings/auth-mode — change authentication mode
@@ -177,10 +219,11 @@ export function createSettingsRoutes(
 
         if (oidc) {
           const existingOidc = getOidcSettings(db);
+          const clientSecretUpdate = getSecretUpdate(oidc?.clientSecret);
           const oidcCandidate = {
             issuerUrl: oidc?.issuerUrl?.trim() ?? existingOidc.issuerUrl,
             clientId: oidc?.clientId?.trim() ?? existingOidc.clientId,
-            clientSecret: oidc?.clientSecret?.trim() ?? existingOidc.clientSecret,
+            clientSecret: clientSecretUpdate ?? existingOidc.clientSecret,
             callbackUrl: oidc?.callbackUrl?.trim() ?? existingOidc.callbackUrl,
             scopes: normalizeScopes(oidc?.scopes ?? existingOidc.scopes),
           };
@@ -193,7 +236,10 @@ export function createSettingsRoutes(
 
           upsertSetting(db, 'oidc_issuer_url', parsedOidc.data.issuerUrl);
           upsertSetting(db, 'oidc_client_id', parsedOidc.data.clientId);
-          upsertSetting(db, 'oidc_client_secret', parsedOidc.data.clientSecret);
+          // Only rewrite the secret when a new one was supplied (or it only exists in env so far).
+          if (clientSecretUpdate !== undefined || getSettingValue(db, 'oidc_client_secret') === undefined) {
+            upsertSecretSetting(db, 'oidc_client_secret', parsedOidc.data.clientSecret);
+          }
           upsertSetting(db, 'oidc_callback_url', parsedOidc.data.callbackUrl);
           upsertSetting(db, 'oidc_scopes', parsedOidc.data.scopes.join(','));
         }
@@ -289,16 +335,18 @@ export function createSettingsRoutes(
     try {
       const slackEnabled = getSettingBoolean(db, 'slack_enabled');
       const webhookEnabled = getSettingBoolean(db, 'webhook_enabled');
-      const defaultWebhookUrl = getSettingString(db, 'default_webhook_url');
-      const defaultSlackToken = getSettingString(db, 'default_slack_token');
+      const defaultWebhookUrl = getSecretSetting(db, 'default_webhook_url') ?? '';
+      const defaultSlackToken = getSecretSetting(db, 'default_slack_token') ?? '';
       const defaultSlackChannel = getSettingString(db, 'default_slack_channel');
 
       res.json({
         slackEnabled,
         webhookEnabled,
-        defaultWebhookUrl,
-        defaultSlackToken,
+        defaultWebhookUrl: maskSecret(defaultWebhookUrl),
+        defaultSlackToken: maskSecret(defaultSlackToken),
         defaultSlackChannel,
+        hasDefaultWebhookUrl: defaultWebhookUrl.length > 0,
+        hasDefaultSlackToken: defaultSlackToken.length > 0,
       });
     } catch {
       res.status(500).json({ error: 'Failed to fetch notification settings' });
@@ -321,9 +369,10 @@ export function createSettingsRoutes(
       }
 
       const notificationService = new NotificationService(db);
+      // Unchanged (empty/masked) secrets fall back to the stored, decrypted values.
       await notificationService.sendTestNotification(channel, {
-        defaultWebhookUrl,
-        defaultSlackToken,
+        defaultWebhookUrl: getSecretUpdate(defaultWebhookUrl),
+        defaultSlackToken: getSecretUpdate(defaultSlackToken),
         defaultSlackChannel,
       });
 
@@ -361,12 +410,14 @@ export function createSettingsRoutes(
         upsertSetting(db, 'webhook_enabled', webhookEnabled ? '1' : '0');
       }
 
-      if (defaultWebhookUrl !== undefined) {
-        upsertSetting(db, 'default_webhook_url', defaultWebhookUrl || '');
+      const webhookUrlUpdate = getSecretUpdate(defaultWebhookUrl);
+      if (webhookUrlUpdate !== undefined) {
+        upsertSecretSetting(db, 'default_webhook_url', webhookUrlUpdate);
       }
 
-      if (defaultSlackToken !== undefined) {
-        upsertSetting(db, 'default_slack_token', defaultSlackToken || '');
+      const slackTokenUpdate = getSecretUpdate(defaultSlackToken);
+      if (slackTokenUpdate !== undefined) {
+        upsertSecretSetting(db, 'default_slack_token', slackTokenUpdate);
       }
 
       if (defaultSlackChannel !== undefined) {

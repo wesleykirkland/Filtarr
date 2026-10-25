@@ -2,6 +2,7 @@ import type Database from 'better-sqlite3';
 import type { FilterRow } from '../../db/schemas/filters.js';
 import type { ArrInstanceConfig } from '../../services/arr/types.js';
 import { validateWebhookUrl } from '../../services/security.js';
+import { decryptStoredSecret } from '../../services/encryption.js';
 import { logger } from '../lib/logger.js';
 import type { FileEvent } from './filterEngine.js';
 
@@ -168,8 +169,8 @@ export class NotificationService {
     return {
       slackEnabled: this.getBooleanSetting('slack_enabled'),
       webhookEnabled: this.getBooleanSetting('webhook_enabled'),
-      defaultWebhookUrl: this.getStringSetting('default_webhook_url'),
-      defaultSlackToken: this.getStringSetting('default_slack_token'),
+      defaultWebhookUrl: this.getSecretSetting('default_webhook_url'),
+      defaultSlackToken: this.getSecretSetting('default_slack_token'),
       defaultSlackChannel: this.getStringSetting('default_slack_channel'),
     };
   }
@@ -179,6 +180,11 @@ export class NotificationService {
       this.db.prepare<[string], SettingRow>('SELECT value FROM settings WHERE key = ?').get(key)
         ?.value || defaultValue
     );
+  }
+
+  /** Secret settings are stored `enc:`-encrypted at rest; legacy plaintext passes through. */
+  private getSecretSetting(key: string): string {
+    return decryptStoredSecret(this.getStringSetting(key)) ?? '';
   }
 
   private getBooleanSetting(key: string, defaultValue = false): boolean {
@@ -213,9 +219,11 @@ export class NotificationService {
     if (filter.override_notifications === 1) {
       return {
         webhookUrl: filter.notify_on_match
-          ? this.trimToUndefined(filter.notify_webhook_url)
+          ? this.trimToUndefined(decryptStoredSecret(filter.notify_webhook_url))
           : undefined,
-        slackToken: filter.notify_slack ? this.trimToUndefined(filter.notify_slack_token) : undefined,
+        slackToken: filter.notify_slack
+          ? this.trimToUndefined(decryptStoredSecret(filter.notify_slack_token))
+          : undefined,
         slackChannel: filter.notify_slack
           ? this.trimToUndefined(filter.notify_slack_channel)
           : undefined,

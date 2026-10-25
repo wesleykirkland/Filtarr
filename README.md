@@ -5,10 +5,22 @@ Filtarr is a centralized cron-job and validation service for the Arr stack ecosy
 ## Key Features
 
 - **Invalid & Malformed Release Detection**: Scans downloads for fake, malicious, or unplayable files that slip past standard indexer checks.
-- **Automated Blocklisting**: Automatically rejects bad releases within your Arr applications and triggers a search for a better copy.
+- **Automated Blocklisting**: Automatically rejects bad releases within your Arr applications. Each blocklist filter picks an Arr behavior: blocklist and search for a replacement, blocklist only, or remove only (see [Blocklist Behaviors](#blocklist-behaviors)).
 - **Directory Cleanup**: Removes orphaned files, empty folders, and leftover release artifacts.
 - **Custom Scripts & Filters**: Provides an extensible system to run user-defined validation scripts when explicitly enabled.
 - **Background Validation**: Regularly tests connection statuses across all connected nodes via configurable background cron jobs.
+
+### Blocklist Behaviors
+
+When a filter with the **Blocklist** action matches a file, Filtarr finds the matching release in the linked Arr instance's queue and removes it from the download client. The filter's **Arr Behavior** decides what happens next:
+
+| Behavior | Blocklists release | Arr searches again | Notes |
+| --- | --- | --- | --- |
+| `blocklist_and_search` (default) | Yes | Yes | The Arr's own redownload logic finds a replacement. |
+| `blocklist_only` | Yes | No | Use when you want to pick a replacement yourself. |
+| `remove_only` | No | Arr default | The release is not blocklisted, so the Arr may grab the same release again. |
+
+Filters created without an explicit behavior use `blocklist_and_search`.
 
 ## Tech Stack
 

@@ -27,6 +27,7 @@ const state = vi.hoisted(() => {
     box.localVerify = verify;
   });
   box.bcryptCompare = vi.fn();
+  box.bcryptHash = vi.fn().mockResolvedValue('$2b$12$' + 'a'.repeat(53));
   box.existsSync = vi.fn();
   box.mkdirSync = vi.fn();
   box.readFileSync = vi.fn();
@@ -55,7 +56,7 @@ vi.mock('passport', () => ({
   },
 }));
 vi.mock('passport-local', () => ({ Strategy: state.LocalStrategy }));
-vi.mock('bcrypt', () => ({ default: { compare: state.bcryptCompare } }));
+vi.mock('bcrypt', () => ({ default: { compare: state.bcryptCompare, hash: state.bcryptHash } }));
 vi.mock('node:fs', () => ({
   existsSync: state.existsSync,
   mkdirSync: state.mkdirSync,

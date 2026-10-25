@@ -45,12 +45,17 @@ const MAX_FAILED_ATTEMPTS = 5;
 const LOCKOUT_MINUTES = 15;
 
 /**
- * Fixed bcrypt hash (cost 12, same as stored passwords) of a value no user can have. Compared
- * against when the username is unknown, the account is locked, or the stored hash is unusable,
- * so every credential failure costs one bcrypt comparison and failures are not distinguishable
- * by timing.
+ * bcrypt hash (cost 12, same as stored passwords) of a random value no user can have, generated
+ * once per process. Compared against when the username is unknown, the account is locked, or the
+ * stored hash is unusable, so every credential failure costs one bcrypt comparison and failures
+ * are not distinguishable by timing.
  */
-const DUMMY_PASSWORD_HASH = '$2b$12$Tlp1tVc4iKwcVqc66kiH1eygTWvYED93zX3IQLVArmp6Xw8fJD7DO';
+let dummyPasswordHashPromise: Promise<string> | null = null;
+
+function getDummyPasswordHash(): Promise<string> {
+  dummyPasswordHashPromise ??= bcrypt.hash(crypto.randomBytes(32).toString('hex'), 12);
+  return dummyPasswordHashPromise;
+}
 
 /** The only message ever returned to clients for a failed credential check. */
 export const GENERIC_AUTH_FAILURE_MESSAGE = 'Invalid credentials';
@@ -63,7 +68,7 @@ export type CredentialCheckResult =
 
 async function dummyCompare(password: string): Promise<void> {
   try {
-    await bcrypt.compare(password, DUMMY_PASSWORD_HASH);
+    await bcrypt.compare(password, await getDummyPasswordHash());
   } catch {
     // Timing equalisation only; the result is irrelevant.
   }

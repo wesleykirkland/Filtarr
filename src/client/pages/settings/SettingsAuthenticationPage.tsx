@@ -29,6 +29,7 @@ export default function SettingsAuthenticationPage() {
   const [selectedAuthMode, setSelectedAuthMode] = useState<AuthMode>('none');
   const [authUsername, setAuthUsername] = useState('admin');
   const [authPassword, setAuthPassword] = useState('');
+  const [currentPassword, setCurrentPassword] = useState('');
   const [confirmAuthChange, setConfirmAuthChange] = useState(false);
   const [oidcIssuerUrl, setOidcIssuerUrl] = useState('');
   const [oidcClientId, setOidcClientId] = useState('');
@@ -46,6 +47,7 @@ export default function SettingsAuthenticationPage() {
       authMode: AuthMode;
       username?: string;
       password?: string;
+      currentPassword?: string;
       oidc?: OidcSettingsUpdate;
     }) => api.put<ChangeAuthModeResponse>('/settings/auth-mode', data),
     onSuccess: (data) => {
@@ -55,6 +57,7 @@ export default function SettingsAuthenticationPage() {
       setShowAuthModeChange(false);
       setConfirmAuthChange(false);
       setAuthPassword('');
+      setCurrentPassword('');
 
       if (data.authMode === 'forms' || data.authMode === 'oidc') {
         navigate('/login', { replace: true });
@@ -74,6 +77,7 @@ export default function SettingsAuthenticationPage() {
     setOidcClientSecret('');
     setOidcCallbackUrl(authModeData?.oidc.callbackUrl ?? '');
     setOidcScopes(authModeData?.oidc.scopes.join(', ') ?? 'openid, profile, email');
+    setCurrentPassword('');
     setShowAuthModeChange(true);
   };
 
@@ -102,12 +106,19 @@ export default function SettingsAuthenticationPage() {
       }
     }
 
+    if (authModeData?.hasAdminUser && !currentPassword) {
+      toast('error', 'Enter your current password to change the authentication mode');
+      setConfirmAuthChange(false);
+      return;
+    }
+
     const needsCredentials =
       (selectedAuthMode === 'basic' || selectedAuthMode === 'forms') && !authModeData?.hasAdminUser;
     changeAuthModeMutation.mutate({
       authMode: selectedAuthMode,
       username: needsCredentials ? authUsername : undefined,
       password: needsCredentials ? authPassword : undefined,
+      currentPassword: authModeData?.hasAdminUser ? currentPassword : undefined,
       oidc: selectedAuthMode === 'oidc' ? normalizedOidc : undefined,
     });
   };
@@ -285,6 +296,25 @@ export default function SettingsAuthenticationPage() {
                   className="mt-1 block w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:border-blue-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
                 />
               </div>
+            </div>
+          )}
+
+          {authModeData?.hasAdminUser && (
+            <div>
+              <label htmlFor="auth-current-password" className="block text-xs font-medium text-gray-700 dark:text-gray-400">
+                Current password
+              </label>
+              <input
+                id="auth-current-password"
+                type="password"
+                autoComplete="current-password"
+                value={currentPassword}
+                onChange={(e) => setCurrentPassword(e.target.value)}
+                className="mt-1 block w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:border-blue-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
+              />
+              <p className="mt-1 text-xs text-gray-600 dark:text-gray-400">
+                Required to change how Filtarr is protected.
+              </p>
             </div>
           )}
 

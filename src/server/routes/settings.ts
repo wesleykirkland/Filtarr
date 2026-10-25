@@ -36,6 +36,8 @@ interface ChangeAuthModeRequest {
   authMode: AuthMode;
   username?: string;
   password?: string;
+  /** Required when an admin user with a password already exists. */
+  currentPassword?: string;
   oidc?: Partial<OidcAuthConfig>;
 }
 
@@ -184,7 +186,8 @@ export function createSettingsRoutes(
     '/auth-mode',
     async (req: Request, res: Response, next: NextFunction): Promise<void> => {
       try {
-        const { authMode, username, password, oidc } = req.body as ChangeAuthModeRequest;
+        const { authMode, username, password, currentPassword, oidc } =
+          req.body as ChangeAuthModeRequest;
 
         // Validate authMode
         if (!['none', 'basic', 'forms', 'oidc'].includes(authMode)) {
@@ -204,6 +207,28 @@ export function createSettingsRoutes(
 
         const hasAdmin = hasAdminUser(db);
 
+        // SECURITY: Changing how the instance is protected requires re-proving knowledge of the
+        // admin password whenever one exists — a session or API key alone is not enough.
+        const adminHashes = db
+          .prepare<[], { password_hash: string }>(
+            `SELECT password_hash FROM users WHERE password_hash IS NOT NULL AND password_hash != ''`,
+          )
+          .all();
+        if (adminHashes.length > 0) {
+          let verified = false;
+          if (typeof currentPassword === 'string' && currentPassword.length > 0) {
+            for (const { password_hash } of adminHashes) {
+              if (await bcrypt.compare(currentPassword, password_hash)) {
+                verified = true;
+                break;
+              }
+            }
+          }
+          if (!verified) {
+            res.status(401).json({ error: 'Current password is incorrect' });
+            return;
+          }
+        }
 
         if (oidc) {
           const existingOidc = getOidcSettings(db);

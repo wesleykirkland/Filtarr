@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { Link } from 'react-router';
 import { api } from '../lib/api';
 import { toast } from '../components/Toast';
 import { ConfirmModal } from '../components/ConfirmModal';
@@ -249,9 +250,9 @@ function JobForm({ initialJob, initialWatcherFilter, filters, jobs, onClose, onS
         {filters.length === 0 ? (
           <div className="rounded-lg border dark:border-yellow-800/50 border-yellow-200 dark:bg-yellow-900/20 bg-yellow-50 px-4 py-3 text-sm dark:text-yellow-300 text-yellow-700">
             No filters configured yet.{' '}
-            <a href="/filters" className="underline">
+            <Link to="/filters" className="underline">
               Create a filter first
-            </a>{'.'}
+            </Link>{'.'}
 
           </div>
         ) : (
@@ -392,6 +393,7 @@ function JobForm({ initialJob, initialWatcherFilter, filters, jobs, onClose, onS
               className="block flex-1 rounded-lg border dark:border-gray-700 border-gray-300 dark:bg-gray-800 bg-white px-3 py-2 font-mono dark:text-gray-100 text-gray-900 focus:border-blue-500 focus:outline-none"
             />
             <select
+              aria-label="Cron schedule presets"
               onChange={(e) => {
                 if (e.target.value) setSchedule(e.target.value);
               }}
@@ -486,6 +488,7 @@ export default function Scheduler() {
   const [editing, setEditing] = useState<Job | null>(null);
   const [editingWatcher, setEditingWatcher] = useState<Filter | null>(null);
   const [deletingWatcher, setDeletingWatcher] = useState<Filter | null>(null);
+  const [deletingJob, setDeletingJob] = useState<Job | null>(null);
 
   const { data: rawJobs, isLoading } = useQuery<Job[]>({
     queryKey: ['jobs'],
@@ -601,6 +604,10 @@ export default function Scheduler() {
                 <div className="flex items-start justify-between gap-4">
                   <div className="flex items-center gap-3 flex-1 min-w-0">
                     <button
+                      type="button"
+                      role="switch"
+                      aria-checked={filter.enabled === 1}
+                      aria-label={`${filter.enabled === 1 ? 'Disable' : 'Enable'} watcher for ${filter.name}`}
                       onClick={() =>
                         toggleWatcherMutation.mutate({ id: filter.id, enabled: filter.enabled !== 1 })
                       }
@@ -670,6 +677,10 @@ export default function Scheduler() {
                 <div className="flex items-start justify-between gap-4">
                   <div className="flex items-center gap-3 flex-1 min-w-0">
                     <button
+                      type="button"
+                      role="switch"
+                      aria-checked={Boolean(job.enabled)}
+                      aria-label={`${job.enabled ? 'Disable' : 'Enable'} job ${job.name}`}
                       onClick={() => toggleMutation.mutate({ id: job.id, enabled: !job.enabled })}
                       className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${job.enabled ? 'bg-blue-600' : 'dark:bg-gray-700 bg-gray-300'}`}
                     >
@@ -715,9 +726,7 @@ export default function Scheduler() {
                       Edit
                     </button>
                     <button
-                      onClick={() => {
-                        if (confirm(`Delete job "${job.name}"?`)) deleteMutation.mutate(job.id);
-                      }}
+                      onClick={() => setDeletingJob(job)}
                       className="rounded-lg border dark:border-red-900 border-red-200 px-3 py-1.5 text-xs font-medium dark:text-red-400 text-red-600 dark:hover:bg-red-900/30 hover:bg-red-50"
                     >
                       Delete
@@ -741,9 +750,9 @@ export default function Scheduler() {
           {filters.length === 0 ? (
             <p className="mt-3 text-sm dark:text-yellow-400 text-yellow-600">
               You need to{' '}
-              <a href="/filters" className="underline">
+              <Link to="/filters" className="underline">
                 create a filter
-              </a>{' '}
+              </Link>{' '}
               before scheduling it.
             </p>
           ) : (
@@ -765,6 +774,16 @@ export default function Scheduler() {
         isDestructive={true}
         onConfirm={() => deletingWatcher && deleteWatcherMutation.mutate(deletingWatcher.id)}
         onClose={() => setDeletingWatcher(null)}
+      />
+
+      <ConfirmModal
+        isOpen={deletingJob !== null}
+        title="Delete scheduled job"
+        message={`Delete job "${deletingJob?.name ?? 'this job'}"?`}
+        confirmLabel="Delete"
+        isDestructive={true}
+        onConfirm={() => deletingJob && deleteMutation.mutate(deletingJob.id)}
+        onClose={() => setDeletingJob(null)}
       />
     </div>
   );

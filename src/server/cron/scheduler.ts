@@ -9,10 +9,68 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { getFilterById } from '../../db/schemas/filters.js';
 
+/** Maximum number of files a scheduled filter run processes at once. */
+export const FILTER_JOB_CONCURRENCY = 4;
+
+type JobRow = ReturnType<typeof getAllJobs>[0];
+
+/**
+ * Recursively yields every non-directory entry below `dir` using async fs
+ * calls so large trees do not block the event loop.
+ */
+async function* walkFiles(dir: string): AsyncGenerator<string> {
+  const entries = await fs.promises.readdir(dir, { withFileTypes: true });
+  for (const entry of entries) {
+    const fullPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      yield* walkFiles(fullPath);
+    } else {
+      yield fullPath;
+    }
+  }
+}
+
+/**
+ * Runs `worker` over every item of `source` with at most `limit` in flight.
+ * Rejects with the first source/worker error once all in-flight work settles.
+ */
+export async function forEachWithConcurrency<T>(
+  source: AsyncIterable<T> | Iterable<T>,
+  limit: number,
+  worker: (item: T) => Promise<void>,
+): Promise<void> {
+  const iterator =
+    Symbol.asyncIterator in source
+      ? source[Symbol.asyncIterator]()
+      : (source as Iterable<T>)[Symbol.iterator]();
+  let failed = false;
+
+  const runner = async () => {
+    while (!failed) {
+      const next = await iterator.next();
+      if (next.done) return;
+      await worker(next.value);
+    }
+  };
+
+  const results = await Promise.allSettled(
+    Array.from({ length: Math.max(1, limit) }, () =>
+      runner().catch((err: unknown) => {
+        failed = true;
+        throw err;
+      }),
+    ),
+  );
+  const rejection = results.find((r): r is PromiseRejectedResult => r.status === 'rejected');
+  if (rejection) throw rejection.reason;
+}
+
 export class CronManager {
   private readonly db: Database.Database;
   private readonly filterEngine: FilterEngine;
   private readonly activeJobs: Map<number, ScheduledTask> = new Map();
+  /** Ids of jobs whose previous tick is still executing (survives reloads). */
+  private readonly runningJobs = new Set<number>();
 
   constructor(db: Database.Database) {
     this.db = db;
@@ -44,7 +102,7 @@ export class CronManager {
     this.start();
   }
 
-  private scheduleJob(job: ReturnType<typeof getAllJobs>[0]) {
+  private scheduleJob(job: JobRow) {
     if (!cron.validate(job.schedule)) {
       logger.error(
         { jobId: job.id, schedule: job.schedule },
@@ -54,72 +112,89 @@ export class CronManager {
     }
 
     const task = cron.schedule(job.schedule, async () => {
-      logger.info({ jobId: job.id, name: job.name }, 'Executing scheduled job');
-      const startTime = new Date().toISOString();
-      recordActivityEvent(this.db, {
-        type: 'run',
-        source: 'jobs',
-        message: `Started scheduled job "${job.name}"`,
-        details: { jobId: job.id, jobType: job.type, schedule: job.schedule, status: 'started' },
-      });
+      if (this.runningJobs.has(job.id)) {
+        logger.warn(
+          { jobId: job.id, name: job.name },
+          'Skipping scheduled job tick because the previous run is still in progress',
+        );
+        return;
+      }
 
+      this.runningJobs.add(job.id);
       try {
-        if (job.type === 'custom_script' && job.payload) {
-          const result = await runSandboxedScript(job.payload, {
-            job: { id: job.id, name: job.name },
-          });
-          if (result.success) {
-            logger.debug(
-              { jobId: job.id, output: result.output },
-              'Job script completed successfully',
-            );
-            recordActivityEvent(this.db, {
-              type: 'run',
-              source: 'jobs',
-              message: `Scheduled job "${job.name}" completed successfully`,
-              details: { jobId: job.id, jobType: job.type, status: 'success' },
-            });
-          } else {
-            logger.warn(
-              { jobId: job.id, error: result.error, logs: result.logs },
-              'Job script reported failure',
-            );
-            recordActivityEvent(this.db, {
-              type: 'run',
-              source: 'jobs',
-              message: `Scheduled job "${job.name}" reported failure`,
-              details: { jobId: job.id, jobType: job.type, status: 'failure', error: result.error },
-            });
-          }
-        } else if (job.type === 'filter_run' && job.payload) {
-          await this.executeFilterJob(job);
-        } else {
-          logger.warn({ jobId: job.id, type: job.type }, 'Built-in job types not yet implemented');
-          recordActivityEvent(this.db, {
-            type: 'run',
-            source: 'jobs',
-            message: `Scheduled job "${job.name}" was skipped`,
-            details: { jobId: job.id, jobType: job.type, status: 'skipped' },
-          });
-        }
-
-        // Update last run time
-        updateJob(this.db, job.id, { lastRun: startTime });
-      } catch (err: any) {
-        logger.error({ jobId: job.id, err: err.message }, 'Scheduled job failed unexpectedly');
-        recordActivityEvent(this.db, {
-          type: 'run',
-          source: 'jobs',
-          message: `Scheduled job "${job.name}" failed`,
-          details: { jobId: job.id, jobType: job.type, status: 'failure', error: err.message },
-        });
+        await this.runJob(job);
+      } finally {
+        this.runningJobs.delete(job.id);
       }
     });
 
     this.activeJobs.set(job.id, task);
   }
 
-  private async executeFilterJob(job: ReturnType<typeof getAllJobs>[0]) {
+  private async runJob(job: JobRow) {
+    logger.info({ jobId: job.id, name: job.name }, 'Executing scheduled job');
+    const startTime = new Date().toISOString();
+    recordActivityEvent(this.db, {
+      type: 'run',
+      source: 'jobs',
+      message: `Started scheduled job "${job.name}"`,
+      details: { jobId: job.id, jobType: job.type, schedule: job.schedule, status: 'started' },
+    });
+
+    try {
+      if (job.type === 'custom_script' && job.payload) {
+        const result = await runSandboxedScript(job.payload, {
+          job: { id: job.id, name: job.name },
+        });
+        if (result.success) {
+          logger.debug(
+            { jobId: job.id, output: result.output },
+            'Job script completed successfully',
+          );
+          recordActivityEvent(this.db, {
+            type: 'run',
+            source: 'jobs',
+            message: `Scheduled job "${job.name}" completed successfully`,
+            details: { jobId: job.id, jobType: job.type, status: 'success' },
+          });
+        } else {
+          logger.warn(
+            { jobId: job.id, error: result.error, logs: result.logs },
+            'Job script reported failure',
+          );
+          recordActivityEvent(this.db, {
+            type: 'run',
+            source: 'jobs',
+            message: `Scheduled job "${job.name}" reported failure`,
+            details: { jobId: job.id, jobType: job.type, status: 'failure', error: result.error },
+          });
+        }
+      } else if (job.type === 'filter_run' && job.payload) {
+        await this.executeFilterJob(job);
+      } else {
+        logger.warn({ jobId: job.id, type: job.type }, 'Built-in job types not yet implemented');
+        recordActivityEvent(this.db, {
+          type: 'run',
+          source: 'jobs',
+          message: `Scheduled job "${job.name}" was skipped`,
+          details: { jobId: job.id, jobType: job.type, status: 'skipped' },
+        });
+      }
+
+      // Update last run time
+      updateJob(this.db, job.id, { lastRun: startTime });
+    } catch (err: any) {
+      logger.error({ jobId: job.id, err: err.message }, 'Scheduled job failed unexpectedly');
+      recordActivityEvent(this.db, {
+        type: 'run',
+        source: 'jobs',
+        message: `Scheduled job "${job.name}" failed`,
+        details: { jobId: job.id, jobType: job.type, status: 'failure', error: err.message },
+      });
+    }
+  }
+
+  private async executeFilterJob(job: JobRow) {
     try {
       const payload = JSON.parse(job.payload || '{}');
       const filterId = payload.filterId;
@@ -153,32 +228,42 @@ export class CronManager {
         return;
       }
 
-      const pendingFiles: Promise<void>[] = [];
-
-      // Simple recursive crawl of the target path
       let queuedFiles = 0;
-      const crawl = (dir: string) => {
-        const entries = fs.readdirSync(dir, { withFileTypes: true });
-        for (const entry of entries) {
-          const fullPath = path.join(dir, entry.name);
-          if (entry.isDirectory()) {
-            crawl(fullPath);
-          } else {
-            queuedFiles += 1;
-            this.filterEngine.processFile(fullPath, 'cron').catch((err) => {
-              logger.error({ err, fullPath }, 'Scheduled filter failed to process file');
-            });
+      let failedFiles = 0;
+      await forEachWithConcurrency(
+        walkFiles(filter.target_path),
+        FILTER_JOB_CONCURRENCY,
+        async (fullPath) => {
+          queuedFiles += 1;
+          try {
+            await this.filterEngine.processFile(fullPath, 'cron');
+          } catch (err) {
+            failedFiles += 1;
+            logger.error({ err, fullPath }, 'Scheduled filter failed to process file');
           }
-        }
-      };
+        },
+      );
 
-      crawl(filter.target_path);
-      logger.info({ jobId: job.id, filterId, queuedFiles }, 'Scheduled filter crawl completed');
+      if (failedFiles > 0) {
+        logger.warn(
+          { jobId: job.id, filterId, queuedFiles, failedFiles },
+          'Scheduled filter run finished with file failures',
+        );
+        recordActivityEvent(this.db, {
+          type: 'run',
+          source: 'jobs',
+          message: `Scheduled filter job "${job.name}" failed for ${failedFiles} of ${queuedFiles} files`,
+          details: { jobId: job.id, filterId, status: 'failure', queuedFiles, failedFiles },
+        });
+        return;
+      }
+
+      logger.info({ jobId: job.id, filterId, queuedFiles }, 'Scheduled filter run completed');
       recordActivityEvent(this.db, {
         type: 'run',
         source: 'jobs',
         message: `Scheduled filter job "${job.name}" completed`,
-        details: { jobId: job.id, filterId, status: 'success', queuedFiles },
+        details: { jobId: job.id, filterId, status: 'success', queuedFiles, failedFiles },
       });
     } catch (err: any) {
       logger.error({ jobId: job.id, err: err.message }, 'Failed to execute filter job');

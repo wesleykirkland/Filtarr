@@ -125,6 +125,21 @@ export class ArrClient {
     });
   }
 
+  /** Fetch all queue items, paginating automatically. */
+  async getAllQueueItems(): Promise<QueueResource[]> {
+    const pageSize = 100;
+    const first = await this.getQueue(1, pageSize);
+    const all = [...first.records];
+
+    const totalPages = Math.ceil(first.totalRecords / pageSize);
+    for (let page = 2; page <= totalPages; page++) {
+      const next = await this.getQueue(page, pageSize);
+      all.push(...next.records);
+    }
+
+    return all;
+  }
+
   /** DELETE /api/v3/queue/{id} with options */
   async deleteQueueItem(id: number, options: DeleteQueueOptions = {}): Promise<void> {
     const params: QueryParams = {};

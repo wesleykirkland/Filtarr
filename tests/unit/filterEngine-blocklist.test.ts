@@ -133,9 +133,9 @@ describe('handleBlocklist behaviors', () => {
     mockGetInstanceConfigById.mockReturnValue(config);
 
     const mockClient = Object.create(SonarrClient.prototype);
-    mockClient.getQueue = vi.fn().mockResolvedValue({
-      records: [makeQueueRecord({ seriesId: 5, episodeId: 10 })],
-    });
+    mockClient.getAllQueueItems = vi.fn().mockResolvedValue(
+      [makeQueueRecord({ seriesId: 5, episodeId: 10 })],
+    );
     mockClient.blocklistAndRemove = vi.fn().mockResolvedValue(undefined);
     mockClient.searchEpisodes = vi.fn().mockResolvedValue({});
     mockCreateArrClient.mockReturnValue(mockClient);
@@ -153,9 +153,9 @@ describe('handleBlocklist behaviors', () => {
     mockGetInstanceConfigById.mockReturnValue(config);
 
     const mockClient = Object.create(RadarrClient.prototype);
-    mockClient.getQueue = vi.fn().mockResolvedValue({
-      records: [makeQueueRecord({ movieId: 7 })],
-    });
+    mockClient.getAllQueueItems = vi.fn().mockResolvedValue(
+      [makeQueueRecord({ movieId: 7 })],
+    );
     mockClient.blocklistAndRemove = vi.fn().mockResolvedValue(undefined);
     mockClient.searchMovies = vi.fn().mockResolvedValue({});
     mockCreateArrClient.mockReturnValue(mockClient);
@@ -172,9 +172,9 @@ describe('handleBlocklist behaviors', () => {
     mockGetInstanceConfigById.mockReturnValue(config);
 
     const mockClient = Object.create(LidarrClient.prototype);
-    mockClient.getQueue = vi.fn().mockResolvedValue({
-      records: [makeQueueRecord({ artistId: 3, albumId: 15 })],
-    });
+    mockClient.getAllQueueItems = vi.fn().mockResolvedValue(
+      [makeQueueRecord({ artistId: 3, albumId: 15 })],
+    );
     mockClient.blocklistAndRemove = vi.fn().mockResolvedValue(undefined);
     mockClient.searchAlbum = vi.fn().mockResolvedValue({});
     mockCreateArrClient.mockReturnValue(mockClient);
@@ -191,9 +191,9 @@ describe('handleBlocklist behaviors', () => {
     mockGetInstanceConfigById.mockReturnValue(config);
 
     const mockClient = Object.create(SonarrClient.prototype);
-    mockClient.getQueue = vi.fn().mockResolvedValue({
-      records: [makeQueueRecord({ seriesId: 5, episodeId: 10 })],
-    });
+    mockClient.getAllQueueItems = vi.fn().mockResolvedValue(
+      [makeQueueRecord({ seriesId: 5, episodeId: 10 })],
+    );
     mockClient.deleteQueueItem = vi.fn().mockResolvedValue(undefined);
     mockCreateArrClient.mockReturnValue(mockClient);
 
@@ -212,9 +212,9 @@ describe('handleBlocklist behaviors', () => {
     mockGetInstanceConfigById.mockReturnValue(config);
 
     const mockClient = Object.create(RadarrClient.prototype);
-    mockClient.getQueue = vi.fn().mockResolvedValue({
-      records: [makeQueueRecord({ movieId: 7 })],
-    });
+    mockClient.getAllQueueItems = vi.fn().mockResolvedValue(
+      [makeQueueRecord({ movieId: 7 })],
+    );
     mockClient.deleteQueueItem = vi.fn().mockResolvedValue(undefined);
     mockCreateArrClient.mockReturnValue(mockClient);
 
@@ -232,7 +232,7 @@ describe('handleBlocklist behaviors', () => {
     mockGetInstanceConfigById.mockReturnValue(config);
 
     const mockClient = Object.create(SonarrClient.prototype);
-    mockClient.getQueue = vi.fn().mockResolvedValue({ records: [] });
+    mockClient.getAllQueueItems = vi.fn().mockResolvedValue([]);
     mockClient.blocklistAndRemove = vi.fn();
     mockClient.deleteQueueItem = vi.fn();
     mockCreateArrClient.mockReturnValue(mockClient);

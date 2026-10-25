@@ -248,8 +248,8 @@ export class FilterEngine {
     );
 
     try {
-      // Try to find the item in the queue first
-      const queue = await client.getQueue(1, 100);
+      // Try to find the item in the queue (paginating through all items)
+      const queueItems = await client.getAllQueueItems();
 
       // Path mapping translation
       const translateLocToRem = (localPath: string) => {
@@ -266,7 +266,7 @@ export class FilterEngine {
 
       const translatedPath = translateLocToRem(file.path);
 
-      const matchingItem = queue.records.find((r) => {
+      const matchingItem = queueItems.find((r) => {
         if (!r.outputPath) return false;
         const resPath = path.resolve(translatedPath);
         const outPath = path.resolve(r.outputPath);

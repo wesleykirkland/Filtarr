@@ -67,11 +67,31 @@ describe('settings auth mode OIDC configuration', () => {
     expect(Array.isArray(res.body.oidc.scopes)).toBe(true);
   });
 
-  it('persists oidc settings through the auth-mode endpoint', async () => {
+  it('rejects switching to oidc mode while no OIDC strategy is available', async () => {
+    const before = readSnapshot();
     const res = await request(app)
       .put('/api/v1/settings/auth-mode')
       .send({
         authMode: 'oidc',
+        oidc: {
+          issuerUrl: 'https://issuer.example.com/realms/filtarr',
+          clientId: 'filtarr-web',
+          clientSecret: 'super-secret-value',
+          callbackUrl: 'http://localhost:9898/api/v1/auth/oidc/callback',
+          scopes: ['openid', 'profile', 'email'],
+        },
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/OIDC authentication is not yet available/);
+    expect(readSnapshot()).toEqual(before);
+  });
+
+  it('persists oidc settings through the auth-mode endpoint', async () => {
+    const res = await request(app)
+      .put('/api/v1/settings/auth-mode')
+      .send({
+        authMode: 'none',
         oidc: {
           issuerUrl: 'https://issuer.example.com/realms/filtarr',
           clientId: 'filtarr-web',
@@ -82,10 +102,10 @@ describe('settings auth mode OIDC configuration', () => {
       });
 
     expect(res.status).toBe(200);
-    expect(res.body).toMatchObject({ success: true, authMode: 'oidc' });
+    expect(res.body).toMatchObject({ success: true, authMode: 'none' });
 
     const stored = readSnapshot();
-    expect(stored.auth_mode).toBe('oidc');
+    expect(stored.auth_mode).toBe('none');
     expect(stored.oidc_issuer_url).toBe('https://issuer.example.com/realms/filtarr');
     expect(stored.oidc_client_id).toBe('filtarr-web');
     expect(stored.oidc_client_secret).toBe('super-secret-value');

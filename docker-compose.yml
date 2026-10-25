@@ -40,6 +40,12 @@ services:
       # configured in the web UI setup wizard and stored in the database; they
       # are not read from environment variables.
 
+      # Initial setup token. The setup wizard requires a one-time token; when unset,
+      # Filtarr generates one on startup and prints it in the log ("Initial setup token").
+      # Pre-set it here if you prefer (generate with: openssl rand -hex 32), and remove
+      # it once setup is complete.
+      # FILTARR_SETUP_TOKEN: ${FILTARR_SETUP_TOKEN:-}
+
       # Forms Auth (if using forms mode)
       # Session secret must be at least 32 characters
       # Generate with: openssl rand -base64 32
@@ -49,15 +55,22 @@ services:
 
       # Reverse proxy / cookie transport
       # FILTARR_TRUST_PROXY: trust X-Forwarded-* headers from a reverse proxy.
-      #   false (default), true (trust any - only if Filtarr is unreachable except via the proxy),
-      #   a hop count (e.g. 1), or a comma list of proxy IPs/subnets (e.g. loopback,172.16.0.0/12).
+      #   false (default), a hop count (e.g. 1), or a comma list of proxy IPs/subnets
+      #   (e.g. loopback,172.16.0.0/12). Prefer a hop count or CIDR list over `true`: with `true`
+      #   the client IP is the spoofable leftmost X-Forwarded-For entry.
       #   Required behind a TLS-terminating proxy so forms login can set its Secure session cookie,
-      #   and so rate limiting sees real client IPs.
+      #   and so rate limiting sees real client IPs (without it, all clients behind the proxy share
+      #   one rate-limit bucket).
       # FILTARR_TRUST_PROXY: ${FILTARR_TRUST_PROXY:-false}
       # FILTARR_COOKIE_SECURE: Secure flag on the session cookie: true, false, or auto.
       #   Default: true when NODE_ENV=production. Set to false for plain-HTTP LAN access
       #   (otherwise forms login cannot persist a session), or auto to follow the request scheme.
       # FILTARR_COOKIE_SECURE: ${FILTARR_COOKIE_SECURE:-}
+
+      # Host header allowlist (DNS-rebinding protection). Comma list of hostnames, optional :port,
+      # case-insensitive. Other Host headers get 421. localhost, 127.0.0.1 and [::1] are always
+      # allowed. Unset = accept any host (a warning is logged in production).
+      # FILTARR_ALLOWED_HOSTS: ${FILTARR_ALLOWED_HOSTS:-filtarr.example.com,192.168.1.10:9898}
 
       # OIDC Auth (not yet available: no OIDC sign-in strategy ships in this build)
       # FILTARR_OIDC_ISSUER: ${FILTARR_OIDC_ISSUER:-}

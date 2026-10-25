@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router, type NextFunction, type Request, type Response } from 'express';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
@@ -43,6 +43,46 @@ function getBrowseRoot(): string {
   return process.env['FILTARR_BROWSE_ROOT'] || '/';
 }
 
+/** Whether the browse root has been explicitly restricted via FILTARR_BROWSE_ROOT. */
+export function isBrowseRootConfigured(): boolean {
+  return Boolean(process.env['FILTARR_BROWSE_ROOT']);
+}
+
+function isContainedIn(candidate: string, root: string): boolean {
+  if (candidate === root) return true;
+  const prefix = root.endsWith(path.sep) ? root : root + path.sep;
+  return candidate.startsWith(prefix);
+}
+
+/**
+ * Resolve symlinks for the deepest existing ancestor of `target`, then re-append
+ * the non-existent remainder. Lets us root-check paths that don't exist yet.
+ */
+function realpathOfNearestAncestor(target: string): string {
+  let current = target;
+  const remainder: string[] = [];
+  for (;;) {
+    try {
+      return path.join(fs.realpathSync(current), ...remainder);
+    } catch {
+      const parent = path.dirname(current);
+      if (parent === current) return target;
+      remainder.unshift(path.basename(current));
+      current = parent;
+    }
+  }
+}
+
+/**
+ * Check whether an absolute path (which need not exist) lies within the browse root.
+ * Used to keep watched directories inside FILTARR_BROWSE_ROOT.
+ */
+export function isPathWithinBrowseRoot(targetPath: string): boolean {
+  const root = realpathOfNearestAncestor(path.resolve(getBrowseRoot()));
+  const candidate = realpathOfNearestAncestor(path.resolve(targetPath));
+  return isContainedIn(candidate, root);
+}
+
 function sanitizeBrowsePath(requestedPath: string): string | null {
   const browseRoot = getBrowseRoot();
   // Resolve against the allowed root directory
@@ -58,10 +98,7 @@ function sanitizeBrowsePath(requestedPath: string): string | null {
 
   // Ensure the real path is contained within the browse root
   const normalizedRoot = fs.realpathSync(browseRoot);
-  if (
-    realPath !== normalizedRoot &&
-    !realPath.startsWith(normalizedRoot + path.sep)
-  ) {
+  if (!isContainedIn(realPath, normalizedRoot)) {
     return null;
   }
 
@@ -77,7 +114,7 @@ function sanitizeBrowsePath(requestedPath: string): string | null {
 
 // GET /api/v1/system/browse?path=/some/dir
 // Returns subdirectories at the given path for the filesystem picker UI
-protectedSystemRoutes.get('/browse', (req, res) => {
+protectedSystemRoutes.get('/browse', (req: Request, res: Response, next: NextFunction) => {
   try {
     const requestedPath = (req.query['path'] as string) || '/';
     const resolved = sanitizeBrowsePath(requestedPath);
@@ -109,6 +146,7 @@ protectedSystemRoutes.get('/browse', (req, res) => {
       entries: dirs,
     });
   } catch (err) {
-    res.status(500).json({ error: err instanceof Error ? err.message : 'Browse failed' });
+    // errorHandler logs the detail and returns a generic 500 without leaking fs error text.
+    next(err);
   }
 });

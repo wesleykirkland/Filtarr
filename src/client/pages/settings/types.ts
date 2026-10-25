@@ -1,9 +1,20 @@
 export type AuthMode = 'none' | 'basic' | 'forms' | 'oidc';
 
+export interface OidcSettingsUpdate {
+  issuerUrl: string;
+  clientId: string;
+  /** Omit to keep the stored secret. */
+  clientSecret?: string;
+  callbackUrl: string;
+  scopes: string[];
+}
+
 export interface OidcSettingsResponse {
   issuerUrl: string;
   clientId: string;
+  /** Masked value (e.g. "••••••••abcd"); the plaintext secret is never returned. */
   clientSecret: string;
+  hasClientSecret: boolean;
   callbackUrl: string;
   scopes: string[];
 }
@@ -27,8 +38,22 @@ export interface AppSettingsResponse {
 export interface NotificationSettingsResponse {
   slackEnabled: boolean;
   webhookEnabled: boolean;
+  /** Masked value; the plaintext secret is never returned. */
   defaultWebhookUrl: string;
+  /** Masked value; the plaintext secret is never returned. */
   defaultSlackToken: string;
+  defaultSlackChannel: string;
+  hasDefaultWebhookUrl: boolean;
+  hasDefaultSlackToken: boolean;
+}
+
+export interface NotificationSettingsUpdate {
+  slackEnabled: boolean;
+  webhookEnabled: boolean;
+  /** Omit to keep the stored secret. */
+  defaultWebhookUrl?: string;
+  /** Omit to keep the stored secret. */
+  defaultSlackToken?: string;
   defaultSlackChannel: string;
 }
 

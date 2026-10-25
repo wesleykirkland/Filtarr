@@ -19,11 +19,14 @@ export const FILTER_PRESETS: FilterPreset[] = [
   },
   {
     id: 'clean_samples',
-    name: 'Delete Small Samples',
+    name: 'Delete Sample Videos',
     description:
-      'Deletes small video files that are likely samples (e.g. < 200MB and contains "sample").',
+      'Deletes video files whose name ends in "sample" as a separate word right before the extension ' +
+      '(e.g. "movie-sample.mkv", "Movie.2020.sample.mp4", "sample.mkv"). Matches by name only; file size is not checked.',
     ruleType: 'regex',
-    rulePayload: '.*sample.*',
+    // Case-insensitive at evaluation time. "sample" must be the last token before a video
+    // extension, so titles like "The.Sample.2020.mkv" or "Samples.mkv" are not matched.
+    rulePayload: String.raw`(^|[.\-_ ])sample\.(mkv|mp4|m4v|avi|mov|wmv|ts|webm)$`,
     actionType: 'delete',
   },
   {

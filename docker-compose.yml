@@ -36,13 +36,9 @@ services:
       # Generate with: openssl rand -base64 32
       FILTARR_SECRET: ${FILTARR_SECRET:-}
 
-      # Authentication Mode (configured via UI setup, but can be pre-set)
-      # Options: none, basic, forms, oidc
-      # FILTARR_AUTH_MODE: ${FILTARR_AUTH_MODE:-}
-
-      # Basic Auth (if using basic mode)
-      # FILTARR_AUTH_USERNAME: ${FILTARR_AUTH_USERNAME:-}
-      # FILTARR_AUTH_PASSWORD: ${FILTARR_AUTH_PASSWORD:-}
+      # Authentication mode (none, basic, forms, oidc) and admin credentials are
+      # configured in the web UI setup wizard and stored in the database; they
+      # are not read from environment variables.
 
       # Forms Auth (if using forms mode)
       # Session secret must be at least 32 characters

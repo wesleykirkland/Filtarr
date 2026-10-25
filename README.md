@@ -15,7 +15,7 @@ Filtarr is a centralized cron-job and validation service for the Arr stack ecosy
 Filtarr is built with a modern, fast, and secure architecture:
 
 - **Backend**: Express (Node.js) with `better-sqlite3` for lightning-fast embedded database operations and `pino` for structured logging.
-- **Frontend**: React 18, React Router, TailwindCSS, and TanStack React Query.
+- **Frontend**: React 19, React Router, TailwindCSS, and TanStack React Query.
 - **Security**: Robust built-in token-based authentication (Basic or Forms), automatic API key rotation, anti-CSRF measures, strict helmet headings, and express rate-limiting.
 - **Tooling**: Built via Vite and tested with Vitest. Fully typed using TypeScript.
 

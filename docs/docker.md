@@ -70,14 +70,7 @@ Navigate to `http://localhost:9898/setup` to complete the initial configuration:
 
 ### Authentication
 
-Authentication is typically configured via the web UI during initial setup, but can be pre-configured via environment variables:
-
-#### Auth Mode
-- **`FILTARR_AUTH_MODE`**: `none`, `basic`, `forms`, or `oidc`
-
-#### Basic Auth
-- **`FILTARR_AUTH_USERNAME`**: Username for basic auth
-- **`FILTARR_AUTH_PASSWORD`**: Password for basic auth (min 8 characters)
+The auth mode (`none`, `basic`, `forms`, or `oidc`) and the admin username/password are configured in the web UI during initial setup and stored in the database (passwords as bcrypt hashes). They cannot be set via environment variables. The following optional variables tune forms sessions and OIDC:
 
 #### Forms Auth
 - **`FILTARR_SESSION_SECRET`**: Session encryption secret (min 32 characters)

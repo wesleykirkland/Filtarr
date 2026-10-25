@@ -6,11 +6,6 @@ export type AuthMode = z.infer<typeof AuthMode>;
 export const DEFAULT_OIDC_CALLBACK_URL = 'http://localhost:9898/api/v1/auth/oidc/callback';
 export const DEFAULT_OIDC_SCOPES = ['openid', 'profile', 'email'] as const;
 
-export const BasicAuthConfigSchema = z.object({
-  username: z.string().min(1, 'Username is required'),
-  password: z.string().min(8, 'Password must be at least 8 characters'),
-});
-
 export const FormsAuthConfigSchema = z.object({
   sessionSecret: z.string().min(32, 'Session secret must be at least 32 characters').optional(),
   sessionMaxAge: z.number().int().positive().default(86400000), // 24 hours in ms
@@ -29,7 +24,6 @@ export type OidcAuthConfig = z.infer<typeof OidcAuthConfigSchema>;
 
 export const AuthConfigSchema = z.object({
   mode: AuthMode.default('none'),
-  basic: BasicAuthConfigSchema.optional(),
   forms: FormsAuthConfigSchema.optional(),
   oidc: OidcAuthConfigSchema.optional(),
   apiKeyBcryptRounds: z.number().int().min(10).max(14).default(12),
@@ -84,24 +78,17 @@ export function defaultCookieSecure(): boolean {
 }
 
 /**
- * Load auth config from environment variables and/or config file values.
+ * Load auth-related overrides from environment variables.
+ *
+ * The auth mode and user credentials are deliberately NOT read from the
+ * environment: they are chosen in the setup wizard / settings UI and stored in
+ * the database (credentials as bcrypt hashes). Only session, OIDC and CORS
+ * settings can come from env.
  */
 export function loadAuthConfigFromEnv(): Partial<AuthConfig> {
   const config: Partial<AuthConfig> = {};
 
   const env = process.env;
-  const mode = env['FILTARR_AUTH_MODE'];
-  if (mode) {
-    config.mode = AuthMode.parse(mode);
-  }
-
-  // Basic auth from env
-  if (env['FILTARR_AUTH_USERNAME'] && env['FILTARR_AUTH_PASSWORD']) {
-    config.basic = {
-      username: env['FILTARR_AUTH_USERNAME'],
-      password: env['FILTARR_AUTH_PASSWORD'],
-    };
-  }
 
   // Forms auth from env
   if (env['FILTARR_SESSION_SECRET']) {

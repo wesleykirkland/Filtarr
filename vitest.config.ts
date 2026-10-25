@@ -5,6 +5,8 @@ export default defineConfig({
     globals: true,
     environment: 'node',
     include: ['tests/**/*.test.ts', 'tests/**/*.test.tsx'],
+    // Per-test-file temp FILTARR_DATA_DIR; keeps tests off ./data/filtarr.db.
+    setupFiles: ['./tests/support/isolatedDataDir.ts'],
     coverage: {
       all: true,
       provider: 'v8',

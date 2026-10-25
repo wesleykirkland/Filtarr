@@ -42,6 +42,11 @@ jobs:
       - name: Verify lockfile remains unchanged
         run: git diff --exit-code -- package-lock.json
 
+      - name: Audit production dependencies
+        # Blocking: this job is a required status check, so a high-severity advisory in a
+        # runtime dependency fails the PR.
+        run: npm audit --omit=dev --audit-level=high
+
       - name: Typecheck
         run: npm run typecheck
 
@@ -103,7 +108,7 @@ jobs:
           fi
 
   audit-baseline:
-    name: Audit production dependencies (blocking)
+    name: Audit baseline (advisory)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -124,9 +129,6 @@ jobs:
 
       - name: Verify lockfile remains unchanged
         run: git diff --exit-code -- package-lock.json
-
-      - name: Audit production dependencies (blocking)
-        run: npm audit --omit=dev --audit-level=high
 
       - name: Audit all dependencies (advisory)
         shell: bash

@@ -3,9 +3,10 @@ import type Database from 'better-sqlite3';
 import { z } from 'zod';
 import cron from 'node-cron';
 import { getAllJobs, getJobById, createJob, updateJob, deleteJob } from '../../db/schemas/jobs.js';
-import { SecurityPolicyError, assertCustomScriptsEnabled } from '../../services/security.js';
+import { assertCustomScriptsEnabled } from '../../services/security.js';
 import { recordActivityEvent } from '../lib/activity.js';
 import { logger } from '../lib/logger.js';
+import { parseIdParam, sendRouteError } from '../lib/routeHelpers.js';
 import { reloadScheduler } from '../cron/scheduler.js';
 
 const JOB_TYPES = ['custom_script', 'built_in', 'filter_run'] as const;
@@ -32,14 +33,9 @@ export const createJobSchema = z.object({
   enabled: z.boolean().optional(),
 });
 
-const updateJobSchema = z.object({
-  name: z.string().min(1).optional(),
-  description: z.string().optional(),
-  schedule: cronScheduleSchema.optional(),
-  type: z.enum(JOB_TYPES).optional(),
-  payload: z.string().optional(),
-  enabled: z.boolean().optional(),
-});
+const updateJobSchema = createJobSchema.partial();
+
+const JOB_CONFLICT_MESSAGE = 'A job with this name already exists';
 
 export function createJobsRoutes(db: Database.Database): Router {
   const router = Router();
@@ -57,11 +53,8 @@ export function createJobsRoutes(db: Database.Database): Router {
   // GET /api/v1/jobs/:id
   router.get('/:id', (req: Request, res: Response, next: NextFunction): void => {
     try {
-      const id = Number.parseInt((req.params['id'] as string) || '', 10);
-      if (Number.isNaN(id)) {
-        res.status(400).json({ error: 'Invalid ID' });
-        return;
-      }
+      const id = parseIdParam(req, res);
+      if (id === null) return;
       const job = getJobById(db, id);
       if (!job) {
         res.status(404).json({ error: 'Job not found' });
@@ -90,27 +83,16 @@ export function createJobsRoutes(db: Database.Database): Router {
       });
       reloadScheduler(db);
       res.status(201).json(job);
-    } catch (err: any) {
-      if (err instanceof z.ZodError) {
-        res.status(400).json({ error: err.issues[0]?.message || 'Invalid input' });
-      } else if (err instanceof SecurityPolicyError) {
-        res.status(403).json({ error: err.message });
-      } else if (err instanceof Error && err.message.includes('UNIQUE constraint failed')) {
-        res.status(409).json({ error: 'A job with this name already exists' });
-      } else {
-        next(err);
-      }
+    } catch (err) {
+      sendRouteError(err, res, next, { conflictMessage: JOB_CONFLICT_MESSAGE });
     }
   });
 
   // PUT /api/v1/jobs/:id
   router.put('/:id', (req: Request, res: Response, next: NextFunction): void => {
     try {
-      const id = Number.parseInt((req.params['id'] as string) || '', 10);
-      if (Number.isNaN(id)) {
-        res.status(400).json({ error: 'Invalid ID' });
-        return;
-      }
+      const id = parseIdParam(req, res);
+      if (id === null) return;
       const current = getJobById(db, id);
       if (!current) {
         res.status(404).json({ error: 'Job not found' });
@@ -136,29 +118,16 @@ export function createJobsRoutes(db: Database.Database): Router {
       });
       reloadScheduler(db);
       res.json(job);
-    } catch (err: any) {
-      if (err instanceof z.ZodError) {
-        res.status(400).json({ error: err.issues[0]?.message || 'Invalid input' });
-      } else if (err instanceof SecurityPolicyError) {
-        res.status(403).json({ error: err.message });
-      } else if (err instanceof Error && err.message.includes('not found')) {
-        res.status(404).json({ error: err.message });
-      } else if (err instanceof Error && err.message.includes('UNIQUE constraint failed')) {
-        res.status(409).json({ error: 'A job with this name already exists' });
-      } else {
-        next(err);
-      }
+    } catch (err) {
+      sendRouteError(err, res, next, { conflictMessage: JOB_CONFLICT_MESSAGE, notFound: true });
     }
   });
 
   // DELETE /api/v1/jobs/:id
   router.delete('/:id', (req: Request, res: Response, next: NextFunction): void => {
     try {
-      const id = Number.parseInt((req.params['id'] as string) || '', 10);
-      if (Number.isNaN(id)) {
-        res.status(400).json({ error: 'Invalid ID' });
-        return;
-      }
+      const id = parseIdParam(req, res);
+      if (id === null) return;
       const current = getJobById(db, id);
       const success = deleteJob(db, id);
       if (!success) {

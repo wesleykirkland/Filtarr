@@ -191,51 +191,32 @@ function normalizeBlocklistPayload<T extends { actionType?: string; actionPayloa
   return data;
 }
 
+const filterFields = {
+  name: z.string().min(1, 'Name is required'),
+  description: z.string().optional(),
+  triggerSource: z.enum(['watcher', 'cron', 'manual']),
+  ruleType: z.enum(['regex', 'extension', 'size', 'script']),
+  rulePayload: z.string().min(1, 'Rule payload is required'),
+  actionType: z.enum(['blocklist', 'delete', 'move', 'script', 'notify']),
+  actionPayload: z.string().optional(),
+  scriptRuntime: z.enum(['shell', 'javascript']),
+  targetPath: z.string().optional(),
+  notifyOnMatch: z.boolean().optional(),
+  notifyWebhookUrl: z.string().url().optional().or(z.literal('')),
+  notifySlack: z.boolean().optional(),
+  notifySlackToken: z.string().optional(),
+  notifySlackChannel: z.string().optional(),
+  overrideNotifications: z.boolean().optional(),
+  instanceId: z.number().int().optional(),
+  enabled: z.boolean().optional(),
+  sortOrder: z.number().int().optional(),
+};
+
 export const createFilterSchema = z
-  .object({
-    name: z.string().min(1, 'Name is required'),
-    description: z.string().optional(),
-    triggerSource: z.enum(['watcher', 'cron', 'manual']),
-    ruleType: z.enum(['regex', 'extension', 'size', 'script']),
-    rulePayload: z.string().min(1, 'Rule payload is required'),
-    actionType: z.enum(['blocklist', 'delete', 'move', 'script', 'notify']),
-    actionPayload: z.string().optional(),
-    scriptRuntime: z.enum(['shell', 'javascript']).default('shell'),
-    targetPath: z.string().optional(),
-    notifyOnMatch: z.boolean().optional(),
-    notifyWebhookUrl: z.string().url().optional().or(z.literal('')),
-    notifySlack: z.boolean().optional(),
-    notifySlackToken: z.string().optional(),
-    notifySlackChannel: z.string().optional(),
-    overrideNotifications: z.boolean().optional(),
-    instanceId: z.number().int().optional(),
-    enabled: z.boolean().optional(),
-    sortOrder: z.number().int().optional(),
-  })
+  .object({ ...filterFields, scriptRuntime: filterFields.scriptRuntime.default('shell') })
   .transform(normalizeBlocklistPayload);
 
-const updateFilterSchema = z
-  .object({
-    name: z.string().min(1).optional(),
-    description: z.string().optional(),
-    triggerSource: z.enum(['watcher', 'cron', 'manual']).optional(),
-    ruleType: z.enum(['regex', 'extension', 'size', 'script']).optional(),
-    rulePayload: z.string().min(1).optional(),
-    actionType: z.enum(['blocklist', 'delete', 'move', 'script', 'notify']).optional(),
-    actionPayload: z.string().optional(),
-    scriptRuntime: z.enum(['shell', 'javascript']).optional(),
-    targetPath: z.string().optional(),
-    notifyOnMatch: z.boolean().optional(),
-    notifyWebhookUrl: z.string().url().optional().or(z.literal('')),
-    notifySlack: z.boolean().optional(),
-    notifySlackToken: z.string().optional(),
-    notifySlackChannel: z.string().optional(),
-    overrideNotifications: z.boolean().optional(),
-    instanceId: z.number().int().optional(),
-    enabled: z.boolean().optional(),
-    sortOrder: z.number().int().optional(),
-  })
-  .transform(normalizeBlocklistPayload);
+const updateFilterSchema = z.object(filterFields).partial().transform(normalizeBlocklistPayload);
 
 export type FilterResponse = FilterRow & {
   hasNotifyWebhookUrl: boolean;

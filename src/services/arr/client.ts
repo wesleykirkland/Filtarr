@@ -202,7 +202,9 @@ export class ArrClient {
 
   private async request<T>(method: string, url: string, body?: unknown): Promise<T> {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), this.timeout);
+    // Bound again at the call site so static analysis can see the timer duration is capped.
+    const timeoutMs = Math.min(this.timeout, MAX_TIMEOUT);
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
       const headers: Record<string, string> = {

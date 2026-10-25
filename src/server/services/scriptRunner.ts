@@ -2,6 +2,7 @@ import vm from 'node:vm';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { logger } from '../lib/logger.js';
+import { customScriptsEnabled } from '../../services/security.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -29,11 +30,20 @@ export function normalizeScriptRuntime(runtime?: string | null): ScriptRuntime {
   return runtime === 'javascript' ? 'javascript' : 'shell';
 }
 
+// Only these host variables are passed through to shell scripts. Everything
+// else (notably FILTARR_* secrets) is withheld from the child process.
+const SHELL_ENV_ALLOWLIST = ['PATH', 'HOME', 'LANG', 'TZ', 'TMPDIR'] as const;
+
 function buildShellEnvironment(contextData: ScriptContext): NodeJS.ProcessEnv {
   const file = contextData.file;
+  const inherited: NodeJS.ProcessEnv = {};
+  for (const key of SHELL_ENV_ALLOWLIST) {
+    const value = process.env[key];
+    if (value !== undefined) inherited[key] = value;
+  }
 
   return {
-    ...process.env,
+    ...inherited,
     FILTARR_CONTEXT_JSON: JSON.stringify(contextData),
     FILTARR_FILE_PATH: file?.path,
     FILTARR_FILE_NAME: file?.name,
@@ -48,7 +58,7 @@ async function runShellScript(
   timeoutMs = 5000,
 ): Promise<ScriptResult> {
   try {
-    const { stdout, stderr } = await execFileAsync('bash', ['-lc', code], {
+    const { stdout, stderr } = await execFileAsync('bash', ['-c', code], {
       env: buildShellEnvironment(contextData),
       timeout: timeoutMs,
       maxBuffer: 1024 * 1024,
@@ -80,6 +90,13 @@ export async function runConfiguredScript(
   runtime: ScriptRuntime = 'javascript',
   timeoutMs = 5000,
 ): Promise<ScriptResult> {
+  if (!customScriptsEnabled()) {
+    const message =
+      'Custom script execution is disabled unless FILTARR_ENABLE_CUSTOM_SCRIPTS=true';
+    logger.warn({ runtime }, 'Refused to run custom script: feature disabled');
+    return { success: false, error: message, logs: [message] };
+  }
+
   if (runtime === 'shell') {
     return runShellScript(code, contextData, timeoutMs);
   }

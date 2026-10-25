@@ -67,6 +67,8 @@ describe('Filter notification overrides', () => {
     });
 
     it('defaults custom filter scripts to the shell runtime', async () => {
+      const previousFlag = process.env['FILTARR_ENABLE_CUSTOM_SCRIPTS'];
+      process.env['FILTARR_ENABLE_CUSTOM_SCRIPTS'] = 'true';
       const res = await request(app)
         .post('/api/v1/filters')
         .send({
@@ -77,6 +79,8 @@ describe('Filter notification overrides', () => {
           actionType: 'script',
           actionPayload: 'echo "$FILTARR_FILE_PATH"',
         });
+      if (previousFlag === undefined) delete process.env['FILTARR_ENABLE_CUSTOM_SCRIPTS'];
+      else process.env['FILTARR_ENABLE_CUSTOM_SCRIPTS'] = previousFlag;
 
       expect(res.status).toBe(201);
       expect(res.body).toHaveProperty('script_runtime', 'shell');

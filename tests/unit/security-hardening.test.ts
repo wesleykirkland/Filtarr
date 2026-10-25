@@ -57,6 +57,50 @@ describe('Security hardening', () => {
     expect(jobRes.body.error).toContain('FILTARR_ENABLE_CUSTOM_SCRIPTS=true');
   });
 
+  it('gates script filters behind the custom script flag', async () => {
+    const base = {
+      triggerSource: 'manual',
+      rulePayload: 'return true;',
+      actionType: 'blocklist',
+      scriptRuntime: 'javascript',
+    };
+
+    const ruleRes = await request(app)
+      .post('/api/v1/filters')
+      .send({ ...base, name: 'Script Rule', ruleType: 'script' });
+    expect(ruleRes.status).toBe(403);
+    expect(ruleRes.body.error).toContain('FILTARR_ENABLE_CUSTOM_SCRIPTS=true');
+
+    const actionRes = await request(app).post('/api/v1/filters').send({
+      ...base,
+      name: 'Script Action',
+      ruleType: 'extension',
+      rulePayload: 'exe',
+      actionType: 'script',
+      actionPayload: 'echo hi',
+    });
+    expect(actionRes.status).toBe(403);
+
+    const plainRes = await request(app).post('/api/v1/filters').send({
+      ...base,
+      name: 'Plain Filter',
+      ruleType: 'extension',
+      rulePayload: 'exe',
+    });
+    expect(plainRes.status).toBe(201);
+
+    const updateRes = await request(app)
+      .put(`/api/v1/filters/${plainRes.body.id}`)
+      .send({ ruleType: 'script', rulePayload: 'return true;' });
+    expect(updateRes.status).toBe(403);
+
+    process.env['FILTARR_ENABLE_CUSTOM_SCRIPTS'] = 'true';
+    const enabledRes = await request(app)
+      .post('/api/v1/filters')
+      .send({ ...base, name: 'Script Rule', ruleType: 'script' });
+    expect(enabledRes.status).toBe(201);
+  });
+
   it('persists a generated session secret to the data directory', () => {
     const config = {
       mode: 'forms' as const,

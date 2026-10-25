@@ -11,6 +11,7 @@ import {
 import { FILTER_PRESETS } from '../lib/filterPresets.js';
 import { logger } from '../lib/logger.js';
 import { reloadWatcher } from '../services/watcher.js';
+import { SecurityPolicyError, assertCustomScriptsEnabled } from '../../services/security.js';
 
 const createFilterSchema = z.object({
   name: z.string().min(1, 'Name is required'),
@@ -95,6 +96,9 @@ export function createFiltersRoutes(db: Database.Database): Router {
   router.post('/', (req: Request, res: Response, next: NextFunction): void => {
     try {
       const data = createFilterSchema.parse(req.body);
+      if (data.ruleType === 'script' || data.actionType === 'script') {
+        assertCustomScriptsEnabled('Custom script filters');
+      }
       const filter = createFilter(db, data);
       logger.info({ filterId: filter.id, name: filter.name }, 'Filter created');
       reloadWatcher();
@@ -102,6 +106,8 @@ export function createFiltersRoutes(db: Database.Database): Router {
     } catch (err: unknown) {
       if (err instanceof z.ZodError) {
         res.status(400).json({ error: err.issues[0]?.message || 'Invalid input' });
+      } else if (err instanceof SecurityPolicyError) {
+        res.status(403).json({ error: err.message });
       } else if (err instanceof Error && err.message.includes('UNIQUE constraint failed')) {
         res.status(409).json({ error: 'A filter with this name already exists' });
       } else {
@@ -119,6 +125,20 @@ export function createFiltersRoutes(db: Database.Database): Router {
         return;
       }
       const data = updateFilterSchema.parse(req.body);
+      // Block introducing or editing script logic while the feature is disabled.
+      // Other edits (e.g. disabling an existing script filter) remain allowed.
+      const current = getFilterById(db, id);
+      const ruleIsScript = (data.ruleType ?? current?.rule_type) === 'script';
+      const actionIsScript = (data.actionType ?? current?.action_type) === 'script';
+      const touchesScript =
+        data.ruleType === 'script' ||
+        data.actionType === 'script' ||
+        (ruleIsScript && data.rulePayload !== undefined) ||
+        (actionIsScript && data.actionPayload !== undefined) ||
+        ((ruleIsScript || actionIsScript) && data.scriptRuntime !== undefined);
+      if (touchesScript) {
+        assertCustomScriptsEnabled('Custom script filters');
+      }
       const filter = updateFilter(db, id, data);
       logger.info({ filterId: filter.id }, 'Filter updated');
       reloadWatcher();
@@ -126,6 +146,8 @@ export function createFiltersRoutes(db: Database.Database): Router {
     } catch (err: unknown) {
       if (err instanceof z.ZodError) {
         res.status(400).json({ error: err.issues[0]?.message || 'Invalid input' });
+      } else if (err instanceof SecurityPolicyError) {
+        res.status(403).json({ error: err.message });
       } else if (
         (err as { code?: string }).code === 'FILTER_INSTANCE_NOT_FOUND' ||
         (err as { code?: string }).code === 'SQLITE_CONSTRAINT_FOREIGNKEY'

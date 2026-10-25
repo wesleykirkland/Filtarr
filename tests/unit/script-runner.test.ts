@@ -1,31 +1,13 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const state = vi.hoisted(() => {
-  class MockSecurityPolicyError extends Error {
-    constructor(message: string) {
-      super(message);
-      this.name = 'SecurityPolicyError';
-    }
-  }
+const state = vi.hoisted(() => ({ warn: vi.fn() }));
 
-  return {
-    assertCustomScriptsEnabled: vi.fn(),
-    warn: vi.fn(),
-    SecurityPolicyError: MockSecurityPolicyError,
-  };
-});
-
-vi.mock('../../src/services/security.js', () => ({
-  assertCustomScriptsEnabled: state.assertCustomScriptsEnabled,
-  SecurityPolicyError: state.SecurityPolicyError,
-}));
 vi.mock('../../src/server/lib/logger.js', () => ({ logger: { warn: state.warn } }));
 
-import { runSandboxedScript } from '../../src/server/services/scriptRunner.js';
+import { runConfiguredScript, runSandboxedScript } from '../../src/server/services/scriptRunner.js';
 
 describe('runSandboxedScript', () => {
   beforeEach(() => {
-    state.assertCustomScriptsEnabled.mockReset();
     state.warn.mockReset();
   });
 
@@ -57,5 +39,37 @@ describe('runSandboxedScript', () => {
       { err: 'kaboom' },
       'Sandboxed script execution failed or threw',
     );
+  });
+});
+
+describe('runConfiguredScript feature gate', () => {
+  const original = process.env['FILTARR_ENABLE_CUSTOM_SCRIPTS'];
+
+  afterEach(() => {
+    if (original === undefined) delete process.env['FILTARR_ENABLE_CUSTOM_SCRIPTS'];
+    else process.env['FILTARR_ENABLE_CUSTOM_SCRIPTS'] = original;
+  });
+
+  it.each(['javascript', 'shell'] as const)(
+    'refuses to run %s scripts when custom scripts are disabled',
+    async (runtime) => {
+      delete process.env['FILTARR_ENABLE_CUSTOM_SCRIPTS'];
+      const code = runtime === 'shell' ? 'echo ran' : "console.log('ran'); return 1;";
+
+      const result = await runConfiguredScript(code, {}, runtime);
+
+      expect(result.success).toBe(false);
+      expect(result.output).toBeUndefined();
+      expect(result.error).toContain('FILTARR_ENABLE_CUSTOM_SCRIPTS=true');
+      expect(result.logs).not.toContain('ran');
+    },
+  );
+
+  it('runs scripts when custom scripts are enabled', async () => {
+    process.env['FILTARR_ENABLE_CUSTOM_SCRIPTS'] = 'true';
+
+    const result = await runConfiguredScript('return 41 + 1;', {}, 'javascript');
+
+    expect(result).toEqual({ success: true, output: 42, logs: [] });
   });
 });

@@ -203,7 +203,14 @@ export function loadAuthConfigFromEnv(): Partial<AuthConfig> {
 
   // CORS
   if (env['FILTARR_CORS_ORIGIN']) {
-    config.corsOrigin = env['FILTARR_CORS_ORIGIN'];
+    // Comma-separated list of allowed origins (e.g. "https://a.example,https://b.example").
+    const origins = env['FILTARR_CORS_ORIGIN']
+      .split(',')
+      .map((origin) => origin.trim())
+      .filter((origin) => origin.length > 0);
+    if (origins.length > 0) {
+      config.corsOrigin = origins.length === 1 ? origins[0] : origins;
+    }
   }
 
   // Reverse proxy / cookie transport

@@ -14,6 +14,13 @@ const BACKUP_IMPORT_PATH = '/api/v1/settings/backup/import';
 import { createAuthMiddleware } from './middleware/auth.js';
 import { scopedRouter } from './middleware/apiKey.js';
 import { applySecurityMiddleware } from './middleware/security.js';
+import {
+  noStoreApiResponses,
+  rejectCrossSiteRequests,
+  requireJsonBody,
+  sensitiveActionLimiter,
+  SENSITIVE_ACTION_PATHS,
+} from './middleware/requestPolicy.js';
 import { publicSystemRoutes, protectedSystemRoutes } from './routes/system.js';
 import { getDatabase } from '../db/index.js';
 import { errorHandler } from './middleware/errorHandler.js';
@@ -86,6 +93,14 @@ export function createApp(db: Database = getDatabase()): express.Application {
 
   applySecurityMiddleware(app, authConfig);
 
+  // Request policy: no caching of API responses, CSRF defenses (cross-site
+  // rejection for ambient-credential requests, JSON-only bodies), and a strict
+  // limiter on expensive/sensitive actions.
+  app.use('/api', noStoreApiResponses());
+  app.use('/api', rejectCrossSiteRequests(authConfig.corsOrigin));
+  app.use('/api', requireJsonBody());
+  app.post(SENSITIVE_ACTION_PATHS, sensitiveActionLimiter());
+
   // Body parsing. The backup import route installs its own JSON parser with a
   // larger limit (after authentication), so skip the default 100kb parser there.
   const defaultJsonParser = express.json();
@@ -96,7 +111,6 @@ export function createApp(db: Database = getDatabase()): express.Application {
     }
     defaultJsonParser(req, res, next);
   });
-  app.use(express.urlencoded({ extended: false }));
 
   // Unauthenticated routes — setup and health check
   // SECURITY: These routes are intentionally unauthenticated

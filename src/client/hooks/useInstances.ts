@@ -105,7 +105,7 @@ export function useDeleteInstance() {
 
 export function useTestInstance() {
   return useMutation({
-    mutationFn: (id: number) => api.get<TestResult>(`/instances/${id}/test`),
+    mutationFn: (id: number) => api.post<TestResult>(`/instances/${id}/test`),
     onSuccess: notifyInstanceTestResult,
     onError: notifyInstanceTestError,
   });

@@ -4,36 +4,26 @@ const state = vi.hoisted(() => ({
   helmet: vi.fn((options) => ({ kind: 'helmet', options })),
   rateLimit: vi.fn((options) => ({ kind: 'rate-limit', options })),
   cors: vi.fn((options) => ({ kind: 'cors', options })),
-  csrfProtection: vi.fn(),
-  generateCsrfToken: vi.fn(() => 'csrf-token'),
-  doubleCsrf: vi.fn(),
 }));
 
 vi.mock('helmet', () => ({ default: state.helmet }));
 vi.mock('express-rate-limit', () => ({ default: state.rateLimit }));
 vi.mock('cors', () => ({ default: state.cors }));
-vi.mock('csrf-csrf', () => ({ doubleCsrf: state.doubleCsrf }));
 
 import {
   applySecurityMiddleware,
   authRateLimiter,
   corsMiddleware,
-  csrfMiddleware,
   generalRateLimiter,
   helmetMiddleware,
 } from '../../src/server/middleware/security.js';
 
 describe('security middleware factories', () => {
   beforeEach(() => {
-    [state.helmet, state.rateLimit, state.cors, state.doubleCsrf, state.csrfProtection, state.generateCsrfToken].forEach((mock) => mock.mockReset());
+    [state.helmet, state.rateLimit, state.cors].forEach((mock) => mock.mockReset());
     state.helmet.mockImplementation((options) => ({ kind: 'helmet', options }));
     state.rateLimit.mockImplementation((options) => ({ kind: 'rate-limit', options }));
     state.cors.mockImplementation((options) => ({ kind: 'cors', options }));
-    state.generateCsrfToken.mockReturnValue('csrf-token');
-    state.doubleCsrf.mockImplementation(() => ({
-      doubleCsrfProtection: state.csrfProtection,
-      generateCsrfToken: state.generateCsrfToken,
-    }));
     delete process.env['NODE_ENV'];
   });
 
@@ -95,29 +85,6 @@ describe('security middleware factories', () => {
       }),
     );
     expect(custom).toEqual(expect.objectContaining({ kind: 'cors' }));
-  });
-
-  it('creates CSRF middleware with session and request token helpers', () => {
-    process.env['NODE_ENV'] = 'production';
-
-    const csrf = csrfMiddleware('cookie-secret');
-    const options = state.doubleCsrf.mock.calls[0][0];
-
-    expect(options.getSecret()).toBe('cookie-secret');
-    expect(options.getSessionIdentifier({ session: { id: 'session-1' }, socket: { remoteAddress: '5.5.5.5' } } as any)).toBe('session-1');
-    expect(options.getSessionIdentifier({ socket: { remoteAddress: '5.5.5.5' } } as any)).toBe('5.5.5.5');
-    expect(options.getSessionIdentifier({ socket: {} } as any)).toBe('anonymous');
-    expect(options.cookieOptions).toEqual(
-      expect.objectContaining({
-        httpOnly: true,
-        sameSite: 'strict',
-        secure: true,
-        path: '/',
-      }),
-    );
-    expect(options.getCsrfTokenFromRequest({ headers: { 'x-csrf-token': 'header-token' }, body: { _csrf: 'body-token' } } as any)).toBe('header-token');
-    expect(options.getCsrfTokenFromRequest({ headers: {}, body: { _csrf: 'body-token' } } as any)).toBe('body-token');
-    expect(csrf).toEqual({ csrfProtection: state.csrfProtection, generateCsrfToken: state.generateCsrfToken });
   });
 
   it('applies helmet, cors, and general API rate limiting to the express app', () => {

@@ -1,33 +1,20 @@
-import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import request from 'supertest';
-import { resetConfigCache } from '../../src/config/index.js';
-import { closeDatabase, openDatabase } from '../../src/db/index.js';
 import { createApp } from '../../src/server/app.js';
+import { openFormsTestDatabase, type FormsTestDatabase } from '../support/formsApp.js';
 
 describe('login endpoint hardening', () => {
-  let db: ReturnType<typeof openDatabase>;
-  let tempDir: string;
+  let testDb: FormsTestDatabase;
+  let db: FormsTestDatabase['db'];
 
   beforeEach(() => {
-    resetConfigCache();
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'filtarr-login-'));
-    process.env['FILTARR_DATA_DIR'] = tempDir;
-    process.env['NODE_ENV'] = 'test';
-    db = openDatabase(tempDir);
-    db.prepare(
-      `INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('auth_mode', 'forms', datetime('now'))`,
-    ).run();
+    testDb = openFormsTestDatabase('filtarr-login-');
+    db = testDb.db;
   });
 
   afterEach(() => {
-    closeDatabase(db);
-    resetConfigCache();
-    delete process.env['FILTARR_DATA_DIR'];
     delete process.env['FILTARR_TRUST_PROXY'];
-    fs.rmSync(tempDir, { recursive: true, force: true });
+    testDb.cleanup();
   });
 
   it('rejects GET /auth/login with 405 so credentials cannot be sent in the query string', async () => {

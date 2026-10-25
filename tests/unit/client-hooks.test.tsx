@@ -106,9 +106,13 @@ describe('client hooks', () => {
       if (url === '/instances') {
         return Promise.resolve([{ id: 1, name: 'Main', type: 'sonarr', url: 'https://a', api_key_masked: '***', timeout: 30, enabled: 1, skipSslVerify: false, created_at: 'now', updated_at: 'now' }]);
       }
-      return Promise.resolve({ success: true, version: '4.0.0' });
+      return Promise.resolve({});
     });
-    api.post.mockResolvedValueOnce({ id: 2 }).mockResolvedValueOnce({ success: false, error: 'Denied' });
+    api.post.mockImplementation((url: string) => {
+      if (url === '/instances') return Promise.resolve({ id: 2 });
+      if (url === '/instances/1/test') return Promise.resolve({ success: true, version: '4.0.0' });
+      return Promise.resolve({ success: false, error: 'Denied' });
+    });
     api.put.mockResolvedValue({ id: 1 });
     api.delete.mockResolvedValue({ success: true });
 
@@ -125,7 +129,7 @@ describe('client hooks', () => {
       expect(api.post).toHaveBeenCalledWith('/instances', expect.objectContaining({ name: 'A' }));
       expect(api.put).toHaveBeenCalledWith('/instances/1', { name: 'B' });
       expect(api.delete).toHaveBeenCalledWith('/instances/1');
-      expect(api.get).toHaveBeenCalledWith('/instances/1/test');
+      expect(api.post).toHaveBeenCalledWith('/instances/1/test');
       expect(api.post).toHaveBeenCalledWith('/instances/test', expect.objectContaining({ type: 'sonarr' }));
       expect(toast).toHaveBeenCalledWith('success', 'Instance created');
       expect(toast).toHaveBeenCalledWith('success', 'Instance updated');
@@ -137,11 +141,11 @@ describe('client hooks', () => {
   });
 
   it('shows mutation and connection errors through toasts', async () => {
-    api.get
-      .mockResolvedValueOnce([])
+    api.get.mockResolvedValueOnce([]);
+    api.post
+      .mockRejectedValueOnce(new Error('Create failed'))
       .mockResolvedValueOnce({ success: false, error: 'Denied' })
       .mockRejectedValueOnce(new Error('Instance test failed'));
-    api.post.mockRejectedValueOnce(new Error('Create failed'));
     api.put.mockRejectedValueOnce(new Error('Update failed'));
     api.delete.mockRejectedValueOnce(new Error('Delete failed'));
 

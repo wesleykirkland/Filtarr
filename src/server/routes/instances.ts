@@ -415,8 +415,8 @@ export function createInstancesRouter(db: Database): Router {
     }
   });
 
-  // GET /api/v1/instances/:id/test — Test instance connection
-  router.get('/:id/test', async (req: Request, res: Response) => {
+  // POST /api/v1/instances/:id/test — Test instance connection (side effects: outbound call, activity event)
+  router.post('/:id/test', async (req: Request, res: Response) => {
     try {
       const id = parseInstanceId(req.params['id']);
       if (id === null) {

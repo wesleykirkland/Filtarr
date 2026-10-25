@@ -1,4 +1,10 @@
-import { Router, type Request, type Response, type NextFunction, type RequestHandler } from 'express';
+import {
+  Router,
+  type Request,
+  type Response,
+  type NextFunction,
+  type RequestHandler,
+} from 'express';
 import crypto from 'node:crypto';
 import bcrypt from 'bcrypt';
 import type Database from 'better-sqlite3';
@@ -74,7 +80,7 @@ export function generateApiKey(): string {
 /**
  * Hash an API key for storage using bcrypt.
  */
-export async function hashApiKey(key: string, rounds: number = 12): Promise<string> {
+export function hashApiKey(key: string, rounds: number = 12): Promise<string> {
   return bcrypt.hash(key, rounds);
 }
 
@@ -210,11 +216,8 @@ export function scopedRouter(router: RequestHandler, options: ScopedRouterOption
       next();
       return;
     }
-    const required: ApiKeyScope = adminPaths.some((p) => matchesPath(req.path, p))
-      ? 'admin'
-      : READ_METHODS.has(req.method)
-        ? 'read'
-        : 'write';
+    let required: ApiKeyScope = READ_METHODS.has(req.method) ? 'read' : 'write';
+    if (adminPaths.some((p) => matchesPath(req.path, p))) required = 'admin';
     if (!hasScope(req.apiKey.scopes, required)) {
       sendInsufficientScope(res, required);
       return;

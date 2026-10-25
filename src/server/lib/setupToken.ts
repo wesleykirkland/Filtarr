@@ -12,7 +12,7 @@ let generatedToken: string | null = null;
 
 function envToken(): string | undefined {
   const value = process.env['FILTARR_SETUP_TOKEN']?.trim();
-  return value ? value : undefined;
+  return value || undefined;
 }
 
 /** Current setup token: FILTARR_SETUP_TOKEN if set, otherwise a lazily generated random token. */

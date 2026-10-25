@@ -19,7 +19,7 @@ interface SetupStatus {
   needsSetup: boolean;
 }
 
-function ProtectedRoute({ children }: { children: React.ReactNode }) {
+function ProtectedRoute({ children }: Readonly<{ children: React.ReactNode }>) {
   const { session, isLoading, error, retrySession } = useAuth();
 
   const { darkMode } = useTheme();
@@ -65,7 +65,7 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
  * Check setup status and redirect to /setup if needed.
  * Wraps the entire app to ensure setup is checked on every route.
  */
-function SetupGuard({ children }: { children: React.ReactNode }) {
+function SetupGuard({ children }: Readonly<{ children: React.ReactNode }>) {
   const location = useLocation();
   const { data: setupStatus, isLoading } = useQuery({
     queryKey: ['setup', 'status'],

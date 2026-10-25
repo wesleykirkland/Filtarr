@@ -24,7 +24,7 @@ const navItems = [
   { to: '/settings', label: 'Settings', Icon: SettingsIcon },
 ];
 
-export default function Layout({ children }: { children: React.ReactNode }) {
+export default function Layout({ children }: Readonly<{ children: React.ReactNode }>) {
   const { session, logout } = useAuth();
   const { darkMode, toggleDarkMode } = useTheme();
   const [sidebarOpen, setSidebarOpen] = useState(false);

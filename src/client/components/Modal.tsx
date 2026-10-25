@@ -32,7 +32,8 @@ export function Modal({ title, isOpen, onClose, children, size = 'md' }: ModalPr
   useEffect(() => {
     if (!isOpen) return;
 
-    lastFocusedRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    lastFocusedRef.current =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
 
     const dialog = dialogRef.current;
     const focusables = dialog?.querySelectorAll<HTMLElement>(focusableSelector) ?? [];
@@ -108,7 +109,13 @@ export function Modal({ title, isOpen, onClose, children, size = 'md' }: ModalPr
             aria-label="Close dialog"
             className="rounded-lg p-2 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-white dark:focus-visible:ring-offset-gray-900"
           >
-            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <svg
+              aria-hidden="true"
+              className="h-5 w-5"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
               <path
                 strokeLinecap="round"
                 strokeLinejoin="round"

@@ -60,12 +60,36 @@ interface ReadableResponseLike {
   text?: () => Promise<string>;
 }
 
+/** Sequentially drain a stream reader (each chunk depends on the previous read), enforcing `limit`. */
+async function readStreamCapped(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  limit: number,
+): Promise<string> {
+  const decoder = new TextDecoder();
+  let received = 0;
+  let text = '';
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    received += value.byteLength;
+    if (received > limit) {
+      await reader.cancel().catch(() => undefined);
+      throw new ResponseTooLargeError();
+    }
+    text += decoder.decode(value, { stream: true });
+  }
+  return text + decoder.decode();
+}
+
 /**
  * Read a response body as text, refusing to buffer more than `limit` bytes.
  * Uses Content-Length when present and otherwise streams the body, cancelling
  * the stream as soon as the limit is exceeded.
  */
-async function readBodyCapped(response: ReadableResponseLike, limit = MAX_RESPONSE_BYTES): Promise<string> {
+async function readBodyCapped(
+  response: ReadableResponseLike,
+  limit = MAX_RESPONSE_BYTES,
+): Promise<string> {
   const declared = response.headers?.get('content-length');
   if (declared) {
     const length = Number(declared);
@@ -74,21 +98,7 @@ async function readBodyCapped(response: ReadableResponseLike, limit = MAX_RESPON
 
   const body = response.body;
   if (body && typeof body.getReader === 'function') {
-    const reader = body.getReader();
-    const decoder = new TextDecoder();
-    let received = 0;
-    let text = '';
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      received += value.byteLength;
-      if (received > limit) {
-        await reader.cancel().catch(() => undefined);
-        throw new ResponseTooLargeError();
-      }
-      text += decoder.decode(value, { stream: true });
-    }
-    return text + decoder.decode();
+    return readStreamCapped(body.getReader(), limit);
   }
 
   // Fallback for minimal Response-like objects without a stream body.
@@ -103,6 +113,57 @@ function classifyConnectionTestError(error: unknown): ConnectionTestErrorCode {
     return 'unauthorized';
   }
   return 'unexpected_response';
+}
+
+/** Validate an Arr response (no redirects, 2xx) and decode its capped JSON body. */
+async function parseArrResponse<T>(response: Response, url: string): Promise<T> {
+  if (response.type === 'opaqueredirect' || (response.status >= 300 && response.status < 400)) {
+    await response.body?.cancel().catch(() => undefined);
+    throw new ArrApiError(
+      `Arr API responded with a redirect (${response.status}); redirects are not followed`,
+      response.status,
+      url,
+      undefined,
+      'redirect',
+    );
+  }
+
+  if (!response.ok) {
+    const responseBody = await readBodyCapped(response).catch(() => '');
+    throw new ArrApiError(
+      `Arr API error: ${response.status} ${response.statusText}`,
+      response.status,
+      url,
+      responseBody.slice(0, MAX_ERROR_BODY_CHARS),
+    );
+  }
+
+  // Handle 204 No Content (e.g., DELETE responses)
+  if (response.status === 204) {
+    return undefined as T;
+  }
+
+  let text: string;
+  try {
+    text = await readBodyCapped(response);
+  } catch (error) {
+    if (error instanceof ResponseTooLargeError) {
+      throw new ArrApiError(error.message, response.status, url, undefined, 'response_too_large');
+    }
+    throw error;
+  }
+
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    throw new ArrApiError(
+      'Arr API returned an invalid JSON response',
+      response.status,
+      url,
+      undefined,
+      'invalid_json',
+    );
+  }
 }
 
 type QueryParams = Record<string, string | number | boolean>;
@@ -138,10 +199,7 @@ export class ArrClient {
 
   // ── Core HTTP Methods ───────────────────────────────────────────────────
 
-  protected async get<T>(
-    path: string,
-    params?: QueryParams,
-  ): Promise<T> {
+  protected async get<T>(path: string, params?: QueryParams): Promise<T> {
     const url = this.buildUrl(path, params);
     return this.requestWithRetry<T>('GET', url);
   }
@@ -156,10 +214,7 @@ export class ArrClient {
     return this.requestWithRetry<T>('PUT', url, body);
   }
 
-  protected async delete<T = void>(
-    path: string,
-    params?: QueryParams,
-  ): Promise<T> {
+  protected async delete<T = void>(path: string, params?: QueryParams): Promise<T> {
     const url = this.buildUrl(path, params);
     return this.requestWithRetry<T>('DELETE', url);
   }
@@ -190,7 +245,8 @@ export class ArrClient {
         {
           errorCode,
           baseUrl: this.baseUrl,
-          err: error instanceof Error ? { name: error.name, message: error.message } : String(error),
+          err:
+            error instanceof Error ? { name: error.name, message: error.message } : String(error),
           statusCode: error instanceof ArrApiError ? error.statusCode : undefined,
         },
         'Arr connection test failed',
@@ -339,7 +395,7 @@ export class ArrClient {
     // Bound again at the call site with an explicit comparison so static analysis
     // can see the timer duration is capped.
     const configuredTimeout = this.timeout;
-    const timeoutMs = configuredTimeout <= MAX_TIMEOUT ? configuredTimeout : MAX_TIMEOUT;
+    const timeoutMs = Math.min(configuredTimeout, MAX_TIMEOUT);
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
@@ -369,70 +425,31 @@ export class ArrClient {
         dispatcher?: unknown;
       });
 
-      if (response.type === 'opaqueredirect' || (response.status >= 300 && response.status < 400)) {
-        await response.body?.cancel().catch(() => undefined);
-        throw new ArrApiError(
-          `Arr API responded with a redirect (${response.status}); redirects are not followed`,
-          response.status,
-          url,
-          undefined,
-          'redirect',
-        );
-      }
-
-      if (!response.ok) {
-        const responseBody = await readBodyCapped(response).catch(() => '');
-        throw new ArrApiError(
-          `Arr API error: ${response.status} ${response.statusText}`,
-          response.status,
-          url,
-          responseBody.slice(0, MAX_ERROR_BODY_CHARS),
-        );
-      }
-
-      // Handle 204 No Content (e.g., DELETE responses)
-      if (response.status === 204) {
-        return undefined as T;
-      }
-
-      let text: string;
-      try {
-        text = await readBodyCapped(response);
-      } catch (error) {
-        if (error instanceof ResponseTooLargeError) {
-          throw new ArrApiError(error.message, response.status, url, undefined, 'response_too_large');
-        }
-        throw error;
-      }
-
-      try {
-        return JSON.parse(text) as T;
-      } catch {
-        throw new ArrApiError(
-          'Arr API returned an invalid JSON response',
-          response.status,
-          url,
-          undefined,
-          'invalid_json',
-        );
-      }
+      return await parseArrResponse<T>(response, url);
     } catch (error) {
-      if (error instanceof ArrApiError) {
-        throw error;
-      }
-
-      if (error instanceof DOMException && error.name === 'AbortError') {
-        throw new ArrConnectionError(`Request timed out after ${this.timeout}ms`, url, undefined, true);
-      }
-
-      throw new ArrConnectionError(
-        `Failed to connect to Arr instance: ${error instanceof Error ? error.message : String(error)}`,
-        url,
-        error instanceof Error ? error : undefined,
-      );
+      throw this.toRequestError(error, url);
     } finally {
       clearTimeout(timeoutId);
     }
+  }
+
+  private toRequestError(error: unknown, url: string): Error {
+    if (error instanceof ArrApiError) return error;
+
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      return new ArrConnectionError(
+        `Request timed out after ${this.timeout}ms`,
+        url,
+        undefined,
+        true,
+      );
+    }
+
+    return new ArrConnectionError(
+      `Failed to connect to Arr instance: ${error instanceof Error ? error.message : String(error)}`,
+      url,
+      error instanceof Error ? error : undefined,
+    );
   }
 
   private sleep(ms: number): Promise<void> {

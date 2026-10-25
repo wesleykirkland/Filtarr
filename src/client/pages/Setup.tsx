@@ -92,7 +92,7 @@ export default function Setup() {
       }
       if (authMode === 'none') {
         // Skip account step for "none" mode
-        handleSubmit(new Event('submit') as unknown as FormEvent);
+        void handleSubmit(new Event('submit') as unknown as FormEvent);
       } else {
         setStep('account');
       }

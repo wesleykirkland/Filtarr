@@ -8,6 +8,45 @@ import type {
   NotificationSettingsUpdate,
 } from './types';
 
+function secretPlaceholder(
+  cleared: boolean,
+  hasStored: boolean | undefined,
+  storedValue: string | undefined,
+  fallback: string,
+): string {
+  if (cleared) return 'Will be cleared on save';
+  if (hasStored) return `Configured (${storedValue}) - leave blank to keep`;
+  return fallback;
+}
+
+function hasSecretValue(typed: string, cleared: boolean, hasStored: boolean | undefined): boolean {
+  return Boolean(typed) || (!cleared && Boolean(hasStored));
+}
+
+function haveSettingsChanged(
+  saved: NotificationSettingsResponse | undefined,
+  draft: {
+    slackEnabled: boolean;
+    webhookEnabled: boolean;
+    webhookUrl: string;
+    slackToken: string;
+    slackChannel: string;
+    clearWebhookUrl: boolean;
+    clearSlackToken: boolean;
+  },
+): boolean {
+  if (!saved) return false;
+  return (
+    saved.slackEnabled !== draft.slackEnabled ||
+    saved.webhookEnabled !== draft.webhookEnabled ||
+    Boolean(draft.webhookUrl) ||
+    Boolean(draft.slackToken) ||
+    draft.clearWebhookUrl ||
+    draft.clearSlackToken ||
+    saved.defaultSlackChannel !== draft.slackChannel
+  );
+}
+
 export default function SettingsNotificationsPage() {
   const queryClient = useQueryClient();
   const [slackEnabled, setSlackEnabled] = useState(false);
@@ -71,21 +110,25 @@ export default function SettingsNotificationsPage() {
   const normalizedDefaultWebhookUrl = defaultWebhookUrl.trim();
   const normalizedDefaultSlackToken = defaultSlackToken.trim();
   const normalizedDefaultSlackChannel = defaultSlackChannel.trim();
-  const hasSlackToken =
-    Boolean(normalizedDefaultSlackToken) ||
-    (!clearSlackToken && Boolean(notificationSettings?.hasDefaultSlackToken));
-  const hasWebhookUrl =
-    Boolean(normalizedDefaultWebhookUrl) ||
-    (!clearWebhookUrl && Boolean(notificationSettings?.hasDefaultWebhookUrl));
-  const notificationSettingsChanged = notificationSettings
-    ? notificationSettings.slackEnabled !== slackEnabled ||
-      notificationSettings.webhookEnabled !== webhookEnabled ||
-      Boolean(normalizedDefaultWebhookUrl) ||
-      Boolean(normalizedDefaultSlackToken) ||
-      clearWebhookUrl ||
-      clearSlackToken ||
-      notificationSettings.defaultSlackChannel !== normalizedDefaultSlackChannel
-    : false;
+  const hasSlackToken = hasSecretValue(
+    normalizedDefaultSlackToken,
+    clearSlackToken,
+    notificationSettings?.hasDefaultSlackToken,
+  );
+  const hasWebhookUrl = hasSecretValue(
+    normalizedDefaultWebhookUrl,
+    clearWebhookUrl,
+    notificationSettings?.hasDefaultWebhookUrl,
+  );
+  const notificationSettingsChanged = haveSettingsChanged(notificationSettings, {
+    slackEnabled,
+    webhookEnabled,
+    webhookUrl: normalizedDefaultWebhookUrl,
+    slackToken: normalizedDefaultSlackToken,
+    slackChannel: normalizedDefaultSlackChannel,
+    clearWebhookUrl,
+    clearSlackToken,
+  });
 
   const handleSaveNotificationSettings = () => {
     if (
@@ -184,13 +227,12 @@ export default function SettingsNotificationsPage() {
                   setDefaultSlackToken(e.target.value);
                   setClearSlackToken(false);
                 }}
-                placeholder={
-                  clearSlackToken
-                    ? 'Will be cleared on save'
-                    : notificationSettings?.hasDefaultSlackToken
-                      ? `Configured (${notificationSettings.defaultSlackToken}) - leave blank to keep`
-                      : 'xoxb-...'
-                }
+                placeholder={secretPlaceholder(
+                  clearSlackToken,
+                  notificationSettings?.hasDefaultSlackToken,
+                  notificationSettings?.defaultSlackToken,
+                  'xoxb-...',
+                )}
                 className="mt-1 block w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:border-blue-500 focus:outline-none dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100"
               />
               {notificationSettings?.hasDefaultSlackToken ? (
@@ -267,13 +309,12 @@ export default function SettingsNotificationsPage() {
                 setDefaultWebhookUrl(e.target.value);
                 setClearWebhookUrl(false);
               }}
-              placeholder={
-                clearWebhookUrl
-                  ? 'Will be cleared on save'
-                  : notificationSettings?.hasDefaultWebhookUrl
-                    ? `Configured (${notificationSettings.defaultWebhookUrl}) - leave blank to keep`
-                    : 'https://discord.com/api/webhooks/...'
-              }
+              placeholder={secretPlaceholder(
+                clearWebhookUrl,
+                notificationSettings?.hasDefaultWebhookUrl,
+                notificationSettings?.defaultWebhookUrl,
+                'https://discord.com/api/webhooks/...',
+              )}
               className="mt-1 block w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:border-blue-500 focus:outline-none dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100"
             />
             {notificationSettings?.hasDefaultWebhookUrl ? (

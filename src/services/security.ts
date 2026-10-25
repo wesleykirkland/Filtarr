@@ -48,10 +48,12 @@ function parseIpv6(address: string): number[] | null {
 
   const [head = '', rest] = text.split('::');
   const headGroups = head ? head.split(':') : [];
-  const tailGroups = rest === undefined ? [] : rest ? rest.split(':') : [];
+  let tailGroups: string[] = [];
+  if (rest) tailGroups = rest.split(':');
   const missing = 8 - headGroups.length - tailGroups.length;
   if (rest === undefined ? missing !== 0 : missing < 0) return null;
-  const groups = [...headGroups, ...Array<string>(rest === undefined ? 0 : missing).fill('0'), ...tailGroups];
+  const fillCount = rest === undefined ? 0 : missing;
+  const groups = [...headGroups, ...new Array<string>(fillCount).fill('0'), ...tailGroups];
 
   const bytes: number[] = [];
   for (const group of groups) {
@@ -68,19 +70,33 @@ function parseIpv6(address: string): number[] | null {
  * documentation, benchmarking, multicast, reserved, and broadcast.
  */
 function isDisallowedIpv4([a, b, c]: Ipv4Bytes): boolean {
-  if (a === 0 || a === 10 || a === 127) return true; // 0/8, 10/8, 127/8
-  if (a === 100 && b >= 64 && b <= 127) return true; // 100.64/10 CGNAT
-  if (a === 169 && b === 254) return true; // 169.254/16 link-local
-  if (a === 172 && b >= 16 && b <= 31) return true; // 172.16/12
-  if (a === 192 && b === 168) return true; // 192.168/16
-  if (a === 192 && b === 0 && (c === 0 || c === 2)) return true; // 192.0.0/24, 192.0.2/24
-  if (a === 198 && (b === 18 || b === 19)) return true; // 198.18/15 benchmarking
-  if (a === 198 && b === 51 && c === 100) return true; // 198.51.100/24
-  if (a === 203 && b === 0 && c === 113) return true; // 203.0.113/24
-  return a >= 224; // 224/4 multicast, 240/4 reserved, 255.255.255.255 broadcast
+  // 0/8 "this" network, 10/8, 127/8 loopback, 224/4 multicast, 240/4 reserved, 255.255.255.255 broadcast
+  if (a === 0 || a === 10 || a === 127 || a >= 224) return true;
+  switch (a) {
+    case 100:
+      return b >= 64 && b <= 127; // 100.64/10 CGNAT
+    case 169:
+      return b === 254; // 169.254/16 link-local
+    case 172:
+      return b >= 16 && b <= 31; // 172.16/12
+    case 192:
+      // 192.168/16, 192.0.0/24, 192.0.2/24
+      return b === 168 || (b === 0 && (c === 0 || c === 2));
+    case 198:
+      // 198.18/15 benchmarking, 198.51.100/24
+      return b === 18 || b === 19 || (b === 51 && c === 100);
+    case 203:
+      return b === 0 && c === 113; // 203.0.113/24
+    default:
+      return false;
+  }
 }
 
-function isDisallowedIpv6(bytes: number[]): boolean {
+/**
+ * IPv6 ranges that embed an IPv4 address (IPv4-mapped, SIIT, NAT64, 6to4).
+ * Returns undefined when the address is not in one of those ranges.
+ */
+function isDisallowedEmbeddedIpv6(bytes: number[]): boolean | undefined {
   const zeroPrefix = (length: number) => bytes.slice(0, length).every((byte) => byte === 0);
   const embeddedV4 = (offset: number): Ipv4Bytes => [
     bytes[offset] ?? 0,
@@ -91,14 +107,18 @@ function isDisallowedIpv6(bytes: number[]): boolean {
   const b0 = bytes[0] ?? 0;
   const b1 = bytes[1] ?? 0;
 
-  // ::/96 covers ::, ::1 and deprecated IPv4-compatible addresses.
-  if (zeroPrefix(12)) return true;
   // ::ffff:0:0/96 IPv4-mapped.
   if (zeroPrefix(10) && bytes[10] === 0xff && bytes[11] === 0xff) {
     return isDisallowedIpv4(embeddedV4(12));
   }
   // ::ffff:0:0:0/96 IPv4-translated (SIIT).
-  if (zeroPrefix(8) && bytes[8] === 0xff && bytes[9] === 0xff && bytes[10] === 0 && bytes[11] === 0) {
+  if (
+    zeroPrefix(8) &&
+    bytes[8] === 0xff &&
+    bytes[9] === 0xff &&
+    bytes[10] === 0 &&
+    bytes[11] === 0
+  ) {
     return isDisallowedIpv4(embeddedV4(12));
   }
   // 64:ff9b::/96 well-known NAT64 prefix.
@@ -109,6 +129,17 @@ function isDisallowedIpv6(bytes: number[]): boolean {
   }
   // 2002::/16 6to4 embeds an IPv4 address in bytes 2-5.
   if (b0 === 0x20 && b1 === 0x02) return isDisallowedIpv4(embeddedV4(2));
+  return undefined;
+}
+
+function isDisallowedIpv6(bytes: number[]): boolean {
+  const b0 = bytes[0] ?? 0;
+  const b1 = bytes[1] ?? 0;
+
+  // ::/96 covers ::, ::1 and deprecated IPv4-compatible addresses.
+  if (bytes.slice(0, 12).every((byte) => byte === 0)) return true;
+  const embedded = isDisallowedEmbeddedIpv6(bytes);
+  if (embedded !== undefined) return embedded;
   // 2001:0::/32 Teredo (obfuscated embedded address) and 2001:db8::/32 documentation.
   if (b0 === 0x20 && b1 === 0x01 && bytes[2] === 0 && bytes[3] === 0) return true;
   if (b0 === 0x20 && b1 === 0x01 && bytes[2] === 0x0d && bytes[3] === 0xb8) return true;
@@ -135,9 +166,17 @@ export function isDisallowedIpAddress(address: string): boolean {
 }
 
 function isLocalOrPrivateHost(hostname: string): boolean {
-  const normalized = hostname.toLowerCase().replace(/^\[/, '').replace(/\]$/, '').replace(/\.$/, '');
+  const normalized = hostname
+    .toLowerCase()
+    .replace(/^\[/, '')
+    .replace(/\]$/, '')
+    .replace(/\.$/, '');
   if (!normalized) return true;
-  if (LOCAL_HOSTNAMES.has(normalized) || normalized.endsWith('.local') || normalized.endsWith('.localhost')) {
+  if (
+    LOCAL_HOSTNAMES.has(normalized) ||
+    normalized.endsWith('.local') ||
+    normalized.endsWith('.localhost')
+  ) {
     return true;
   }
 
@@ -299,9 +338,7 @@ export function customScriptsEnabled(): boolean {
 
 export function assertCustomScriptsEnabled(feature = 'Custom script execution'): void {
   if (customScriptsEnabled()) return;
-  throw new SecurityPolicyError(
-    `${feature} is disabled unless FILTARR_ENABLE_CUSTOM_SCRIPTS=true`,
-  );
+  throw new SecurityPolicyError(`${feature} is disabled unless FILTARR_ENABLE_CUSTOM_SCRIPTS=true`);
 }
 
 /**

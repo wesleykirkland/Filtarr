@@ -40,7 +40,7 @@ function main(): void {
   // Start background services
   startInstanceValidator(db);
   startSettingsBackupScheduler(db);
-  initWatcher(db);
+  void initWatcher(db);
   initScheduler(db);
 
   const app = createApp();
@@ -55,7 +55,7 @@ function main(): void {
     logger.info(`Received ${signal}, shutting down gracefully...`);
     stopInstanceValidator();
     stopSettingsBackupScheduler();
-    stopWatcher();
+    void stopWatcher();
     stopScheduler();
     server.close(() => {
       closeDatabase();

@@ -63,8 +63,7 @@ export const GENERIC_AUTH_FAILURE_MESSAGE = 'Invalid credentials';
 export type CredentialFailureReason = 'invalid' | 'locked' | 'unknown_user';
 
 export type CredentialCheckResult =
-  | { ok: true; user: User }
-  | { ok: false; reason: CredentialFailureReason };
+  { ok: true; user: User } | { ok: false; reason: CredentialFailureReason };
 
 async function dummyCompare(password: string): Promise<void> {
   try {
@@ -335,7 +334,13 @@ export async function invalidateAllSessions(): Promise<void> {
             resolve();
             return;
           }
-          store.clear((err?: unknown) => (err ? reject(err) : resolve()));
+          store.clear((err?: unknown) => {
+            if (!err) {
+              resolve();
+              return;
+            }
+            reject(err instanceof Error ? err : new Error(String(err)));
+          });
         }),
     ),
   );

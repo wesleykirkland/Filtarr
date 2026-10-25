@@ -34,16 +34,16 @@ function InstanceForm({
   initial,
   onSubmit,
   onCancel,
-}: {
+}: Readonly<{
   initial?: Instance;
   onSubmit: (data: CreateInstanceInput) => void;
   onCancel: () => void;
-}) {
+}>) {
   const [name, setName] = useState(initial?.name ?? '');
   const [type, setType] = useState(initial?.type ?? 'sonarr');
   const [url, setUrl] = useState(initial?.url ?? '');
   const [apiKey, setApiKey] = useState('');
-  const [timeout, setTimeout_] = useState(initial?.timeout?.toString() ?? '30');
+  const [timeoutValue, setTimeoutValue] = useState(initial?.timeout?.toString() ?? '30');
   const [skipSslVerify, setSkipSslVerify] = useState(initial?.skipSslVerify ?? false);
   const [remotePath, setRemotePath] = useState(initial?.remotePath ?? '');
   const [localPath, setLocalPath] = useState(initial?.localPath ?? '');
@@ -87,7 +87,7 @@ function InstanceForm({
         apiKey,
         // Editing without a new key: let the server use the stored key.
         instanceId: initial && !apiKey ? initial.id : undefined,
-        timeout: Number.parseInt(timeout, 10) || undefined,
+        timeout: Number.parseInt(timeoutValue, 10) || undefined,
         skipSslVerify,
         remotePath: remotePath || null,
         localPath: localPath || null,
@@ -110,7 +110,7 @@ function InstanceForm({
       type,
       url,
       apiKey, // empty when editing = keep the stored key
-      timeout: Number.parseInt(timeout, 10) || undefined,
+      timeout: Number.parseInt(timeoutValue, 10) || undefined,
       skipSslVerify,
       remotePath: remotePath || null,
       localPath: localPath || null,
@@ -190,9 +190,9 @@ function InstanceForm({
           <input
             id="instance-timeout"
             type="number"
-            value={timeout}
+            value={timeoutValue}
             onChange={(e) => {
-              setTimeout_(e.target.value);
+              setTimeoutValue(e.target.value);
               resetTestState();
             }}
             min="1"

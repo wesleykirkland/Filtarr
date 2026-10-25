@@ -93,7 +93,7 @@ export function createDirectoriesRoutes(db: Database.Database): Router {
         message: `Added watched directory ${dir.path}`,
         details: { directoryId: dir.id, path: dir.path, recursive: dir.recursive, enabled: dir.enabled },
       });
-      reloadWatcher();
+      void reloadWatcher();
       res.status(201).json(dir);
     } catch (err: any) {
       if (err instanceof z.ZodError) {
@@ -139,7 +139,7 @@ export function createDirectoriesRoutes(db: Database.Database): Router {
           changedFields: Object.keys(data),
         },
       });
-      reloadWatcher();
+      void reloadWatcher();
       res.json(dir);
     } catch (err: any) {
       if (err instanceof z.ZodError) {
@@ -178,7 +178,7 @@ export function createDirectoriesRoutes(db: Database.Database): Router {
           ? { directoryId: current.id, path: current.path, recursive: current.recursive }
           : { directoryId: id },
       });
-      reloadWatcher();
+      void reloadWatcher();
       res.json({ success: true, message: 'Directory deleted successfully' });
     } catch (err) {
       next(err);

@@ -58,7 +58,7 @@ export class SettingsBackupScheduler {
     const nextBackupAt = state.nextBackupAt ? Date.parse(state.nextBackupAt) : Date.now() + ONE_MINUTE_MS;
     const delay = Math.max(ONE_MINUTE_MS, nextBackupAt - Date.now());
 
-    this.timeoutId = setTimeout(async () => {
+    this.timeoutId = setTimeout(() => {
       try {
         if (this.backupService.isBackupDue()) {
           this.backupService.createBackup('scheduled');

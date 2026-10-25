@@ -9,14 +9,24 @@ import { initScheduler, stopScheduler } from './cron/scheduler.js';
 import { recordActivityEvent } from './lib/activity.js';
 import { needsSetup } from './lib/authMode.js';
 import { logSetupTokenBanner } from './lib/setupToken.js';
+import { assertEncryptionSecretStrength, verifyEncryptionCanary } from '../services/encryption.js';
 
 function main(): void {
   const config = loadConfig();
   logger.info(`Filtarr starting in ${config.nodeEnv} mode...`);
 
+  // Fail fast on a weak FILTARR_SECRET before any secret is encrypted with it.
+  try {
+    assertEncryptionSecretStrength();
+  } catch (err) {
+    logger.fatal(err instanceof Error ? err.message : String(err));
+    process.exit(1);
+  }
+
   // Initialize database (runs migrations on first start)
   const db = getDatabase();
   logger.info('Database initialized.');
+  verifyEncryptionCanary(db);
   if (needsSetup(db)) {
     logSetupTokenBanner();
   }

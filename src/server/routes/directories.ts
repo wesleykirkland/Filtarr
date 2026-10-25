@@ -1,5 +1,6 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import type Database from 'better-sqlite3';
+import path from 'node:path';
 import { z } from 'zod';
 import {
   getAllDirectories,
@@ -11,6 +12,7 @@ import {
 import { recordActivityEvent } from '../lib/activity.js';
 import { logger } from '../lib/logger.js';
 import { reloadWatcher } from '../services/watcher.js';
+import { isBrowseRootConfigured, isPathWithinBrowseRoot } from './system.js';
 
 const createDirectorySchema = z.object({
   path: z.string().min(1, 'Path is required'),
@@ -23,6 +25,21 @@ const updateDirectorySchema = z.object({
   recursive: z.boolean().optional(),
   enabled: z.boolean().optional(),
 });
+
+/**
+ * Normalize a watched-directory path. Returns an error message when the path is
+ * not absolute or (when FILTARR_BROWSE_ROOT is set) lies outside the browse root.
+ */
+function normalizeDirectoryPath(raw: string): { path: string } | { error: string } {
+  if (!path.isAbsolute(raw)) {
+    return { error: 'Directory path must be absolute (start with /)' };
+  }
+  const resolved = path.resolve(raw);
+  if (isBrowseRootConfigured() && !isPathWithinBrowseRoot(resolved)) {
+    return { error: 'Directory path must be inside the configured browse root' };
+  }
+  return { path: resolved };
+}
 
 export function createDirectoriesRoutes(db: Database.Database): Router {
   const router = Router();
@@ -61,11 +78,12 @@ export function createDirectoriesRoutes(db: Database.Database): Router {
     try {
       const data = createDirectorySchema.parse(req.body);
 
-      // Simple validation: check if path is absolute
-      if (!data.path.startsWith('/')) {
-        res.status(400).json({ error: 'Directory path must be absolute (start with /)' });
+      const normalized = normalizeDirectoryPath(data.path);
+      if ('error' in normalized) {
+        res.status(400).json({ error: normalized.error });
         return;
       }
+      data.path = normalized.path;
 
       const dir = createDirectory(db, data);
       logger.info({ dirId: dir.id, path: dir.path }, 'Directory created');
@@ -98,9 +116,13 @@ export function createDirectoriesRoutes(db: Database.Database): Router {
       }
       const data = updateDirectorySchema.parse(req.body);
 
-      if (data.path !== undefined && !data.path.startsWith('/')) {
-        res.status(400).json({ error: 'Directory path must be absolute (start with /)' });
-        return;
+      if (data.path !== undefined) {
+        const normalized = normalizeDirectoryPath(data.path);
+        if ('error' in normalized) {
+          res.status(400).json({ error: normalized.error });
+          return;
+        }
+        data.path = normalized.path;
       }
 
       const dir = updateDirectory(db, id, data);

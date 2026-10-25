@@ -250,13 +250,13 @@ export class FilterEngine {
       // Try to find the item in the queue (paginating through all items)
       const queueItems = await client.getAllQueueItems();
 
-      // Path mapping translation
+      // Path mapping translation (separator-aware: /dl must not match /dl2/...)
       const translateLocToRem = (localPath: string) => {
         if (config.remotePath && config.localPath) {
           const absLocalMapping = path.resolve(config.localPath);
           const absFile = path.resolve(localPath);
-          if (absFile.startsWith(absLocalMapping)) {
-            const relative = absFile.slice(absLocalMapping.length);
+          if (isPathWithinTarget(absFile, absLocalMapping)) {
+            const relative = path.relative(absLocalMapping, absFile);
             return path.join(config.remotePath, relative);
           }
         }
@@ -267,6 +267,16 @@ export class FilterEngine {
 
       const matchingItem = queueItems.find((r) => {
         if (!r.outputPath) return false;
+        // Ignore overly broad output paths ("/" or a single segment) that would
+        // otherwise match unrelated files.
+        const outputSegments = path.resolve(r.outputPath).split(path.sep).filter(Boolean);
+        if (outputSegments.length < 2) {
+          logger.debug(
+            { instance: config.name, queueId: r.id, outputPath: r.outputPath },
+            'Ignoring queue item with overly broad outputPath',
+          );
+          return false;
+        }
         return isPathWithinTarget(translatedPath, r.outputPath);
       });
 

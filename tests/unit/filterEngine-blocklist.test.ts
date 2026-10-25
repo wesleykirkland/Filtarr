@@ -100,7 +100,7 @@ function makeQueueRecord(overrides: Record<string, unknown> = {}) {
     statusMessages: [],
     errorMessage: '',
     downloadClient: 'qbit',
-    outputPath: '/downloads',
+    outputPath: '/downloads/Release',
     indexer: 'test',
     protocol: 'usenet',
     timeleft: '00:00:00',
@@ -160,7 +160,7 @@ describe('handleBlocklist behaviors', () => {
       const client = setup(type);
       const filter = makeFilter({ action_payload: 'blocklist_and_search' });
 
-      await (engine as any).handleBlocklist(filter, fileEvent('/downloads/test.exe'));
+      await (engine as any).handleBlocklist(filter, fileEvent('/downloads/Release/test.exe'));
 
       expect(client.deleteQueueItem).toHaveBeenCalledWith(42, {
         blocklist: true,
@@ -175,7 +175,7 @@ describe('handleBlocklist behaviors', () => {
     const client = setup('sonarr');
     const filter = makeFilter({ action_payload: payload as string | null });
 
-    await (engine as any).handleBlocklist(filter, fileEvent('/downloads/test.exe'));
+    await (engine as any).handleBlocklist(filter, fileEvent('/downloads/Release/test.exe'));
 
     expect(client.deleteQueueItem).toHaveBeenCalledWith(42, {
       blocklist: true,
@@ -189,7 +189,7 @@ describe('handleBlocklist behaviors', () => {
     const client = setup('sonarr');
     const filter = makeFilter({ action_payload: 'blocklist_only' });
 
-    await (engine as any).handleBlocklist(filter, fileEvent('/downloads/test.exe'));
+    await (engine as any).handleBlocklist(filter, fileEvent('/downloads/Release/test.exe'));
 
     expect(client.deleteQueueItem).toHaveBeenCalledWith(42, {
       blocklist: true,
@@ -203,7 +203,7 @@ describe('handleBlocklist behaviors', () => {
     const client = setup('radarr');
     const filter = makeFilter({ action_payload: 'remove_only' });
 
-    await (engine as any).handleBlocklist(filter, fileEvent('/downloads/movie.mkv'));
+    await (engine as any).handleBlocklist(filter, fileEvent('/downloads/Release/movie.mkv'));
 
     expect(client.deleteQueueItem).toHaveBeenCalledWith(42, {
       blocklist: false,
@@ -217,7 +217,7 @@ describe('handleBlocklist behaviors', () => {
     const client = setup('sonarr');
     const filter = makeFilter({ action_payload: 'do_not_blocklist' });
 
-    await (engine as any).handleBlocklist(filter, fileEvent('/downloads/test.exe'));
+    await (engine as any).handleBlocklist(filter, fileEvent('/downloads/Release/test.exe'));
 
     expect(logger.error).toHaveBeenCalledWith(
       expect.objectContaining({ filterId: 1, actionPayload: 'do_not_blocklist' }),
@@ -275,8 +275,68 @@ describe('handleBlocklist behaviors', () => {
   it('returns early when no instance_id is set', async () => {
     const filter = makeFilter({ instance_id: null });
 
-    await (engine as any).handleBlocklist(filter, fileEvent('/downloads/test.exe'));
+    await (engine as any).handleBlocklist(filter, fileEvent('/downloads/Release/test.exe'));
 
     expect(mockCreateArrClient).not.toHaveBeenCalled();
+  });
+
+  it.each(['/', '/downloads', ''])('ignores queue items with an overly broad outputPath %j', async (outputPath) => {
+    const client = setup('sonarr', [makeQueueRecord({ outputPath })]);
+    const filter = makeFilter({ action_payload: 'blocklist_only' });
+
+    await (engine as any).handleBlocklist(filter, fileEvent('/downloads/Release/test.exe'));
+
+    expect(client.deleteQueueItem).not.toHaveBeenCalled();
+  });
+
+  it('logs at debug when ignoring a root outputPath', async () => {
+    setup('sonarr', [makeQueueRecord({ outputPath: '/' })]);
+    const filter = makeFilter({ action_payload: 'blocklist_only' });
+
+    await (engine as any).handleBlocklist(filter, fileEvent('/downloads/Release/test.exe'));
+
+    expect(logger.debug).toHaveBeenCalledWith(
+      expect.objectContaining({ outputPath: '/' }),
+      expect.stringContaining('overly broad outputPath'),
+    );
+  });
+
+  describe('local-to-remote path translation', () => {
+    function setupMapped(queue: ReturnType<typeof makeQueueRecord>[]) {
+      mockGetInstanceConfigById.mockReturnValue(
+        makeInstanceConfig({ localPath: '/dl', remotePath: '/remote/downloads' }),
+      );
+      const client = makeMockClient(queue);
+      mockCreateArrClient.mockReturnValue(client as any);
+      return client;
+    }
+
+    it('translates files under the local mapping to the remote path', async () => {
+      const client = setupMapped([makeQueueRecord({ outputPath: '/remote/downloads/Release' })]);
+
+      await (engine as any).handleBlocklist(
+        makeFilter({ action_payload: 'blocklist_only' }),
+        fileEvent('/dl/Release/test.exe'),
+      );
+
+      expect(client.deleteQueueItem).toHaveBeenCalledWith(42, expect.any(Object));
+    });
+
+    it('does not translate a sibling directory sharing the local mapping as a string prefix', async () => {
+      // /dl must not match /dl2/...; a bare startsWith would have produced
+      // /remote/downloads/2/Release/test.exe. The path must stay untranslated.
+      const client = setupMapped([
+        makeQueueRecord({ id: 7, outputPath: '/remote/downloads/2' }),
+        makeQueueRecord({ id: 8, outputPath: '/dl2/Release' }),
+      ]);
+
+      await (engine as any).handleBlocklist(
+        makeFilter({ action_payload: 'blocklist_only' }),
+        fileEvent('/dl2/Release/test.exe'),
+      );
+
+      expect(client.deleteQueueItem).toHaveBeenCalledTimes(1);
+      expect(client.deleteQueueItem).toHaveBeenCalledWith(8, expect.any(Object));
+    });
   });
 });

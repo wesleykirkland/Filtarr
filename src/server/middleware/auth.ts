@@ -285,7 +285,7 @@ function basicAuthMiddleware(db: Database.Database, maxFailuresPerMinute: number
   };
 
   return (req: Request, res: Response, next: NextFunction): void => {
-    if (!hasBasicAuthHeader(req) || getCurrentAuthMode(db) !== 'basic') {
+    if (!hasBasicAuthHeader(req) || getAuthMode(db) !== 'basic') {
       next();
       return;
     }
@@ -327,7 +327,7 @@ const sessionStores = new Set<session.Store>();
  * an auth-mode change so existing session cookies stop working.
  */
 export async function invalidateAllSessions(): Promise<void> {
-  await Promise.all(
+  const results = await Promise.allSettled(
     [...sessionStores].map(
       (store) =>
         new Promise<void>((resolve, reject) => {
@@ -339,6 +339,11 @@ export async function invalidateAllSessions(): Promise<void> {
         }),
     ),
   );
+  // A store whose database has been closed (e.g. a previous app instance) can no longer hold
+  // live sessions; drop it instead of failing the caller.
+  [...sessionStores].forEach((store, index) => {
+    if (results[index]?.status === 'rejected') sessionStores.delete(store);
+  });
 }
 
 function sessionMiddleware(config: AuthConfig, db: Database.Database): RequestHandler {

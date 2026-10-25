@@ -5,6 +5,7 @@ import { z } from 'zod';
 import type Database from 'better-sqlite3';
 import type { AuthConfig } from '../../config/auth.js';
 import { getAuthMode } from '../lib/authMode.js';
+import { destroyAllSessions } from '../lib/sessionStore.js';
 import { requireAuth } from '../middleware/auth.js';
 import { authRateLimiter } from '../middleware/security.js';
 import {
@@ -220,7 +221,7 @@ export function createAuthRoutes(db: Database.Database, config: AuthConfig): Rou
     loginLimiter,
     async (req: Request, res: Response, next: NextFunction): Promise<void> => {
       try {
-        const authMode = getCurrentAuthMode(db);
+        const authMode = getAuthMode(db);
         if (req.apiKey || !isSessionAuthenticated(req, authMode) || !req.user) {
           res.status(401).json({ error: 'Password changes require a logged-in session' });
           return;
@@ -248,7 +249,9 @@ export function createAuthRoutes(db: Database.Database, config: AuthConfig): Rou
              updated_at = datetime('now') WHERE id = ?`,
         ).run(passwordHash, check.user.id);
 
-        // Kill every existing session, then give this client a fresh one (req.logIn regenerates).
+        // Kill every existing session for this database, then give this client a fresh one
+        // (req.logIn regenerates).
+        destroyAllSessions(db);
         await invalidateAllSessions();
         req.logIn(sessionUser, (loginErr) => {
           if (loginErr) return next(loginErr);

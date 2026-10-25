@@ -14,6 +14,9 @@ const state = vi.hoisted(() => {
     this.clear = vi.fn((cb: () => void) => cb());
   });
   box.sessionFactory.MemoryStore = box.MemoryStore;
+  box.SqliteSessionStore = vi.fn(function (this: any) {
+    this.clear = vi.fn((cb: () => void) => cb());
+  });
   box.passportUse = vi.fn();
   box.passportInitialize = vi.fn(() => box.passportInitializeHandle);
   box.passportSession = vi.fn(() => box.passportSessionHandle);
@@ -44,7 +47,7 @@ const state = vi.hoisted(() => {
 vi.mock('../../src/server/middleware/apiKey.js', () => ({ apiKeyMiddleware: state.apiKeyMiddleware }));
 vi.mock('express-session', () => ({ default: state.sessionFactory }));
 vi.mock('../../src/server/lib/sessionStore.js', () => ({
-  SqliteSessionStore: vi.fn(function SqliteSessionStore() {}),
+  SqliteSessionStore: state.SqliteSessionStore,
 }));
 vi.mock('passport', () => ({
   default: {
@@ -323,7 +326,7 @@ describe('auth middleware helpers', () => {
       expect.objectContaining({
         name: 'filtarr.sid',
         secret: Buffer.alloc(48, 7).toString('hex'),
-        store: expect.any(state.MemoryStore),
+        store: expect.any(state.SqliteSessionStore),
         cookie: expect.objectContaining({ secure: false, maxAge: 86400000 }),
       }),
     );
@@ -353,7 +356,7 @@ describe('auth middleware helpers', () => {
 
   it('invalidateAllSessions clears every session store', async () => {
     createAuthMiddleware(makeDb().db, makeConfig({ forms: { sessionSecret: 'x'.repeat(32) } }));
-    const store = state.MemoryStore.mock.instances.at(-1);
+    const store = state.SqliteSessionStore.mock.instances.at(-1);
     await invalidateAllSessions();
     expect(store.clear).toHaveBeenCalled();
   });

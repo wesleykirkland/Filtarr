@@ -2,7 +2,6 @@ import { type RequestHandler, type Express } from 'express';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import cors from 'cors';
-import { doubleCsrf } from 'csrf-csrf';
 import type { AuthConfig } from '../../config/auth.js';
 
 /**
@@ -76,30 +75,6 @@ export function corsMiddleware(origin: string | string[] = 'same-origin'): Reque
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Api-Key', 'X-CSRF-Token'],
     maxAge: 600, // 10 minutes
   });
-}
-
-/**
- * CSRF protection using the double-submit cookie pattern.
- * Only applied to forms-based auth (session-based).
- * API key requests are exempt (they don't use cookies).
- */
-export function csrfMiddleware(cookieSecret: string) {
-  const { doubleCsrfProtection, generateCsrfToken } = doubleCsrf({
-    getSecret: () => cookieSecret,
-    getSessionIdentifier: (req) => req.session?.id || req.socket.remoteAddress || 'anonymous',
-    cookieName: 'filtarr.csrf',
-    cookieOptions: {
-      httpOnly: true,
-      sameSite: 'strict' as const,
-      secure: process.env['NODE_ENV'] === 'production',
-      path: '/',
-    },
-    getCsrfTokenFromRequest: (req) => {
-      return req.headers['x-csrf-token'] || (req.body as Record<string, string>)?.['_csrf'];
-    },
-  });
-
-  return { csrfProtection: doubleCsrfProtection, generateCsrfToken };
 }
 
 /**

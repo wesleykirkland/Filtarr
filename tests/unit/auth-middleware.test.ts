@@ -81,10 +81,6 @@ function makeDb(options: Record<string, any> = {}) {
         if (options.authModeThrows) throw new Error('settings unavailable');
         return { get: vi.fn(() => (options.authMode === undefined ? undefined : { value: options.authMode })) };
       }
-      if (sql.includes('SELECT username, password_hash FROM users')) {
-        if (options.basicLookupThrows) throw new Error('basic lookup failed');
-        return { get: vi.fn(() => options.basicUser) };
-      }
       if (sql.includes('SELECT * FROM users WHERE username = ?')) {
         if (options.strategyLookupThrows) throw new Error('strategy lookup failed');
         return { get: vi.fn(() => options.strategyUser) };
@@ -216,23 +212,84 @@ describe('auth middleware helpers', () => {
 
     state.bcryptCompare.mockResolvedValueOnce(true).mockRejectedValueOnce(new Error('compare failed'));
     const validReq = { headers: { authorization: `Basic ${Buffer.from('admin:secret').toString('base64')}` } } as any;
-    await getHandles(makeDb({ basicUser: { username: 'admin', password_hash: 'hash' } }).db).basicAuth(validReq, makeResponse(), vi.fn());
+    await getHandles(makeDb({ strategyUser: { id: 1, username: 'admin', password_hash: 'hash', failed_attempts: 0, locked_until: null } }).db).basicAuth(validReq, makeResponse(), vi.fn());
     expect(validReq._basicAuthValid).toBe(true);
     expect(state.bcryptCompare).toHaveBeenCalledWith('secret', 'hash');
 
     const invalidReq = { headers: { authorization: `Basic ${Buffer.from('admin:secret').toString('base64')}` } } as any;
     const thrownNext = vi.fn();
-    await getHandles(makeDb({ basicUser: { username: 'admin', password_hash: 'hash' } }).db).basicAuth(invalidReq, makeResponse(), thrownNext);
+    await getHandles(makeDb({ strategyUser: { id: 1, username: 'admin', password_hash: 'hash', failed_attempts: 0, locked_until: null } }).db).basicAuth(invalidReq, makeResponse(), thrownNext);
     expect(thrownNext).toHaveBeenCalledTimes(1);
     expect(invalidReq._basicAuthValid).toBeUndefined();
 
     const lookupErrorNext = vi.fn();
-    await getHandles(makeDb({ basicLookupThrows: true }).db).basicAuth(
+    await getHandles(makeDb({ strategyLookupThrows: true }).db).basicAuth(
       { headers: { authorization: `Basic ${Buffer.from('admin:secret').toString('base64')}` } } as any,
       makeResponse(),
       lookupErrorNext,
     );
     expect(lookupErrorNext).toHaveBeenCalledTimes(1);
+  });
+
+  it('applies account lockout to basic auth: counts failures, locks, and rejects locked accounts', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-03-11T00:00:00.000Z'));
+    const header = { authorization: `Basic ${Buffer.from('admin:wrong').toString('base64')}` };
+
+    // Wrong password increments failed_attempts
+    state.bcryptCompare.mockResolvedValueOnce(false);
+    const failing = makeDb({
+      strategyUser: { id: 7, username: 'admin', password_hash: 'hash', failed_attempts: 1, locked_until: null },
+    });
+    const failingReq = { headers: header } as any;
+    await getHandles(failing.db).basicAuth(failingReq, makeResponse(), vi.fn());
+    expect(failing.failedUpdate.run).toHaveBeenCalledWith(2, null, 7);
+    expect(failingReq._basicAuthValid).toBeUndefined();
+
+    // Fifth failure sets locked_until 15 minutes out
+    state.bcryptCompare.mockResolvedValueOnce(false);
+    const locking = makeDb({
+      strategyUser: { id: 7, username: 'admin', password_hash: 'hash', failed_attempts: 4, locked_until: null },
+    });
+    await getHandles(locking.db).basicAuth({ headers: header } as any, makeResponse(), vi.fn());
+    expect(locking.failedUpdate.run).toHaveBeenCalledWith(5, '2026-03-11T00:15:00.000Z', 7);
+
+    // A locked account is rejected even with the correct password, without checking it
+    state.bcryptCompare.mockClear();
+    const locked = makeDb({
+      strategyUser: { id: 7, username: 'admin', password_hash: 'hash', failed_attempts: 5, locked_until: '2026-03-11T00:10:00.000Z' },
+    });
+    const lockedReq = { headers: { authorization: `Basic ${Buffer.from('admin:right').toString('base64')}` } } as any;
+    const lockedNext = vi.fn();
+    await getHandles(locked.db).basicAuth(lockedReq, makeResponse(), lockedNext);
+    expect(lockedNext).toHaveBeenCalledTimes(1);
+    expect(lockedReq._basicAuthValid).toBeUndefined();
+    expect(state.bcryptCompare).not.toHaveBeenCalled();
+    expect(locked.failedUpdate.run).not.toHaveBeenCalled();
+
+    // Successful basic auth resets the counter
+    state.bcryptCompare.mockResolvedValueOnce(true);
+    const success = makeDb({
+      strategyUser: { id: 7, username: 'admin', password_hash: 'hash', failed_attempts: 3, locked_until: null },
+    });
+    const successReq = { headers: header } as any;
+    await getHandles(success.db).basicAuth(successReq, makeResponse(), vi.fn());
+    expect(successReq._basicAuthValid).toBe(true);
+    expect(success.resetUpdate.run).toHaveBeenCalledWith(7);
+  });
+
+  it('honors an explicit cookieSecure override for the session cookie', () => {
+    process.env['NODE_ENV'] = 'production';
+    createAuthMiddleware(makeDb().db, makeConfig({ forms: { sessionSecret: 's'.repeat(32) }, cookieSecure: false }));
+    expect(state.sessionFactory).toHaveBeenLastCalledWith(
+      expect.objectContaining({ cookie: expect.objectContaining({ secure: false }) }),
+    );
+
+    delete process.env['NODE_ENV'];
+    createAuthMiddleware(makeDb().db, makeConfig({ forms: { sessionSecret: 's'.repeat(32) }, cookieSecure: 'auto' }));
+    expect(state.sessionFactory).toHaveBeenLastCalledWith(
+      expect.objectContaining({ cookie: expect.objectContaining({ secure: 'auto' }) }),
+    );
   });
 
   it('builds session middleware with default and configured cookie settings and wires passport callbacks', () => {

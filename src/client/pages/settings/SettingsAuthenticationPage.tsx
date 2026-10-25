@@ -11,6 +11,9 @@ import type {
   OidcSettingsResponse,
 } from './types';
 
+// The server has no OIDC strategy yet and rejects switching to it; keep the option visible but disabled.
+const OIDC_AVAILABLE = false;
+
 const AUTH_MODE_LABELS: Record<AuthMode, string> = {
   none: 'No Authentication',
   basic: 'Basic (Browser Prompt)',
@@ -137,7 +140,9 @@ export default function SettingsAuthenticationPage() {
               <label
                 key={mode}
                 htmlFor={`auth-mode-${mode}`}
-                className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 ${
+                className={`flex items-start gap-3 rounded-lg border p-3 ${
+                  mode === 'oidc' && !OIDC_AVAILABLE ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'
+                } ${
                   selectedAuthMode === mode
                     ? 'border-blue-500 bg-blue-50 dark:bg-blue-500/10'
                     : 'border-gray-300 bg-white hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900/60 dark:hover:bg-gray-800/50'
@@ -150,6 +155,7 @@ export default function SettingsAuthenticationPage() {
                   value={mode}
                   checked={selectedAuthMode === mode}
                   onChange={() => setSelectedAuthMode(mode)}
+                  disabled={mode === 'oidc' && !OIDC_AVAILABLE}
                   className="mt-0.5"
                   aria-label={AUTH_MODE_LABELS[mode]}
                 />
@@ -162,6 +168,7 @@ export default function SettingsAuthenticationPage() {
                     {mode === 'basic' && 'HTTP Basic auth (browser login prompt)'}
                     {mode === 'forms' && 'Username/password login form'}
                     {mode === 'oidc' && 'External identity provider sign-in via OpenID Connect'}
+                    {mode === 'oidc' && !OIDC_AVAILABLE && ' (not yet available in this build)'}
                   </div>
                 </div>
               </label>

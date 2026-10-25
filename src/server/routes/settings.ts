@@ -158,9 +158,19 @@ export function createSettingsRoutes(
           return;
         }
 
+        // No OIDC passport strategy is registered in this build, so enabling OIDC would lock
+        // every user out. Reject it until a strategy exists.
+        if (authMode === 'oidc') {
+          res.status(400).json({
+            error:
+              'OIDC authentication is not yet available in this build. Choose none, basic, or forms.',
+          });
+          return;
+        }
+
         const hasAdmin = hasAdminUser(db);
 
-        if (oidc || authMode === 'oidc') {
+        if (oidc) {
           const existingOidc = getOidcSettings(db);
           const oidcCandidate = {
             issuerUrl: oidc?.issuerUrl?.trim() ?? existingOidc.issuerUrl,

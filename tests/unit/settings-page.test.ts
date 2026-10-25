@@ -170,7 +170,7 @@ describe('Settings subpages', () => {
     expect(document.body.textContent).toContain('General configuration');
   });
 
-  it('supports direct-linking to the authentication subpage and still exposes OIDC configuration', async () => {
+  it('supports direct-linking to the authentication subpage and shows OIDC as unavailable', async () => {
     await renderSettings('/settings/authentication');
 
     await waitFor(() => document.body.textContent?.includes('Authentication') ?? false);
@@ -184,29 +184,23 @@ describe('Settings subpages', () => {
 
     await waitFor(() => document.body.textContent?.includes('OIDC / OpenID Connect') ?? false);
 
+    const oidcRadio = document.querySelector(
+      'input[name="authMode"][value="oidc"]',
+    ) as HTMLInputElement;
+    expect(oidcRadio.disabled).toBe(true);
+
     await act(async () => {
-      const oidcRadio = document.querySelector(
-        'input[name="authMode"][value="oidc"]',
-      ) as HTMLInputElement;
       oidcRadio.click();
     });
 
-    await waitFor(() => document.body.textContent?.includes('Issuer URL') ?? false);
-
+    expect(oidcRadio.checked).toBe(false);
     expect(document.body.textContent).toContain(
       'External identity provider sign-in via OpenID Connect',
     );
+    expect(document.body.textContent).toContain('not yet available in this build');
     expect(
       document.querySelector('input[placeholder="https://id.example.com/realms/filtarr"]'),
-    ).not.toBeNull();
-    expect(
-      document.querySelector('input[placeholder="http://localhost:9898/api/v1/auth/oidc/callback"]'),
-    ).not.toBeNull();
-    expect(
-      (document.querySelector(
-        'input[placeholder="openid, profile, email"]',
-      ) as HTMLInputElement).value,
-    ).toBe('openid, profile, email');
+    ).toBeNull();
   });
 
   it('supports direct-linking to the backup subpage and shows backup actions', async () => {

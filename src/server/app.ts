@@ -27,6 +27,8 @@ function getAuthConfig(db: Database): AuthConfig {
     rateLimitAuth: 5,
     rateLimitGeneral: 100,
     corsOrigin: envConfig.corsOrigin ?? 'same-origin',
+    trustProxy: envConfig.trustProxy,
+    cookieSecure: envConfig.cookieSecure,
   };
 
   // For forms mode, we need session config
@@ -51,13 +53,19 @@ export function createApp(db: Database = getDatabase()): express.Application {
   const app = express();
   const authConfig = getAuthConfig(db);
 
+  // Honor X-Forwarded-* only when explicitly configured (FILTARR_TRUST_PROXY).
+  // This drives req.ip (rate limiting) and req.secure (Secure session cookies behind TLS proxies).
+  if (authConfig.trustProxy !== undefined) {
+    app.set('trust proxy', authConfig.trustProxy);
+  }
+
   applySecurityMiddleware(app, authConfig);
 
   // Body parsing
   app.use(express.json());
   app.use(express.urlencoded({ extended: false }));
 
-  // Auth-sensitive rate limiter (login, setup)
+  // Auth-sensitive rate limiter for setup (login is limited inside the auth router)
   const authLimiter = authRateLimiter(authConfig.rateLimitAuth);
 
   // Unauthenticated routes — setup and health check
@@ -79,8 +87,9 @@ export function createApp(db: Database = getDatabase()): express.Application {
   app.use('/api/v1', authRouter);
 
   // Auth routes (login, logout, session, API key management)
-  // These are mounted AFTER auth middleware so they can use session
-  app.use('/api/v1/auth', authLimiter, createAuthRoutes(db, authConfig));
+  // These are mounted AFTER auth middleware so they can use session.
+  // The login endpoint applies its own rate limiter; session/API-key routes are not login-limited.
+  app.use('/api/v1/auth', createAuthRoutes(db, authConfig));
   app.use('/api/v1', requireAuth, protectedSystemRoutes);
 
   // Protected routes - require authentication

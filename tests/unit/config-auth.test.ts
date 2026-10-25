@@ -5,6 +5,8 @@ import {
   FormsAuthConfigSchema,
   OidcAuthConfigSchema,
   loadAuthConfigFromEnv,
+  parseCookieSecure,
+  parseTrustProxy,
 } from '../../src/config/auth.js';
 
 describe('auth config helpers', () => {
@@ -86,6 +88,31 @@ describe('auth config helpers', () => {
 
   it('returns an empty override object when auth env vars are absent', () => {
     expect(loadAuthConfigFromEnv()).toEqual({});
+  });
+
+  it('parses FILTARR_TRUST_PROXY as boolean, hop count, or address list', () => {
+    expect(parseTrustProxy(undefined)).toBeUndefined();
+    expect(parseTrustProxy('  ')).toBeUndefined();
+    expect(parseTrustProxy('true')).toBe(true);
+    expect(parseTrustProxy('FALSE')).toBe(false);
+    expect(parseTrustProxy('1')).toBe(1);
+    expect(parseTrustProxy('0')).toBe(0);
+    expect(parseTrustProxy('loopback, 10.0.0.0/8 ,')).toBe('loopback,10.0.0.0/8');
+  });
+
+  it('parses FILTARR_COOKIE_SECURE and rejects unknown values', () => {
+    expect(parseCookieSecure(undefined)).toBeUndefined();
+    expect(parseCookieSecure('true')).toBe(true);
+    expect(parseCookieSecure('false')).toBe(false);
+    expect(parseCookieSecure('Auto')).toBe('auto');
+    expect(() => parseCookieSecure('maybe')).toThrow('FILTARR_COOKIE_SECURE');
+  });
+
+  it('loads trust proxy and cookie secure overrides from the environment', () => {
+    process.env['FILTARR_TRUST_PROXY'] = '2';
+    process.env['FILTARR_COOKIE_SECURE'] = 'false';
+
+    expect(loadAuthConfigFromEnv()).toEqual({ trustProxy: 2, cookieSecure: false });
   });
 
   it('throws when an invalid auth mode is provided in the environment', () => {

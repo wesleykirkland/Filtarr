@@ -13,7 +13,7 @@ import crypto from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type Database from 'better-sqlite3';
-import type { AuthConfig, AuthMode } from '../../config/auth.js';
+import { defaultCookieSecure, type AuthConfig, type AuthMode } from '../../config/auth.js';
 import { getConfig } from '../../config/index.js';
 import type { User } from '../../db/schemas/users.js';
 import { apiKeyMiddleware } from './apiKey.js';
@@ -33,6 +33,10 @@ function getCurrentAuthMode(db: Database.Database): AuthMode {
   }
 }
 
+// Passport types `req.user` as the global `Express.User` interface, so it can only be extended
+// through global namespace merging (module augmentation of express-serve-static-core does not
+// reach it). Same pattern as middleware/apiKey.ts.
+/* eslint-disable @typescript-eslint/no-namespace */
 declare global {
   namespace Express {
     interface User {
@@ -41,6 +45,59 @@ declare global {
       displayName: string | null;
     }
   }
+}
+/* eslint-enable @typescript-eslint/no-namespace */
+
+const MAX_FAILED_ATTEMPTS = 5;
+const LOCKOUT_DURATION_MS = 15 * 60 * 1000;
+
+export type CredentialCheckResult =
+  | { ok: true; user: User }
+  | { ok: false; reason: 'invalid' | 'locked' };
+
+/**
+ * Verify a username/password against the users table, enforcing account lockout.
+ * Shared by the passport local strategy (forms) and the Basic auth middleware so both
+ * increment failed_attempts and honor locked_until identically.
+ */
+export async function verifyUserCredentials(
+  db: Database.Database,
+  username: string,
+  password: string,
+): Promise<CredentialCheckResult> {
+  const user = db.prepare<[string], User>('SELECT * FROM users WHERE username = ?').get(username);
+
+  if (!user) {
+    return { ok: false, reason: 'invalid' };
+  }
+
+  // Check account lockout
+  if (user.locked_until && new Date(user.locked_until) > new Date()) {
+    return { ok: false, reason: 'locked' };
+  }
+
+  const valid = await bcrypt.compare(password, user.password_hash);
+  if (!valid) {
+    // Increment failed attempts
+    const newAttempts = user.failed_attempts + 1;
+    const lockUntil =
+      newAttempts >= MAX_FAILED_ATTEMPTS
+        ? new Date(Date.now() + LOCKOUT_DURATION_MS).toISOString()
+        : null;
+
+    db.prepare(
+      "UPDATE users SET failed_attempts = ?, locked_until = ?, updated_at = datetime('now') WHERE id = ?",
+    ).run(newAttempts, lockUntil, user.id);
+
+    return { ok: false, reason: 'invalid' };
+  }
+
+  // Reset failed attempts on success
+  db.prepare(
+    "UPDATE users SET failed_attempts = 0, locked_until = NULL, updated_at = datetime('now') WHERE id = ?",
+  ).run(user.id);
+
+  return { ok: true, user };
 }
 
 /**
@@ -114,15 +171,9 @@ function basicAuthMiddleware(db: Database.Database) {
       const providedUser = decoded.substring(0, colonIndex);
       const providedPass = decoded.substring(colonIndex + 1);
 
-      // Look up user in database
-      const user = db
-        .prepare<
-          [string],
-          { username: string; password_hash: string }
-        >('SELECT username, password_hash FROM users WHERE username = ?')
-        .get(providedUser);
-
-      if (user && (await bcrypt.compare(providedPass, user.password_hash))) {
+      // Verify against the database (applies the same lockout as forms login)
+      const result = await verifyUserCredentials(db, providedUser, providedPass);
+      if (result.ok) {
         (req as any)._basicAuthValid = true;
       }
     } catch {
@@ -162,7 +213,9 @@ function sessionMiddleware(config: AuthConfig): RequestHandler {
     saveUninitialized: false,
     cookie: {
       httpOnly: true,
-      secure: process.env['NODE_ENV'] === 'production',
+      // FILTARR_COOKIE_SECURE overrides; default is Secure in production only.
+      // Behind a TLS-terminating proxy, set FILTARR_TRUST_PROXY so req.secure is detected.
+      secure: config.cookieSecure ?? defaultCookieSecure(),
       sameSite: 'strict',
       maxAge: config.forms?.sessionMaxAge || 86400000,
     },
@@ -176,40 +229,14 @@ function configurePassportLocal(db: Database.Database): void {
   passport.use(
     new LocalStrategy(async (username, password, done) => {
       try {
-        const user = db
-          .prepare<[string], User>('SELECT * FROM users WHERE username = ?')
-          .get(username);
-
-        if (!user) {
-          return done(null, false, { message: 'Invalid credentials' });
+        const result = await verifyUserCredentials(db, username, password);
+        if (!result.ok) {
+          return done(null, false, {
+            message: result.reason === 'locked' ? 'Account temporarily locked' : 'Invalid credentials',
+          });
         }
 
-        // Check account lockout
-        if (user.locked_until && new Date(user.locked_until) > new Date()) {
-          return done(null, false, { message: 'Account temporarily locked' });
-        }
-
-        const valid = await bcrypt.compare(password, user.password_hash);
-        if (!valid) {
-          // Increment failed attempts
-          const newAttempts = user.failed_attempts + 1;
-          const lockUntil =
-            newAttempts >= 5
-              ? new Date(Date.now() + 15 * 60 * 1000).toISOString() // Lock 15 min
-              : null;
-
-          db.prepare(
-            "UPDATE users SET failed_attempts = ?, locked_until = ?, updated_at = datetime('now') WHERE id = ?",
-          ).run(newAttempts, lockUntil, user.id);
-
-          return done(null, false, { message: 'Invalid credentials' });
-        }
-
-        // Reset failed attempts on success
-        db.prepare(
-          "UPDATE users SET failed_attempts = 0, locked_until = NULL, updated_at = datetime('now') WHERE id = ?",
-        ).run(user.id);
-
+        const { user } = result;
         return done(null, { id: user.id, username: user.username, displayName: user.display_name });
       } catch (err) {
         return done(err);

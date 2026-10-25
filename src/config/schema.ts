@@ -6,6 +6,8 @@ export const configSchema = z.object({
   dataDir: z.string().default('./data'),
   logLevel: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
   nodeEnv: z.enum(['development', 'production', 'test']).default('production'),
+  /** Use stat polling instead of native fs events (needed for NFS/SMB mounts). */
+  watcherPolling: z.boolean().default(false),
 });
 
 export type AppConfig = z.infer<typeof configSchema>;

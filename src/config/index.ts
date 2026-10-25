@@ -15,6 +15,10 @@ export function loadConfig(): AppConfig {
     dataDir: process.env['FILTARR_DATA_DIR'],
     logLevel: process.env['FILTARR_LOG_LEVEL'],
     nodeEnv: process.env['NODE_ENV'],
+    watcherPolling:
+      process.env['FILTARR_WATCHER_POLLING'] === undefined
+        ? undefined
+        : process.env['FILTARR_WATCHER_POLLING'].trim().toLowerCase() === 'true',
   };
 
   // Strip undefined values so zod defaults apply

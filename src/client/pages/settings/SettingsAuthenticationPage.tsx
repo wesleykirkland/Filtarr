@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from '../../components/Toast';
@@ -20,6 +20,105 @@ const AUTH_MODE_LABELS: Record<AuthMode, string> = {
   forms: 'Forms (Login Page)',
   oidc: 'OIDC / OpenID Connect',
 };
+
+const INPUT_CLASS =
+  'mt-1 block w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:border-blue-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100';
+
+function ChangePasswordForm() {
+  const queryClient = useQueryClient();
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+
+  const mutation = useMutation({
+    mutationFn: (data: { currentPassword: string; newPassword: string }) =>
+      api.put<{ success: boolean; message: string }>('/auth/password', data),
+    onSuccess: () => {
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      queryClient.invalidateQueries({ queryKey: ['auth', 'session'] });
+      toast('success', 'Password changed. Other sessions have been signed out.');
+    },
+    onError: (err: Error) => toast('error', err.message),
+  });
+
+  const handleSubmit = (e: FormEvent) => {
+    e.preventDefault();
+    if (newPassword.length < 8) {
+      toast('error', 'New password must be at least 8 characters');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      toast('error', 'New passwords do not match');
+      return;
+    }
+    mutation.mutate({ currentPassword, newPassword });
+  };
+
+  return (
+    <form
+      onSubmit={handleSubmit}
+      className="space-y-3 rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 dark:border-transparent dark:bg-gray-800/50"
+    >
+      <p className="text-sm font-medium text-gray-900 dark:text-gray-100">Change password</p>
+      <div>
+        <label htmlFor="current-password" className="block text-xs font-medium text-gray-700 dark:text-gray-400">
+          Current password
+        </label>
+        <input
+          id="current-password"
+          type="password"
+          autoComplete="current-password"
+          value={currentPassword}
+          onChange={(e) => setCurrentPassword(e.target.value)}
+          required
+          className={INPUT_CLASS}
+        />
+      </div>
+      <div className="grid gap-3 md:grid-cols-2">
+        <div>
+          <label htmlFor="new-password" className="block text-xs font-medium text-gray-700 dark:text-gray-400">
+            New password
+          </label>
+          <input
+            id="new-password"
+            type="password"
+            autoComplete="new-password"
+            value={newPassword}
+            onChange={(e) => setNewPassword(e.target.value)}
+            placeholder="Min 8 characters"
+            minLength={8}
+            required
+            className={INPUT_CLASS}
+          />
+        </div>
+        <div>
+          <label htmlFor="confirm-password" className="block text-xs font-medium text-gray-700 dark:text-gray-400">
+            Confirm new password
+          </label>
+          <input
+            id="confirm-password"
+            type="password"
+            autoComplete="new-password"
+            value={confirmPassword}
+            onChange={(e) => setConfirmPassword(e.target.value)}
+            minLength={8}
+            required
+            className={INPUT_CLASS}
+          />
+        </div>
+      </div>
+      <button
+        type="submit"
+        disabled={mutation.isPending}
+        className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+      >
+        {mutation.isPending ? 'Saving...' : 'Change password'}
+      </button>
+    </form>
+  );
+}
 
 export default function SettingsAuthenticationPage() {
   const { session } = useAuth();
@@ -375,6 +474,8 @@ export default function SettingsAuthenticationPage() {
               </span>
             </div>
           )}
+
+          {authModeData?.authMode === 'forms' && session?.user && <ChangePasswordForm />}
 
           {authModeData?.authMode === 'oidc' && (
             <>

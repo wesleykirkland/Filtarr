@@ -103,6 +103,15 @@ describe('Security hardening', () => {
     expect(enabledRes.status).toBe(201);
   });
 
+  it('refuses to start with a session secret shorter than 32 characters, in any auth mode', () => {
+    process.env['FILTARR_SESSION_SECRET'] = 'short-secret';
+    try {
+      expect(() => createApp(db)).toThrow(/at least 32 characters/);
+    } finally {
+      delete process.env['FILTARR_SESSION_SECRET'];
+    }
+  });
+
   it('persists a generated session secret to the data directory', () => {
     const config = {
       mode: 'forms' as const,

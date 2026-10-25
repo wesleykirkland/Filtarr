@@ -108,6 +108,21 @@ describe('auth config helpers', () => {
     expect(loadAuthConfigFromEnv()).toEqual({ trustProxy: 2, cookieSecure: false });
   });
 
+  it('rejects a session secret shorter than 32 characters and invalid max ages', () => {
+    process.env['FILTARR_SESSION_SECRET'] = 'too-short';
+    expect(() => loadAuthConfigFromEnv()).toThrow(/FILTARR_SESSION_SECRET[\s\S]*at least 32 characters/);
+
+    process.env['FILTARR_SESSION_SECRET'] = 'a'.repeat(32);
+    process.env['FILTARR_SESSION_MAX_AGE'] = 'soon';
+    expect(() => loadAuthConfigFromEnv()).toThrow('Invalid session configuration');
+  });
+
+  it('reads session max age and cookie name even without a session secret', () => {
+    process.env['FILTARR_SESSION_MAX_AGE'] = '1000';
+    process.env['FILTARR_SESSION_COOKIE_NAME'] = 'x.sid';
+    expect(loadAuthConfigFromEnv()).toEqual({ forms: { sessionMaxAge: 1000, cookieName: 'x.sid' } });
+  });
+
   it('ignores auth mode and credential env vars', () => {
     process.env['FILTARR_AUTH_MODE'] = 'ldap';
     process.env['FILTARR_AUTH_USERNAME'] = 'admin';

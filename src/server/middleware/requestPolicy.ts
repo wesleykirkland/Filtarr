@@ -129,6 +129,21 @@ export const SENSITIVE_ACTION_PATHS = [
  * 10 requests per minute per IP, shared across all sensitive endpoints.
  * Keyed on req.ip (honors 'trust proxy' only when configured).
  */
+/**
+ * Router-level limiter for routers whose handlers touch the filesystem or do expensive work
+ * (settings, system). Generous enough for normal UI use; the global and sensitive-action
+ * limiters still apply on top. Lives in the router chain so static analysis can see it.
+ */
+export function routerRateLimiter(maxRequests: number = 120): RequestHandler {
+  return rateLimit({
+    windowMs: 60 * 1000,
+    max: maxRequests,
+    message: { error: 'Too many requests. Please try again later.' },
+    standardHeaders: true,
+    legacyHeaders: false,
+  });
+}
+
 export function sensitiveActionLimiter(maxRequests: number = 10): RequestHandler {
   return rateLimit({
     windowMs: 60 * 1000,

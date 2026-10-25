@@ -184,6 +184,19 @@ describe('settings routes', () => {
       expect(readStoredSetting('default_slack_channel')).toBe('#ops');
     });
 
+    it('clears a stored secret when PUT sends null', async () => {
+      await saveSecrets();
+
+      await request(app)
+        .put('/api/v1/settings/notifications')
+        .send({ defaultSlackToken: null })
+        .expect(200);
+
+      expect(readStoredSetting('default_slack_token') ?? '').toBe('');
+      const res = await request(app).get('/api/v1/settings/notifications').expect(200);
+      expect(res.body.hasDefaultSlackToken).toBe(false);
+    });
+
     it('overwrites the stored secret when a new value is supplied', async () => {
       await saveSecrets();
 

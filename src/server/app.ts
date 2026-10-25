@@ -5,23 +5,27 @@ import { createDirectoriesRoutes } from './routes/directories.js';
 import { createFiltersRoutes } from './routes/filters.js';
 import { createJobsRoutes } from './routes/jobs.js';
 import { createEventsRoutes } from './routes/events.js';
-import { createSetupRoutes, getStoredAuthMode } from './routes/setup.js';
+import { createSetupRoutes } from './routes/setup.js';
+import { getAuthMode } from './lib/authMode.js';
 import { createAuthRoutes } from './routes/auth.js';
 import { createSettingsRoutes } from './routes/settings.js';
 
 const BACKUP_IMPORT_PATH = '/api/v1/settings/backup/import';
 import { createAuthMiddleware } from './middleware/auth.js';
-import { applySecurityMiddleware, authRateLimiter } from './middleware/security.js';
+import { applySecurityMiddleware } from './middleware/security.js';
 import { publicSystemRoutes, protectedSystemRoutes } from './routes/system.js';
 import { getDatabase } from '../db/index.js';
 import { errorHandler } from './middleware/errorHandler.js';
-import { loadAuthConfigFromEnv } from '../config/auth.js';
+import { isHostAllowed, loadAuthConfigFromEnv } from '../config/auth.js';
+import { logger } from './lib/logger.js';
 import type { AuthMode, AuthConfig } from '../config/auth.js';
 import type { Database } from 'better-sqlite3';
 
+let warnedAllowedHostsUnset = false;
+
 /** Get the current auth configuration from database settings */
 function getAuthConfig(db: Database): AuthConfig {
-  const mode = getStoredAuthMode(db);
+  const mode = getAuthMode(db);
   const envConfig = loadAuthConfigFromEnv();
   const config: AuthConfig = {
     mode,
@@ -31,6 +35,7 @@ function getAuthConfig(db: Database): AuthConfig {
     corsOrigin: envConfig.corsOrigin ?? 'same-origin',
     trustProxy: envConfig.trustProxy,
     cookieSecure: envConfig.cookieSecure,
+    allowedHosts: envConfig.allowedHosts,
   };
 
   // For forms mode, we need session config
@@ -61,6 +66,25 @@ export function createApp(db: Database = getDatabase()): express.Application {
     app.set('trust proxy', authConfig.trustProxy);
   }
 
+  // DNS-rebinding defense: reject requests whose Host header is not allowlisted.
+  // Mounted before every other middleware/route.
+  const { allowedHosts } = authConfig;
+  if (allowedHosts) {
+    app.use((req, res, next) => {
+      if (isHostAllowed(req.headers.host, allowedHosts)) {
+        next();
+        return;
+      }
+      res.status(421).json({ error: 'Misdirected request: host not allowed' });
+    });
+  } else if (process.env['NODE_ENV'] === 'production' && !warnedAllowedHostsUnset) {
+    warnedAllowedHostsUnset = true;
+    logger.warn(
+      'FILTARR_ALLOWED_HOSTS is not set; requests for any Host header are accepted. ' +
+        'Set it to the hostname(s) you use to reach Filtarr to protect against DNS rebinding.',
+    );
+  }
+
   applySecurityMiddleware(app, authConfig);
 
   // Body parsing. The backup import route installs its own JSON parser with a
@@ -75,15 +99,12 @@ export function createApp(db: Database = getDatabase()): express.Application {
   });
   app.use(express.urlencoded({ extended: false }));
 
-  // Auth-sensitive rate limiter for setup (login is limited inside the auth router)
-  const authLimiter = authRateLimiter(authConfig.rateLimitAuth);
-
   // Unauthenticated routes — setup and health check
   // SECURITY: These routes are intentionally unauthenticated
   app.use('/api/v1', publicSystemRoutes);
+  // POST /setup/complete applies its own auth rate limiter; GET /setup/status is not throttled.
   app.use(
     '/api/v1/setup',
-    authLimiter,
     createSetupRoutes(db, (authMode: AuthMode) => {
       // Runtime config update callback
       console.log(`Setup completed with auth mode: ${authMode}`);

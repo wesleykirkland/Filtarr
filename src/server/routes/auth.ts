@@ -1,47 +1,12 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import passport from 'passport';
 import type Database from 'better-sqlite3';
-import type { AuthConfig, AuthMode } from '../../config/auth.js';
+import type { AuthConfig } from '../../config/auth.js';
+import { getAuthMode } from '../lib/authMode.js';
+import { requireAuth } from '../middleware/auth.js';
 import { authRateLimiter } from '../middleware/security.js';
 import { generateApiKey, hashApiKey, getKeyIdentifiers } from '../middleware/apiKey.js';
 import { type ApiKey, toApiKeyResponse } from '../../db/schemas/users.js';
-
-/**
- * Get the current auth mode from the database settings.
- * This is called dynamically to support auth mode changes after setup.
- */
-function getCurrentAuthMode(db: Database.Database): AuthMode {
-  try {
-    const result = db
-      .prepare<[], { value: string }>(`SELECT value FROM settings WHERE key = 'auth_mode'`)
-      .get();
-    return (result?.value as AuthMode) || 'none';
-  } catch {
-    return 'none';
-  }
-}
-
-function requireAuthenticatedRequest(db: Database.Database) {
-  return (req: Request, res: Response, next: NextFunction): void => {
-    const authMode = getCurrentAuthMode(db);
-
-    if (authMode === 'none') {
-      next();
-      return;
-    }
-
-    if (req.apiKey || req.isAuthenticated?.() || (authMode === 'basic' && (req as any)._basicAuthValid)) {
-      next();
-      return;
-    }
-
-    if (authMode === 'basic') {
-      res.setHeader('WWW-Authenticate', 'Basic realm="Filtarr"');
-    }
-
-    res.status(401).json({ error: 'Authentication required' });
-  };
-}
 
 function hasOidcStrategy(): boolean {
   const passportWithStrategy = passport as unknown as { _strategy?: (name: string) => unknown };
@@ -72,7 +37,7 @@ export function createAuthRoutes(db: Database.Database, config: AuthConfig): Rou
 
   const handleLogin = (req: Request, res: Response, next: NextFunction): void => {
     // Get current auth mode dynamically from database
-    const authMode = getCurrentAuthMode(db);
+    const authMode = getAuthMode(db);
 
     if (authMode === 'none') {
       res.json({ success: true, message: 'Auth disabled' });
@@ -120,7 +85,7 @@ export function createAuthRoutes(db: Database.Database, config: AuthConfig): Rou
   // Credentials must be POSTed. GET is only meaningful for the OIDC redirect flow; for every
   // other mode it is rejected so credentials are never accepted from the query string.
   router.get('/login', loginLimiter, (req: Request, res: Response, next: NextFunction): void => {
-    if (getCurrentAuthMode(db) === 'oidc') {
+    if (getAuthMode(db) === 'oidc') {
       handleOidcLogin(req, res, next);
       return;
     }
@@ -145,7 +110,7 @@ export function createAuthRoutes(db: Database.Database, config: AuthConfig): Rou
   // --- Session info ---
   router.get('/session', (req: Request, res: Response): void => {
     // Get current auth mode dynamically from database
-    const authMode = getCurrentAuthMode(db);
+    const authMode = getAuthMode(db);
 
     if (authMode === 'none') {
       res.json({ authenticated: true, mode: 'none' });
@@ -184,7 +149,7 @@ export function createAuthRoutes(db: Database.Database, config: AuthConfig): Rou
 
   // --- OIDC callback ---
   router.get('/oidc/callback', (req: Request, res: Response): void => {
-    if (getCurrentAuthMode(db) !== 'oidc') {
+    if (getAuthMode(db) !== 'oidc') {
       res.status(404).json({ error: 'OIDC authentication is not enabled' });
       return;
     }
@@ -200,7 +165,7 @@ export function createAuthRoutes(db: Database.Database, config: AuthConfig): Rou
   });
 
   // --- API Key Management ---
-  router.use('/api-keys', requireAuthenticatedRequest(db));
+  router.use('/api-keys', requireAuth(db));
 
   // --- API Key Management ---
   router.get('/api-keys', (req: Request, res: Response): void => {

@@ -14,24 +14,10 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type Database from 'better-sqlite3';
 import { defaultCookieSecure, type AuthConfig, type AuthMode } from '../../config/auth.js';
+import { getAuthMode, needsSetup } from '../lib/authMode.js';
 import { getConfig } from '../../config/index.js';
 import type { User } from '../../db/schemas/users.js';
 import { apiKeyMiddleware } from './apiKey.js';
-
-/**
- * Get the current auth mode from the database settings.
- * This is called on each request to support dynamic auth mode changes (e.g., after setup).
- */
-function getCurrentAuthMode(db: Database.Database): AuthMode {
-  try {
-    const result = db
-      .prepare<[], { value: string }>(`SELECT value FROM settings WHERE key = 'auth_mode'`)
-      .get();
-    return (result?.value as AuthMode) || 'none';
-  } catch {
-    return 'none';
-  }
-}
 
 // Passport types `req.user` as the global `Express.User` interface, so it can only be extended
 // through global namespace merging (module augmentation of express-serve-static-core does not
@@ -109,10 +95,25 @@ export async function verifyUserCredentials(
  * Note: Auth mode is read dynamically from the database on each request
  * to support hot-reloading after setup completion.
  */
-function requireAuth(db: Database.Database) {
+export function requireAuth(db: Database.Database) {
   return (req: Request, res: Response, next: NextFunction): void => {
-    // Dynamically get auth mode from database (supports setup completion without restart)
-    const authMode = getCurrentAuthMode(db);
+    // Dynamically get auth mode from database (supports setup completion without restart).
+    // SECURITY: fail closed — an unreadable auth mode must never be treated as "none".
+    let authMode: AuthMode;
+    let setupPending: boolean;
+    try {
+      setupPending = needsSetup(db);
+      authMode = getAuthMode(db);
+    } catch {
+      res.status(503).json({ error: 'Authentication unavailable' });
+      return;
+    }
+
+    // Until setup completes there are no credentials; nothing protected is reachable.
+    if (setupPending) {
+      res.status(401).json({ error: 'Authentication required' });
+      return;
+    }
 
     // Auth mode "none" — allow all requests
     if (authMode === 'none') {

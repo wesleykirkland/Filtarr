@@ -48,6 +48,7 @@ The service will be available at `http://localhost:9898`
 ### 4. Initial Setup
 
 Navigate to `http://localhost:9898/setup` to complete the initial configuration:
+- Enter the one-time **setup token**. Until setup is complete Filtarr prints it to the server log at startup (`docker compose logs filtarr`, look for `Initial setup token`). To choose it yourself, set `FILTARR_SETUP_TOKEN` (see below).
 - Choose authentication mode
 - Set up credentials
 - Configure notification destinations
@@ -74,6 +75,8 @@ Navigate to `http://localhost:9898/setup` to complete the initial configuration:
 
 ### Authentication
 
+- **`FILTARR_SETUP_TOKEN`**: Optional. Pre-sets the one-time token required by the setup wizard. When unset, Filtarr generates a random token on each start while setup is pending and logs it. Until setup completes, every protected API route answers `401`; only health, setup status/complete and the web UI are reachable. Once a user or API key exists the wizard cannot be reopened. Use a long random value (e.g. `openssl rand -hex 32`) and remove it after setup.
+
 The auth mode (`none`, `basic`, `forms`, or `oidc`) and the admin username/password are configured in the web UI during initial setup and stored in the database (passwords as bcrypt hashes). They cannot be set via environment variables. The following optional variables tune forms sessions and OIDC:
 
 #### Forms Auth
@@ -89,9 +92,10 @@ The auth mode (`none`, `basic`, `forms`, or `oidc`) and the admin username/passw
   - `false`: ignore forwarded headers; client IP is the TCP peer.
   - A hop count such as `1`: trust that many proxies in front of Filtarr (typical for a single Nginx/Traefik/Caddy).
   - A comma-separated list of proxy addresses/subnets, e.g. `loopback,172.16.0.0/12`.
-  - `true`: trust any forwarded header. Only safe if Filtarr is reachable exclusively through the proxy.
+  - `true`: trust any forwarded header. **Not recommended**: Express then takes the leftmost `X-Forwarded-For` entry, which any client can spoof to dodge rate limits. Prefer a hop count or CIDR list.
   - Behind a TLS-terminating proxy this is required for forms login: without it Filtarr sees the request as HTTP and will not issue the `Secure` session cookie in production.
-  - It also determines the client IP used for rate limiting. Forwarded headers are never used for rate-limit keys unless this is set.
+  - It also determines the client IP used for rate limiting. Forwarded headers are never used for rate-limit keys unless this is set, so behind a proxy without it every client shares the proxy's IP and therefore a single rate-limit bucket (one user's failed logins can lock out everyone).
+- **`FILTARR_ALLOWED_HOSTS`**: Comma-separated list of hostnames (optionally with `:port`, case-insensitive) that Filtarr answers to, e.g. `filtarr.example.com,192.168.1.10:9898`. Requests with any other `Host` header get `421`. `localhost`, `127.0.0.1` and `[::1]` are always allowed. An entry without a port matches any port. Unset (default) accepts every host and logs a warning in production; setting it protects against DNS-rebinding attacks from malicious websites.
 
 #### OIDC Auth
 

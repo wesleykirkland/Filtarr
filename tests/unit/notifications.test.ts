@@ -8,6 +8,9 @@ import request from 'supertest';
 import { createApp } from '../../src/server/app.js';
 import { getDatabase } from '../../src/db/index.js';
 import { createInstance } from '../../src/db/schemas/instances.js';
+import { markSetupComplete } from '../support/setupState.js';
+
+markSetupComplete(getDatabase());
 
 describe('Filter notification overrides', () => {
   const app = createApp();

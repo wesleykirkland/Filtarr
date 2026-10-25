@@ -31,6 +31,12 @@ async function setInputValue(input: HTMLInputElement, value: string) {
   });
 }
 
+async function enterSetupToken(value = 'test-setup-token') {
+  const input = document.body.querySelector('#setup-token') as HTMLInputElement | null;
+  if (!input) throw new Error('setup token input not rendered');
+  await setInputValue(input, value);
+}
+
 describe('Setup page branches', () => {
   beforeEach(() => {
     document.body.innerHTML = '';
@@ -44,6 +50,7 @@ describe('Setup page branches', () => {
     const view = await render(wrap());
 
     await click(Array.from(document.body.querySelectorAll('button')).find((node) => node.textContent?.includes('Get Started')) ?? null);
+    await enterSetupToken();
     await click(Array.from(document.body.querySelectorAll('button')).find((node) => node.textContent === 'Continue') ?? null);
     await waitFor(() => expect(document.body.querySelectorAll('input').length).toBeGreaterThanOrEqual(3));
 
@@ -63,6 +70,19 @@ describe('Setup page branches', () => {
     await view.unmount();
   });
 
+  it('requires the setup token before continuing', async () => {
+    const view = await render(wrap());
+
+    await click(Array.from(document.body.querySelectorAll('button')).find((node) => node.textContent?.includes('Get Started')) ?? null);
+    await click(Array.from(document.body.querySelectorAll('button')).find((node) => node.textContent === 'Continue') ?? null);
+
+    expect(toast).toHaveBeenCalledWith('error', 'Enter the setup token from the server log');
+    expect(document.body.querySelector('#setup-token')).toBeTruthy();
+    expect(document.body.textContent).toContain('server log');
+    expect(api.post).not.toHaveBeenCalled();
+    await view.unmount();
+  });
+
   it('completes basic setup and continues to the dashboard', async () => {
     api.post.mockResolvedValue({ apiKey: 'flt_basic', message: 'done' });
     const view = await render(wrap());
@@ -71,6 +91,7 @@ describe('Setup page branches', () => {
     await act(async () => {
       Array.from(document.body.querySelectorAll('input')).find((node) => node.value === 'basic')!.click();
     });
+    await enterSetupToken();
     await click(Array.from(document.body.querySelectorAll('button')).find((node) => node.textContent === 'Continue') ?? null);
     await waitFor(() => expect(document.body.querySelectorAll('input').length).toBeGreaterThanOrEqual(3));
 
@@ -82,7 +103,7 @@ describe('Setup page branches', () => {
     await waitFor(() => expect(document.body.textContent).toContain('Continue to Dashboard'));
     await click(Array.from(document.body.querySelectorAll('button')).find((node) => node.textContent?.includes('Continue to Dashboard')) ?? null);
 
-    expect(api.post).toHaveBeenCalledWith('/setup/complete', { authMode: 'basic', username: 'admin', password: 'password123' });
+    expect(api.post).toHaveBeenCalledWith('/setup/complete', { authMode: 'basic', username: 'admin', password: 'password123', setupToken: 'test-setup-token' });
     expect(navigate).toHaveBeenCalledWith('/', { replace: true });
     await view.unmount();
   });
@@ -92,6 +113,7 @@ describe('Setup page branches', () => {
     const view = await render(wrap());
 
     await click(Array.from(document.body.querySelectorAll('button')).find((node) => node.textContent?.includes('Get Started')) ?? null);
+    await enterSetupToken();
     await click(Array.from(document.body.querySelectorAll('button')).find((node) => node.textContent === 'Continue') ?? null);
     await waitFor(() => expect(document.body.querySelectorAll('input').length).toBeGreaterThanOrEqual(3));
 

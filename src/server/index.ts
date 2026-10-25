@@ -7,6 +7,8 @@ import { startSettingsBackupScheduler, stopSettingsBackupScheduler } from './cro
 import { initWatcher, stopWatcher } from './services/watcher.js';
 import { initScheduler, stopScheduler } from './cron/scheduler.js';
 import { recordActivityEvent } from './lib/activity.js';
+import { needsSetup } from './lib/authMode.js';
+import { logSetupTokenBanner } from './lib/setupToken.js';
 
 function main(): void {
   const config = loadConfig();
@@ -15,6 +17,9 @@ function main(): void {
   // Initialize database (runs migrations on first start)
   const db = getDatabase();
   logger.info('Database initialized.');
+  if (needsSetup(db)) {
+    logSetupTokenBanner();
+  }
   recordActivityEvent(db, {
     type: 'started',
     source: 'system',

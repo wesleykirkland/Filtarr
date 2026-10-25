@@ -1,3 +1,4 @@
+import bcrypt from 'bcrypt';
 import express from 'express';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -113,5 +114,66 @@ describe('settings auth mode OIDC configuration', () => {
     expect(decryptStoredSecret(stored.oidc_client_secret)).toBe('super-secret-value');
     expect(stored.oidc_callback_url).toBe('http://localhost:9898/api/v1/auth/oidc/callback');
     expect(stored.oidc_scopes).toBe('openid,profile,email,groups');
+  });
+});
+
+describe('settings auth mode change requires the current password', () => {
+  let snapshot: Snapshot;
+  let userId: number;
+
+  // Simulates an API-key-authenticated caller: a key alone must not be enough to switch modes.
+  const apiKeyApp = express();
+  apiKeyApp.use(express.json());
+  apiKeyApp.use((req, _res, next) => {
+    (req as any).apiKey = { apiKeyId: 1, apiKeyName: 'automation' };
+    next();
+  });
+  apiKeyApp.use('/api/v1/settings', createSettingsRoutes(db));
+
+  beforeAll(async () => {
+    snapshot = readSnapshot();
+    db.prepare(
+      `INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('auth_mode', 'forms', datetime('now'))`,
+    ).run();
+    const hash = await bcrypt.hash('correct-horse', 4);
+    userId = Number(
+      db
+        .prepare(`INSERT INTO users (username, password_hash, display_name) VALUES (?, ?, ?)`)
+        .run('pw-check-admin', hash, 'Administrator').lastInsertRowid,
+    );
+  });
+
+  afterAll(() => {
+    db.prepare('DELETE FROM users WHERE id = ?').run(userId);
+    restoreSnapshot(snapshot);
+  });
+
+  it('rejects the change when currentPassword is missing', async () => {
+    const res = await request(app).put('/api/v1/settings/auth-mode').send({ authMode: 'none' });
+    expect(res.status).toBe(401);
+    expect(readSnapshot().auth_mode).toBe('forms');
+  });
+
+  it('rejects the change when currentPassword is wrong', async () => {
+    const res = await request(app)
+      .put('/api/v1/settings/auth-mode')
+      .send({ authMode: 'none', currentPassword: 'wrong-password' });
+    expect(res.status).toBe(401);
+    expect(res.body).toEqual({ error: 'Current password is incorrect' });
+    expect(readSnapshot().auth_mode).toBe('forms');
+  });
+
+  it('rejects API-key callers that do not supply the current password', async () => {
+    const res = await request(apiKeyApp).put('/api/v1/settings/auth-mode').send({ authMode: 'basic' });
+    expect(res.status).toBe(401);
+    expect(readSnapshot().auth_mode).toBe('forms');
+  });
+
+  it('applies the change when currentPassword is correct', async () => {
+    const res = await request(apiKeyApp)
+      .put('/api/v1/settings/auth-mode')
+      .send({ authMode: 'basic', currentPassword: 'correct-horse' });
+    expect(res.status).toBe(200);
+    expect(readSnapshot().auth_mode).toBe('basic');
   });
 });

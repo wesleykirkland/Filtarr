@@ -7,6 +7,7 @@ import { resetConfigCache } from '../../src/config/index.js';
 import { closeDatabase, openDatabase } from '../../src/db/index.js';
 import { getOrCreateSessionSecret } from '../../src/server/middleware/auth.js';
 import { createApp } from '../../src/server/app.js';
+import { markSetupComplete } from '../support/setupState.js';
 
 describe('Security hardening', () => {
   let app: ReturnType<typeof createApp>;
@@ -22,6 +23,7 @@ describe('Security hardening', () => {
     delete process.env['FILTARR_ENABLE_CUSTOM_SCRIPTS'];
 
     db = openDatabase(tempDir);
+    markSetupComplete(db);
     app = createApp(db);
   });
 

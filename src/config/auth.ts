@@ -34,6 +34,10 @@ export const AuthConfigSchema = z.object({
   trustProxy: z.union([z.boolean(), z.number().int().nonnegative(), z.string()]).optional(),
   // Session cookie Secure flag (FILTARR_COOKIE_SECURE). Unset = secure only when NODE_ENV=production.
   cookieSecure: z.union([z.boolean(), z.literal('auto')]).optional(),
+  // Host header allowlist (FILTARR_ALLOWED_HOSTS). Unset = allow any Host.
+  allowedHosts: z
+    .array(z.object({ hostname: z.string(), port: z.string().optional() }))
+    .optional(),
 });
 
 export type AuthConfig = z.infer<typeof AuthConfigSchema>;
@@ -57,6 +61,64 @@ export function parseTrustProxy(raw: string | undefined): TrustProxySetting | un
     .map((entry) => entry.trim())
     .filter(Boolean)
     .join(',');
+}
+
+export interface AllowedHost {
+  /** Lower-cased hostname (IPv6 literals keep their brackets, e.g. `[::1]`). */
+  hostname: string;
+  /** Port to match, or undefined to match any port. */
+  port?: string;
+}
+
+/** Hosts that are always accepted, regardless of FILTARR_ALLOWED_HOSTS. */
+export const IMPLICIT_ALLOWED_HOSTNAMES = ['localhost', '127.0.0.1', '[::1]'] as const;
+
+/** Split a Host header value (or allowlist entry) into a lower-cased hostname and optional port. */
+export function splitHostPort(value: string): AllowedHost {
+  const host = value.trim().toLowerCase();
+  if (host.startsWith('[')) {
+    const end = host.indexOf(']');
+    if (end === -1) return { hostname: host };
+    const rest = host.slice(end + 1);
+    return {
+      hostname: host.slice(0, end + 1),
+      port: rest.startsWith(':') && rest.length > 1 ? rest.slice(1) : undefined,
+    };
+  }
+  const colon = host.lastIndexOf(':');
+  if (colon !== -1 && host.indexOf(':') === colon) {
+    const port = host.slice(colon + 1);
+    return { hostname: host.slice(0, colon), port: port || undefined };
+  }
+  return { hostname: host };
+}
+
+/**
+ * Parse FILTARR_ALLOWED_HOSTS: a comma-separated list of hostnames, each with an optional port
+ * (e.g. `filtarr.example.com, 192.168.1.10:9898`). Matching is case-insensitive. Empty/unset
+ * returns undefined (all hosts allowed).
+ */
+export function parseAllowedHosts(raw: string | undefined): AllowedHost[] | undefined {
+  const entries = (raw ?? '')
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .map(splitHostPort)
+    .filter((entry) => entry.hostname.length > 0);
+  return entries.length > 0 ? entries : undefined;
+}
+
+/**
+ * Whether a request Host header is permitted by the allowlist. localhost, 127.0.0.1 and [::1]
+ * are always allowed. An entry without a port matches the hostname on any port.
+ */
+export function isHostAllowed(hostHeader: string | undefined, allowed: AllowedHost[]): boolean {
+  if (!hostHeader) return false;
+  const { hostname, port } = splitHostPort(hostHeader);
+  if ((IMPLICIT_ALLOWED_HOSTNAMES as readonly string[]).includes(hostname)) return true;
+  return allowed.some(
+    (entry) => entry.hostname === hostname && (entry.port === undefined || entry.port === port),
+  );
 }
 
 /**
@@ -119,6 +181,11 @@ export function loadAuthConfigFromEnv(): Partial<AuthConfig> {
   const trustProxy = parseTrustProxy(env['FILTARR_TRUST_PROXY']);
   if (trustProxy !== undefined) {
     config.trustProxy = trustProxy;
+  }
+
+  const allowedHosts = parseAllowedHosts(env['FILTARR_ALLOWED_HOSTS']);
+  if (allowedHosts !== undefined) {
+    config.allowedHosts = allowedHosts;
   }
 
   const cookieSecure = parseCookieSecure(env['FILTARR_COOKIE_SECURE']);

@@ -239,7 +239,7 @@ describe('settings routes', () => {
     };
 
     beforeEach(() => {
-      db.exec(`CREATE TABLE users (id INTEGER PRIMARY KEY)`);
+      db.exec(`CREATE TABLE users (id INTEGER PRIMARY KEY, password_hash TEXT)`);
     });
 
     it('encrypts on write, masks on read, and preserves on empty PUT', async () => {

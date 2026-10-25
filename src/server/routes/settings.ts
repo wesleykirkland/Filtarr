@@ -20,6 +20,7 @@ import {
   SettingsBackupService,
   type BackupSettingsState,
 } from '../services/settingsBackup.js';
+import { reloadSettingsBackupScheduler } from '../cron/settingsBackup.js';
 
 interface ChangeAuthModeRequest {
   authMode: AuthMode;
@@ -404,6 +405,7 @@ export function createSettingsRoutes(
       }
 
       const backupState = backupService.updateSettings({ enabled, directory, retentionCount });
+      reloadSettingsBackupScheduler();
 
       res.json({
         success: true,
@@ -455,6 +457,7 @@ export function createSettingsRoutes(
 
       const result = backupService.importBackup(trimmedSql);
       onAuthModeChange?.(getCurrentAuthMode(db));
+      reloadSettingsBackupScheduler();
 
       res.json({
         success: true,

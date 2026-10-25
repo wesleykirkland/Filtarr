@@ -38,7 +38,8 @@ RUN addgroup -g 1001 -S filtarr && \
 WORKDIR /app
 
 COPY package.json package-lock.json ./
-RUN apk add --no-cache --virtual .build-deps python3 make g++ && \
+RUN apk add --no-cache bash && \
+    apk add --no-cache --virtual .build-deps python3 make g++ && \
     npm ci --omit=dev && \
     apk del .build-deps && \
     npm cache clean --force

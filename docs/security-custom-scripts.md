@@ -16,24 +16,20 @@ export FILTARR_ENABLE_CUSTOM_SCRIPTS=true
 
 **⚠️ Only enable this if you trust all users who can create filters.**
 
-### JavaScript Sandbox
+### JavaScript Runtime (not a sandbox)
 
-JavaScript scripts run in a Node.js `vm` context with:
+JavaScript scripts run in a Node.js `vm` context. This limits what is *directly* exposed, but it is not an isolation boundary:
 
-- ✅ **Timeout protection**: 5-second hard limit
-- ✅ **No eval/Function**: Code generation disabled
-- ✅ **No require/import**: Cannot load modules
-- ✅ **No filesystem access**: No `fs`, `path`, etc.
-- ✅ **No network access**: No `http`, `https`, `net`, etc.
-- ✅ **No process access**: No `process`, `child_process`, etc.
-- ✅ **Limited globals**: Only `Math`, `JSON`, `Date`, basic types
+- ⚠️ **Partial timeout**: The 5-second limit only bounds synchronous execution. Scripts are wrapped in an async function, so code after an `await` is not interrupted by the timeout
+- ⚠️ **Not a sandbox**: Host-realm objects (`Object`, `Array`, `Buffer` helpers, etc.) are injected into the context, so scripts can reach the host process. Treat JavaScript scripts as having the same access as Filtarr itself
+- **Limited direct globals**: `require`, `process`, `fs`, and network modules are not provided directly, but can be reached through a VM escape (see below)
 
 ### Shell Script Execution
 
-Shell scripts run via `bash -lc` with:
+Shell scripts run via `bash -c` (no login profiles are sourced) with:
 
 - ✅ **Timeout protection**: 5-second hard limit
-- ✅ **Environment isolation**: Custom environment variables
+- ✅ **Allowlisted environment**: Only `PATH`, `HOME`, `LANG`, `TZ`, `TMPDIR` (when set) plus `FILTARR_CONTEXT_JSON` and `FILTARR_FILE_*` are passed; Filtarr secrets such as `FILTARR_SECRET` and `FILTARR_SESSION_SECRET` are not
 - ✅ **Buffer limits**: 1MB max output
 - ⚠️ **Full shell access**: Can execute any command bash can run
 
@@ -128,13 +124,13 @@ unset FILTARR_ENABLE_CUSTOM_SCRIPTS
 
 ## Mitigations in Place
 
-1. **Feature flag**: Disabled by default, requires explicit opt-in
-2. **Timeout**: 5-second execution limit prevents infinite loops
-3. **No eval**: `codeGeneration.strings = false` blocks `eval()` and `Function()`
-4. **No WASM**: `codeGeneration.wasm = false` blocks WebAssembly
-5. **Limited globals**: No access to dangerous Node.js APIs
-6. **Error isolation**: Script errors don't crash the main process
-7. **Logging**: All script failures are logged for audit
+1. **Feature flag**: Disabled by default, requires explicit opt-in. Enforced both when saving script filters/jobs and at execution time
+2. **Timeout**: 5-second limit for shell scripts and for synchronous JavaScript (awaited JavaScript code is not bounded)
+3. **Shell environment allowlist**: Secrets in the Filtarr process environment are not passed to shell scripts
+4. **Error isolation**: Script errors don't crash the main process
+5. **Logging**: All script failures are logged for audit
+
+The JavaScript runtime is **not** a security sandbox: code generation is not disabled and host objects are reachable. Only enable custom scripts when every user who can create filters or jobs is a trusted operator.
 
 ## Future Improvements
 

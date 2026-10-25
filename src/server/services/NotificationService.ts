@@ -8,6 +8,11 @@ import type { FileEvent } from './filterEngine.js';
 
 export type NotificationChannel = 'slack' | 'webhook';
 
+/** Upper bound for a single notification HTTP request. */
+export const NOTIFICATION_TIMEOUT_MS = 10_000;
+
+const SLACK_POST_MESSAGE_URL = 'https://slack.com/api/chat.postMessage';
+
 interface NotificationSettings {
   slackEnabled: boolean;
   webhookEnabled: boolean;
@@ -41,26 +46,43 @@ export class NotificationService {
     const deliveries: Promise<boolean>[] = [];
 
     if (settings.webhookEnabled && targets.webhookUrl) {
+      const webhookUrl = targets.webhookUrl;
       deliveries.push(
-        this.sendWebhookPayload(
-          targets.webhookUrl,
-          this.buildFilterMatchPayload(filter, file),
+        this.deliverSafely(
+          'webhook',
+          webhookUrl,
           { filterId: filter.id },
           'Webhook notification failed',
-          'Webhook notification sent',
+          () =>
+            this.sendWebhookPayload(
+              webhookUrl,
+              this.buildFilterMatchPayload(filter, file),
+              { filterId: filter.id },
+              'Webhook notification failed',
+              'Webhook notification sent',
+            ),
         ),
       );
     }
 
     if (settings.slackEnabled && targets.slackToken && targets.slackChannel) {
+      const { slackToken, slackChannel } = targets;
+      const logContext = { filterId: filter.id, channel: slackChannel };
       deliveries.push(
-        this.sendSlackMessage(
-          targets.slackToken,
-          targets.slackChannel,
-          this.buildFilterMatchSlackText(filter, file),
-          { filterId: filter.id, channel: targets.slackChannel },
+        this.deliverSafely(
+          'slack',
+          SLACK_POST_MESSAGE_URL,
+          logContext,
           'Slack notification failed',
-          'Slack notification sent',
+          () =>
+            this.sendSlackMessage(
+              slackToken,
+              slackChannel,
+              this.buildFilterMatchSlackText(filter, file),
+              logContext,
+              'Slack notification failed',
+              'Slack notification sent',
+            ),
         ),
       );
     } else if (settings.slackEnabled) {
@@ -120,10 +142,7 @@ export class NotificationService {
     }
   }
 
-  public async notifyInstanceHealthcheckFailure(
-    instance: ArrInstanceSummary,
-    error: string,
-  ) {
+  public async notifyInstanceHealthcheckFailure(instance: ArrInstanceSummary, error: string) {
     const settings = this.getNotificationSettings();
     const deliveries: Promise<boolean>[] = [];
     const webhookUrl = this.trimToUndefined(settings.defaultWebhookUrl);
@@ -132,25 +151,40 @@ export class NotificationService {
 
     if (settings.webhookEnabled && webhookUrl) {
       deliveries.push(
-        this.sendWebhookPayload(
+        this.deliverSafely(
+          'webhook',
           webhookUrl,
-          this.buildInstanceHealthcheckPayload(instance, error),
           { instanceId: instance.id },
           'Webhook healthcheck notification failed',
-          'Webhook healthcheck notification sent',
+          () =>
+            this.sendWebhookPayload(
+              webhookUrl,
+              this.buildInstanceHealthcheckPayload(instance, error),
+              { instanceId: instance.id },
+              'Webhook healthcheck notification failed',
+              'Webhook healthcheck notification sent',
+            ),
         ),
       );
     }
 
     if (settings.slackEnabled && slackToken && slackChannel) {
+      const logContext = { instanceId: instance.id, channel: slackChannel };
       deliveries.push(
-        this.sendSlackMessage(
-          slackToken,
-          slackChannel,
-          this.buildInstanceHealthcheckSlackText(instance, error),
-          { instanceId: instance.id, channel: slackChannel },
+        this.deliverSafely(
+          'slack',
+          SLACK_POST_MESSAGE_URL,
+          logContext,
           'Slack healthcheck notification failed',
-          'Slack healthcheck notification sent',
+          () =>
+            this.sendSlackMessage(
+              slackToken,
+              slackChannel,
+              this.buildInstanceHealthcheckSlackText(instance, error),
+              logContext,
+              'Slack healthcheck notification failed',
+              'Slack healthcheck notification sent',
+            ),
         ),
       );
     } else if (settings.slackEnabled && (slackToken || slackChannel)) {
@@ -200,7 +234,9 @@ export class NotificationService {
     return trimmed.length > 0 ? trimmed : undefined;
   }
 
-  private mergeNotificationSettings(overrides: Partial<NotificationSettings>): NotificationSettings {
+  private mergeNotificationSettings(
+    overrides: Partial<NotificationSettings>,
+  ): NotificationSettings {
     const current = this.getNotificationSettings();
 
     return {
@@ -272,10 +308,7 @@ export class NotificationService {
     };
   }
 
-  private buildInstanceHealthcheckPayload(
-    instance: ArrInstanceSummary,
-    error: string,
-  ) {
+  private buildInstanceHealthcheckPayload(instance: ArrInstanceSummary, error: string) {
     return {
       event: 'instance_healthcheck_failure',
       instance: {
@@ -307,10 +340,7 @@ export class NotificationService {
     ].join('\n');
   }
 
-  private buildInstanceHealthcheckSlackText(
-    instance: ArrInstanceSummary,
-    error: string,
-  ): string {
+  private buildInstanceHealthcheckSlackText(instance: ArrInstanceSummary, error: string): string {
     return [
       `Filtarr instance healthcheck failed: ${instance.name}`,
       `Type: ${instance.type}`,
@@ -320,9 +350,57 @@ export class NotificationService {
   }
 
   private buildTestSlackText(): string {
-    return ['Filtarr Slack test notification', 'Your Slack notification settings are working.'].join(
-      '\n',
-    );
+    return [
+      'Filtarr Slack test notification',
+      'Your Slack notification settings are working.',
+    ].join('\n');
+  }
+
+  /**
+   * Runs a fan-out delivery so that a thrown error (invalid URL, network
+   * failure, timeout) is logged at warn level instead of disappearing inside
+   * Promise.allSettled. Only the destination host is logged: webhook paths and
+   * Slack tokens can carry secrets.
+   */
+  private async deliverSafely(
+    deliveryChannel: NotificationChannel,
+    targetUrl: string,
+    logContext: Record<string, unknown>,
+    failureMessage: string,
+    send: () => Promise<boolean>,
+  ): Promise<boolean> {
+    try {
+      return await send();
+    } catch (err: unknown) {
+      logger.warn(
+        {
+          ...logContext,
+          deliveryChannel,
+          host: this.getSafeHost(targetUrl),
+          reason: this.describeDeliveryError(err),
+        },
+        failureMessage,
+      );
+      return false;
+    }
+  }
+
+  private getSafeHost(url: string): string {
+    try {
+      return new URL(url).host || 'unknown';
+    } catch {
+      return 'invalid-url';
+    }
+  }
+
+  private describeDeliveryError(err: unknown): string {
+    if (err instanceof Error) {
+      if (err.name === 'TimeoutError') {
+        return `Request timed out after ${NOTIFICATION_TIMEOUT_MS}ms`;
+      }
+      return err.message || err.name;
+    }
+    return 'Unknown notification delivery error';
   }
 
   private async sendWebhookPayload(
@@ -343,6 +421,7 @@ export class NotificationService {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(NOTIFICATION_TIMEOUT_MS),
     });
 
     if (!response.ok) {
@@ -362,13 +441,14 @@ export class NotificationService {
     failureMessage: string,
     successMessage: string,
   ): Promise<boolean> {
-    const response = await fetch('https://slack.com/api/chat.postMessage', {
+    const response = await fetch(SLACK_POST_MESSAGE_URL, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json; charset=utf-8',
       },
       body: JSON.stringify({ channel, text }),
+      signal: AbortSignal.timeout(NOTIFICATION_TIMEOUT_MS),
     });
 
     const body = (await response.json().catch(() => null)) as SlackApiResponse | null;

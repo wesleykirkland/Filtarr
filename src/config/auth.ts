@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { getConfig } from './index.js';
 
 export const AuthMode = z.enum(['none', 'basic', 'forms', 'oidc']);
 export type AuthMode = z.infer<typeof AuthMode>;
@@ -136,7 +137,38 @@ export function parseCookieSecure(raw: string | undefined): boolean | 'auto' | u
 
 /** Default Secure flag for the session cookie when FILTARR_COOKIE_SECURE is not set. */
 export function defaultCookieSecure(): boolean {
-  return process.env['NODE_ENV'] === 'production';
+  return getConfig().nodeEnv === 'production';
+}
+
+/**
+ * Read session settings (FILTARR_SESSION_SECRET, FILTARR_SESSION_MAX_AGE,
+ * FILTARR_SESSION_COOKIE_NAME) and validate them with FormsAuthConfigSchema. These are read in
+ * every auth mode, because the mode can switch to forms at runtime without a restart.
+ * Throws a descriptive error on invalid values so startup fails fast.
+ */
+export function loadSessionConfigFromEnv(
+  env: NodeJS.ProcessEnv = process.env,
+): z.infer<typeof FormsAuthConfigSchema> | undefined {
+  const secret = env['FILTARR_SESSION_SECRET'];
+  const maxAge = env['FILTARR_SESSION_MAX_AGE'];
+  const cookieName = env['FILTARR_SESSION_COOKIE_NAME'];
+  if (!secret && !maxAge && !cookieName) return undefined;
+
+  const raw: Record<string, unknown> = {};
+  if (secret) raw['sessionSecret'] = secret;
+  if (maxAge) raw['sessionMaxAge'] = /^\d+$/.test(maxAge.trim()) ? Number(maxAge.trim()) : maxAge;
+  if (cookieName) raw['cookieName'] = cookieName;
+
+  const result = FormsAuthConfigSchema.safeParse(raw);
+  if (!result.success) {
+    const errors = result.error.issues
+      .map((issue) => `  ${issue.path.join('.') || 'session'}: ${issue.message}`)
+      .join('\n');
+    throw new Error(
+      `Invalid session configuration (FILTARR_SESSION_SECRET / FILTARR_SESSION_MAX_AGE / FILTARR_SESSION_COOKIE_NAME):\n${errors}`,
+    );
+  }
+  return result.data;
 }
 
 /**
@@ -152,13 +184,10 @@ export function loadAuthConfigFromEnv(): Partial<AuthConfig> {
 
   const env = process.env;
 
-  // Forms auth from env
-  if (env['FILTARR_SESSION_SECRET']) {
-    config.forms = {
-      sessionSecret: env['FILTARR_SESSION_SECRET'],
-      sessionMaxAge: Number.parseInt(env['FILTARR_SESSION_MAX_AGE'] || '86400000', 10),
-      cookieName: env['FILTARR_SESSION_COOKIE_NAME'] || 'filtarr.sid',
-    };
+  // Session settings from env (validated; throws on e.g. a secret shorter than 32 chars)
+  const forms = loadSessionConfigFromEnv(env);
+  if (forms) {
+    config.forms = forms;
   }
 
   // OIDC from env

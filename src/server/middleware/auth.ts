@@ -6,6 +6,7 @@ import {
   Router,
 } from 'express';
 import session from 'express-session';
+import rateLimit from 'express-rate-limit';
 import passport from 'passport';
 import { Strategy as LocalStrategy } from 'passport-local';
 import bcrypt from 'bcrypt';
@@ -17,6 +18,7 @@ import { defaultCookieSecure, type AuthConfig, type AuthMode } from '../../confi
 import { getAuthMode, needsSetup } from '../lib/authMode.js';
 import { getConfig } from '../../config/index.js';
 import type { User } from '../../db/schemas/users.js';
+import { logger } from '../lib/logger.js';
 import { apiKeyMiddleware } from './apiKey.js';
 import { SqliteSessionStore } from '../lib/sessionStore.js';
 
@@ -31,21 +33,90 @@ declare global {
       username: string;
       displayName: string | null;
     }
+    interface Request {
+      /** Set by basicAuthMiddleware when valid Basic credentials were presented in basic mode. */
+      _basicAuthValid?: boolean;
+    }
   }
 }
 /* eslint-enable @typescript-eslint/no-namespace */
 
 const MAX_FAILED_ATTEMPTS = 5;
-const LOCKOUT_DURATION_MS = 15 * 60 * 1000;
+const LOCKOUT_MINUTES = 15;
+
+/**
+ * bcrypt hash (cost 12, same as stored passwords) of a random value no user can have, generated
+ * once per process. Compared against when the username is unknown, the account is locked, or the
+ * stored hash is unusable, so every credential failure costs one bcrypt comparison and failures
+ * are not distinguishable by timing.
+ */
+let dummyPasswordHashPromise: Promise<string> | null = null;
+
+function getDummyPasswordHash(): Promise<string> {
+  dummyPasswordHashPromise ??= bcrypt.hash(crypto.randomBytes(32).toString('hex'), 12);
+  return dummyPasswordHashPromise;
+}
+
+/** The only message ever returned to clients for a failed credential check. */
+export const GENERIC_AUTH_FAILURE_MESSAGE = 'Invalid credentials';
+
+export type CredentialFailureReason = 'invalid' | 'locked' | 'unknown_user';
 
 export type CredentialCheckResult =
   | { ok: true; user: User }
-  | { ok: false; reason: 'invalid' | 'locked' };
+  | { ok: false; reason: CredentialFailureReason };
+
+async function dummyCompare(password: string): Promise<void> {
+  try {
+    await bcrypt.compare(password, await getDummyPasswordHash());
+  } catch {
+    // Timing equalisation only; the result is irrelevant.
+  }
+}
+
+/**
+ * Atomically reserve one credential attempt for `userId`.
+ *
+ * The attempt is counted BEFORE the (slow, async) bcrypt comparison, in a single UPDATE, so
+ * parallel attempts cannot act on a stale counter: once MAX_FAILED_ATTEMPTS attempts have been
+ * reserved the account is locked and further attempts are refused without a comparison. An
+ * expired lock restarts the count at 1. A successful comparison resets the counter.
+ *
+ * Returns false when the account is currently locked.
+ */
+function reserveCredentialAttempt(db: Database.Database, userId: number): boolean {
+  const row = db
+    .prepare<[number, number], { failed_attempts: number }>(
+      `UPDATE users SET
+         failed_attempts = CASE WHEN locked_until IS NOT NULL THEN 1 ELSE failed_attempts + 1 END,
+         locked_until = CASE
+           WHEN (CASE WHEN locked_until IS NOT NULL THEN 1 ELSE failed_attempts + 1 END) >= ?
+             THEN strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+${LOCKOUT_MINUTES} minutes')
+           ELSE NULL
+         END,
+         updated_at = datetime('now')
+       WHERE id = ?
+         AND (locked_until IS NULL OR julianday(locked_until) <= julianday('now'))
+       RETURNING failed_attempts`,
+    )
+    .get(MAX_FAILED_ATTEMPTS, userId);
+  return row !== undefined;
+}
+
+/** Clear the failed-attempt counter and any lock for `userId`. */
+export function resetFailedAttempts(db: Database.Database, userId: number): void {
+  db.prepare(
+    "UPDATE users SET failed_attempts = 0, locked_until = NULL, updated_at = datetime('now') WHERE id = ?",
+  ).run(userId);
+}
 
 /**
  * Verify a username/password against the users table, enforcing account lockout.
- * Shared by the passport local strategy (forms) and the Basic auth middleware so both
- * increment failed_attempts and honor locked_until identically.
+ * Shared by the passport local strategy (forms), the Basic auth middleware and the password
+ * change endpoint so all of them count failures and honor locks identically.
+ *
+ * The returned `reason` is for server-side logging only; callers must answer clients with
+ * GENERIC_AUTH_FAILURE_MESSAGE regardless of it.
  */
 export async function verifyUserCredentials(
   db: Database.Database,
@@ -55,43 +126,52 @@ export async function verifyUserCredentials(
   const user = db.prepare<[string], User>('SELECT * FROM users WHERE username = ?').get(username);
 
   if (!user) {
-    return { ok: false, reason: 'invalid' };
+    await dummyCompare(password);
+    return { ok: false, reason: 'unknown_user' };
   }
 
-  // Check account lockout
-  if (user.locked_until && new Date(user.locked_until) > new Date()) {
+  if (!reserveCredentialAttempt(db, user.id)) {
+    await dummyCompare(password);
     return { ok: false, reason: 'locked' };
   }
 
-  const valid = await bcrypt.compare(password, user.password_hash);
+  let valid = false;
+  if (user.password_hash) {
+    valid = await bcrypt.compare(password, user.password_hash);
+  } else {
+    await dummyCompare(password);
+  }
+
   if (!valid) {
-    // Increment failed attempts
-    const newAttempts = user.failed_attempts + 1;
-    const lockUntil =
-      newAttempts >= MAX_FAILED_ATTEMPTS
-        ? new Date(Date.now() + LOCKOUT_DURATION_MS).toISOString()
-        : null;
-
-    db.prepare(
-      "UPDATE users SET failed_attempts = ?, locked_until = ?, updated_at = datetime('now') WHERE id = ?",
-    ).run(newAttempts, lockUntil, user.id);
-
     return { ok: false, reason: 'invalid' };
   }
 
-  // Reset failed attempts on success
-  db.prepare(
-    "UPDATE users SET failed_attempts = 0, locked_until = NULL, updated_at = datetime('now') WHERE id = ?",
-  ).run(user.id);
-
+  resetFailedAttempts(db, user.id);
   return { ok: true, user };
+}
+
+export function logCredentialFailure(
+  source: 'forms' | 'basic' | 'password-change',
+  username: string,
+  reason: CredentialFailureReason,
+): void {
+  logger.warn({ source, username, reason }, 'Authentication failed');
+}
+
+/**
+ * Sessions are only honored in forms mode. (No OIDC strategy ships in this build, so a session
+ * presented in any other mode is a leftover from before an auth-mode change.)
+ * Shared by requireAuth and the auth routes so both apply the same rule.
+ */
+export function isSessionAuthenticated(req: Request, authMode: AuthMode): boolean {
+  return authMode === 'forms' && Boolean(req.isAuthenticated?.());
 }
 
 /**
  * Check if the request is authenticated via any method:
  * 1. API key (req.apiKey set by apiKeyMiddleware)
- * 2. Session (req.isAuthenticated() from passport)
- * 3. Basic auth header
+ * 2. Session (req.isAuthenticated() from passport) — forms mode only
+ * 3. Basic auth header — basic mode only
  *
  * Note: Auth mode is read dynamically from the database on each request
  * to support hot-reloading after setup completion.
@@ -122,21 +202,20 @@ export function requireAuth(db: Database.Database) {
       return;
     }
 
-    // API key auth always works regardless of mode
+    // API key auth works in every mode (scopes are enforced by scopedRouter/requireScope)
     if (req.apiKey) {
       next();
       return;
     }
 
-    // Session-based auth (forms or oidc)
-    if ((authMode === 'forms' || authMode === 'oidc') && req.isAuthenticated?.()) {
+    if (isSessionAuthenticated(req, authMode)) {
       next();
       return;
     }
 
     // Basic auth
     if (authMode === 'basic') {
-      if ((req as any)._basicAuthValid) {
+      if (req._basicAuthValid) {
         next();
         return;
       }
@@ -150,19 +229,38 @@ export function requireAuth(db: Database.Database) {
   };
 }
 
+function hasBasicAuthHeader(req: Request): boolean {
+  return /^basic /i.test(req.headers.authorization ?? '');
+}
+
+/**
+ * Per-IP limiter for requests carrying Basic credentials. Only failed credential checks count
+ * toward the limit (a browser in basic mode resends the header on every request), so the
+ * effective budget matches the login endpoint's `rateLimitAuth` attempts per minute.
+ */
+function basicAuthRateLimiter(maxFailures: number): RequestHandler {
+  return rateLimit({
+    windowMs: 60 * 1000,
+    limit: maxFailures,
+    skipSuccessfulRequests: true,
+    requestWasSuccessful: (req: Request) => Boolean(req._basicAuthValid),
+    message: { error: 'Too many authentication attempts. Please try again later.' },
+    standardHeaders: true,
+    legacyHeaders: false,
+  });
+}
+
 /**
  * Basic auth validation middleware.
  * Validates Authorization: Basic <base64> header against credentials from database.
+ * Only active in basic mode; the header is ignored in every other mode.
  */
-function basicAuthMiddleware(db: Database.Database) {
-  return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    const authHeader = req.headers.authorization;
-    if (!authHeader?.startsWith('Basic ')) {
-      next();
-      return;
-    }
+function basicAuthMiddleware(db: Database.Database, maxFailuresPerMinute: number) {
+  const limiter = basicAuthRateLimiter(maxFailuresPerMinute);
 
+  const validate = async (req: Request, next: NextFunction): Promise<void> => {
     try {
+      const authHeader = req.headers.authorization ?? '';
       const decoded = Buffer.from(authHeader.slice(6), 'base64').toString('utf-8');
       const colonIndex = decoded.indexOf(':');
       if (colonIndex === -1) {
@@ -176,12 +274,28 @@ function basicAuthMiddleware(db: Database.Database) {
       // Verify against the database (applies the same lockout as forms login)
       const result = await verifyUserCredentials(db, providedUser, providedPass);
       if (result.ok) {
-        (req as any)._basicAuthValid = true;
+        req._basicAuthValid = true;
+      } else {
+        logCredentialFailure('basic', providedUser, result.reason);
       }
-    } catch {
-      // Invalid base64 or other error — just continue
+    } catch (err) {
+      logger.error({ err }, 'Basic auth validation error');
     }
     next();
+  };
+
+  return (req: Request, res: Response, next: NextFunction): void => {
+    if (!hasBasicAuthHeader(req) || getAuthMode(db) !== 'basic') {
+      next();
+      return;
+    }
+    void limiter(req, res, (err?: unknown) => {
+      if (err) {
+        next(err);
+        return;
+      }
+      void validate(req, next);
+    });
   };
 }
 
@@ -205,14 +319,43 @@ export function getOrCreateSessionSecret(config: AuthConfig): string {
   return secret;
 }
 
+/** Every session store created by this process, so all sessions can be invalidated at once. */
+const sessionStores = new Set<session.Store>();
+
+/**
+ * Destroy every server-side session (all users, all devices). Call after a password change or
+ * an auth-mode change so existing session cookies stop working.
+ */
+export async function invalidateAllSessions(): Promise<void> {
+  const results = await Promise.allSettled(
+    [...sessionStores].map(
+      (store) =>
+        new Promise<void>((resolve, reject) => {
+          if (!store.clear) {
+            resolve();
+            return;
+          }
+          store.clear((err?: unknown) => (err ? reject(err) : resolve()));
+        }),
+    ),
+  );
+  // A store whose database has been closed (e.g. a previous app instance) can no longer hold
+  // live sessions; drop it instead of failing the caller.
+  [...sessionStores].forEach((store, index) => {
+    if (results[index]?.status === 'rejected') sessionStores.delete(store);
+  });
+}
+
 function sessionMiddleware(config: AuthConfig, db: Database.Database): RequestHandler {
   const secret = getOrCreateSessionSecret(config);
+  // Persist sessions in SQLite so logins survive restarts (MemoryStore also leaks).
+  const store = new SqliteSessionStore(db);
+  sessionStores.add(store);
 
   return session({
     name: config.forms?.cookieName || 'filtarr.sid',
     secret,
-    // Persist sessions in SQLite so logins survive restarts (MemoryStore also leaks).
-    store: new SqliteSessionStore(db),
+    store,
     resave: false,
     saveUninitialized: false,
     cookie: {
@@ -235,9 +378,8 @@ function configurePassportLocal(db: Database.Database): void {
       try {
         const result = await verifyUserCredentials(db, username, password);
         if (!result.ok) {
-          return done(null, false, {
-            message: result.reason === 'locked' ? 'Account temporarily locked' : 'Invalid credentials',
-          });
+          logCredentialFailure('forms', username, result.reason);
+          return done(null, false, { message: GENERIC_AUTH_FAILURE_MESSAGE });
         }
 
         const { user } = result;
@@ -248,6 +390,11 @@ function configurePassportLocal(db: Database.Database): void {
     }),
   );
 
+  // passport keeps a global, append-only list of (de)serializers. Replace rather than append so
+  // a re-created app (tests, or a future in-process restart) never runs a stale closure first.
+  const registry = passport as unknown as { _serializers?: unknown[]; _deserializers?: unknown[] };
+  registry._serializers = [];
+  registry._deserializers = [];
   passport.serializeUser((user, done) => done(null, user.id));
 
   passport.deserializeUser((id: number, done) => {
@@ -267,7 +414,7 @@ function configurePassportLocal(db: Database.Database): void {
  *
  * Note: All auth middlewares are always configured so that the auth mode
  * can be changed dynamically (e.g., after setup completion) without requiring
- * a server restart.
+ * a server restart. Each one checks the current mode per request.
  */
 export function createAuthMiddleware(
   db: Database.Database,
@@ -278,10 +425,10 @@ export function createAuthMiddleware(
   // Always apply API key middleware first (works in all modes)
   router.use(apiKeyMiddleware(db));
 
-  // Always apply basic auth middleware (validates if Authorization header present)
-  router.use(basicAuthMiddleware(db));
+  // Basic auth: only validates (and rate limits) when the current mode is basic
+  router.use(basicAuthMiddleware(db, config.rateLimitAuth));
 
-  // Always apply session middleware for forms/oidc auth support
+  // Always apply session middleware for forms auth support
   // This is needed so that sessions work after setup completion with forms mode
   router.use(sessionMiddleware(config, db));
   configurePassportLocal(db);

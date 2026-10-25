@@ -4,11 +4,28 @@ import { toast } from '../../components/Toast';
 import { api } from '../../lib/api';
 import type { ApiKeyResponse, RotateResponse } from './types';
 
+type ApiKeyScope = 'read' | 'write' | 'admin';
+
+const SCOPE_OPTIONS: { value: ApiKeyScope; label: string }[] = [
+  { value: 'read', label: 'Read: view data only' },
+  { value: 'write', label: 'Write: read and modify instances, filters, jobs, settings' },
+  { value: 'admin', label: 'Admin: everything, including API keys and auth mode' },
+];
+
+interface CreateKeyResponse {
+  id: number;
+  name: string;
+  scopes: ApiKeyScope[];
+  key: string;
+}
+
 export default function SettingsApiKeysPage() {
   const queryClient = useQueryClient();
   const [confirmRotate, setConfirmRotate] = useState<number | null>(null);
   const [newKey, setNewKey] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [newKeyName, setNewKeyName] = useState('');
+  const [newKeyScope, setNewKeyScope] = useState<ApiKeyScope>('write');
 
   const { data: apiKeys, isLoading: loadingKeys } = useQuery({
     queryKey: ['api-keys'],
@@ -27,6 +44,18 @@ export default function SettingsApiKeysPage() {
       toast('error', err.message);
       setConfirmRotate(null);
     },
+  });
+
+  const createMutation = useMutation({
+    mutationFn: (data: { name: string; scopes: ApiKeyScope[] }) =>
+      api.post<CreateKeyResponse>('/auth/api-keys', data),
+    onSuccess: (data) => {
+      setNewKey(data.key);
+      setNewKeyName('');
+      queryClient.invalidateQueries({ queryKey: ['api-keys'] });
+      toast('success', 'API key created');
+    },
+    onError: (err: Error) => toast('error', err.message),
   });
 
   const copyKey = async (key: string) => {
@@ -67,6 +96,53 @@ export default function SettingsApiKeysPage() {
         </div>
       )}
 
+      <form
+        className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-end"
+        onSubmit={(e) => {
+          e.preventDefault();
+          createMutation.mutate({ name: newKeyName.trim() || 'API Key', scopes: [newKeyScope] });
+        }}
+      >
+        <div className="flex-1">
+          <label htmlFor="api-key-name" className="block text-xs font-medium text-gray-700 dark:text-gray-400">
+            Name
+          </label>
+          <input
+            id="api-key-name"
+            type="text"
+            value={newKeyName}
+            maxLength={100}
+            onChange={(e) => setNewKeyName(e.target.value)}
+            placeholder="e.g. Home Assistant"
+            className="mt-1 block w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:border-blue-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
+          />
+        </div>
+        <div>
+          <label htmlFor="api-key-scope" className="block text-xs font-medium text-gray-700 dark:text-gray-400">
+            Access
+          </label>
+          <select
+            id="api-key-scope"
+            value={newKeyScope}
+            onChange={(e) => setNewKeyScope(e.target.value as ApiKeyScope)}
+            className="mt-1 block w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:border-blue-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
+          >
+            {SCOPE_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </div>
+        <button
+          type="submit"
+          disabled={createMutation.isPending}
+          className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+        >
+          {createMutation.isPending ? 'Creating...' : 'Create key'}
+        </button>
+      </form>
+
       <div className="mt-4 space-y-3">
         {loadingKeys && (
           <p className="text-sm text-gray-500">Loading API keys...</p>
@@ -82,6 +158,9 @@ export default function SettingsApiKeysPage() {
                   <span className="font-medium text-gray-900 dark:text-gray-100">{key.name}</span>
                   <span className="font-mono text-sm text-gray-600 dark:text-gray-500">
                     {key.maskedKey}
+                  </span>
+                  <span className="rounded bg-gray-200 px-1.5 py-0.5 text-xs font-medium text-gray-700 dark:bg-gray-700 dark:text-gray-300">
+                    {key.scopes.includes('*') ? 'full access' : key.scopes.join(', ')}
                   </span>
                 </div>
                 <div className="mt-1 text-xs text-gray-600 dark:text-gray-500">

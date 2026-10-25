@@ -55,7 +55,7 @@ describe('Security hardening', () => {
       type: 'custom_script',
       payload: 'return true;',
     });
-    expect(jobRes.status).toBe(400);
+    expect(jobRes.status).toBe(403);
     expect(jobRes.body.error).toContain('FILTARR_ENABLE_CUSTOM_SCRIPTS=true');
   });
 

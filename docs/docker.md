@@ -112,6 +112,7 @@ The auth mode (`none`, `basic`, `forms`, or `oidc`) and the admin username/passw
 - **`FILTARR_ENABLE_CUSTOM_SCRIPTS`**: `true` or `false` (default: `false`)
   - Enables JavaScript and shell script execution in filters
   - **WARNING**: See `docs/security-custom-scripts.md` before enabling
+- **`FILTARR_BROWSE_ROOT`**: Directory that the filesystem picker, filter target paths and `move` destinations must stay inside (default: unset, meaning no restriction). **Strongly recommended**: set it to the common parent of your media mounts (e.g. `/downloads` or `/media`) so a filter can never delete or move files elsewhere in the container. Regardless of this setting, filters may never target `/`, system directories such as `/etc`, `/usr` or `/proc`, or the Filtarr data directory.
 
 ### CORS
 

@@ -170,7 +170,7 @@ describe('ArrClient', () => {
   });
 
   it('wraps aborts and network failures as connection errors', async () => {
-    const client = new TestArrClient({ baseUrl: 'https://example.com', apiKey: 'test-key', timeout: 50, maxRetries: 0 });
+    const client = new TestArrClient({ baseUrl: 'https://example.com', apiKey: 'test-key', timeout: 1000, maxRetries: 0 });
     mockFetch.mockReset();
     mockFetch
       .mockRejectedValueOnce(new DOMException('aborted', 'AbortError'))
@@ -178,7 +178,7 @@ describe('ArrClient', () => {
 
     await expect(client.testGet('/api/v3/system/status')).rejects.toMatchObject({
       name: 'ArrConnectionError',
-      message: 'Request timed out after 50ms',
+      message: 'Request timed out after 1000ms',
     });
     await expect(client.testGet('/api/v3/system/status')).rejects.toMatchObject({
       name: 'ArrConnectionError',

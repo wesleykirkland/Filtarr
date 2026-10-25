@@ -21,6 +21,8 @@ export type {
   CommandBody,
   DeleteQueueOptions,
   ConnectionTestResult,
+  ConnectionTestErrorCode,
+  ArrApiErrorKind,
   SeriesResource,
   MovieResource,
   ArtistResource,

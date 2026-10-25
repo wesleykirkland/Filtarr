@@ -300,12 +300,16 @@ export interface ArrClientOptions {
 
 // ── API Errors ───────────────────────────────────────────────────────────────
 
+/** Why an ArrApiError was raised (beyond a plain non-2xx status). */
+export type ArrApiErrorKind = 'http_error' | 'redirect' | 'response_too_large' | 'invalid_json';
+
 export class ArrApiError extends Error {
   constructor(
     message: string,
     public readonly statusCode: number,
     public readonly url: string,
     public readonly responseBody?: string,
+    public readonly kind: ArrApiErrorKind = 'http_error',
   ) {
     super(message);
     this.name = 'ArrApiError';
@@ -317,6 +321,7 @@ export class ArrConnectionError extends Error {
     message: string,
     public readonly url: string,
     public readonly originalError?: Error,
+    public readonly isTimeout: boolean = false,
   ) {
     super(message);
     this.name = 'ArrConnectionError';
@@ -334,9 +339,17 @@ export interface DeleteQueueOptions {
 
 // ── Connection Test Result ───────────────────────────────────────────────────
 
+/**
+ * Generic failure categories reported by connection tests. Deliberately
+ * coarse so a test endpoint cannot be used as a response oracle against
+ * arbitrary URLs; details are logged server-side only.
+ */
+export type ConnectionTestErrorCode = 'unreachable' | 'unauthorized' | 'unexpected_response' | 'timeout';
+
 export interface ConnectionTestResult {
   success: boolean;
   appName?: string;
   appVersion?: string;
   error?: string;
+  errorCode?: ConnectionTestErrorCode;
 }

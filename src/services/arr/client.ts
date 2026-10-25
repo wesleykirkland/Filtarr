@@ -9,6 +9,7 @@
 
 import { Agent } from 'undici';
 import { validateArrInstanceUrl, stripTrailingSlashes } from '../security.js';
+import { logger } from '../../server/lib/logger.js';
 
 import {
   type ArrClientOptions,
@@ -23,6 +24,7 @@ import {
   type CommandBody,
   type DeleteQueueOptions,
   type ConnectionTestResult,
+  type ConnectionTestErrorCode,
 } from './types.js';
 
 const DEFAULT_TIMEOUT = 30_000; // 30 seconds
@@ -33,6 +35,75 @@ const RETRY_BASE_DELAY = 1000; // 1 second
 const QUEUE_PAGE_SIZE = 100;
 const DEFAULT_QUEUE_MAX_PAGES = 20;
 const RETRYABLE_STATUS_CODES = new Set([408, 429, 500, 502, 503, 504]);
+/** Upper bound on any Arr API response body we are willing to buffer. */
+export const MAX_RESPONSE_BYTES = 25 * 1024 * 1024; // 25 MB
+/** Error bodies are only kept for server-side diagnostics; keep them short. */
+const MAX_ERROR_BODY_CHARS = 2048;
+
+const CONNECTION_TEST_MESSAGES: Record<ConnectionTestErrorCode, string> = {
+  unreachable: 'Could not connect to the instance',
+  unauthorized: 'The instance rejected the API key',
+  unexpected_response: 'The instance returned an unexpected response',
+  timeout: 'The connection test timed out',
+};
+
+class ResponseTooLargeError extends Error {
+  constructor() {
+    super(`Response exceeded maximum size of ${MAX_RESPONSE_BYTES} bytes`);
+    this.name = 'ResponseTooLargeError';
+  }
+}
+
+interface ReadableResponseLike {
+  headers?: { get(name: string): string | null } | null;
+  body?: ReadableStream<Uint8Array> | null;
+  text?: () => Promise<string>;
+}
+
+/**
+ * Read a response body as text, refusing to buffer more than `limit` bytes.
+ * Uses Content-Length when present and otherwise streams the body, cancelling
+ * the stream as soon as the limit is exceeded.
+ */
+async function readBodyCapped(response: ReadableResponseLike, limit = MAX_RESPONSE_BYTES): Promise<string> {
+  const declared = response.headers?.get('content-length');
+  if (declared) {
+    const length = Number(declared);
+    if (Number.isFinite(length) && length > limit) throw new ResponseTooLargeError();
+  }
+
+  const body = response.body;
+  if (body && typeof body.getReader === 'function') {
+    const reader = body.getReader();
+    const decoder = new TextDecoder();
+    let received = 0;
+    let text = '';
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      received += value.byteLength;
+      if (received > limit) {
+        await reader.cancel().catch(() => undefined);
+        throw new ResponseTooLargeError();
+      }
+      text += decoder.decode(value, { stream: true });
+    }
+    return text + decoder.decode();
+  }
+
+  // Fallback for minimal Response-like objects without a stream body.
+  const text = typeof response.text === 'function' ? await response.text() : '';
+  if (Buffer.byteLength(text, 'utf8') > limit) throw new ResponseTooLargeError();
+  return text;
+}
+
+function classifyConnectionTestError(error: unknown): ConnectionTestErrorCode {
+  if (error instanceof ArrConnectionError) return error.isTimeout ? 'timeout' : 'unreachable';
+  if (error instanceof ArrApiError && (error.statusCode === 401 || error.statusCode === 403)) {
+    return 'unauthorized';
+  }
+  return 'unexpected_response';
+}
 
 type QueryParams = Record<string, string | number | boolean>;
 
@@ -48,6 +119,9 @@ export class ArrClient {
   protected readonly timeout: number;
   protected readonly maxRetries: number;
   protected readonly skipSslVerify: boolean;
+  /** System status endpoint; Lidarr overrides this with its v1 path. */
+  protected readonly systemStatusPath: string = '/api/v3/system/status';
+  private dispatcher: Agent | undefined;
 
   constructor(options: ArrClientOptions) {
     const normalizedBaseUrl = validateArrInstanceUrl(options.baseUrl, options.skipSslVerify, {
@@ -92,24 +166,49 @@ export class ArrClient {
 
   // ── Shared Endpoints (all Arr apps) ─────────────────────────────────────
 
-  /** Test connection by fetching system status */
+  /**
+   * Test connection by fetching system status. Makes a single attempt (no
+   * retries) and reports failures only as a generic category so callers
+   * cannot use it to probe arbitrary hosts; details are logged server-side.
+   */
   async testConnection(): Promise<ConnectionTestResult> {
     try {
-      const status = await this.getSystemStatus();
+      const status = await this.requestWithRetry<SystemStatusResource>(
+        'GET',
+        this.buildUrl(this.systemStatusPath),
+        undefined,
+        0,
+      );
       return {
         success: true,
         appName: status.appName,
         appVersion: status.version,
       };
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      return { success: false, error: message };
+      const errorCode = classifyConnectionTestError(error);
+      logger.warn(
+        {
+          errorCode,
+          baseUrl: this.baseUrl,
+          err: error instanceof Error ? { name: error.name, message: error.message } : String(error),
+          statusCode: error instanceof ArrApiError ? error.statusCode : undefined,
+        },
+        'Arr connection test failed',
+      );
+      return { success: false, error: CONNECTION_TEST_MESSAGES[errorCode], errorCode };
     }
+  }
+
+  /** Release the client's dedicated connection pool (only used with skipSslVerify). */
+  async close(): Promise<void> {
+    const dispatcher = this.dispatcher;
+    this.dispatcher = undefined;
+    if (dispatcher) await dispatcher.destroy().catch(() => undefined);
   }
 
   /** GET /api/v3/system/status */
   async getSystemStatus(): Promise<SystemStatusResource> {
-    return this.get<SystemStatusResource>('/api/v3/system/status');
+    return this.get<SystemStatusResource>(this.systemStatusPath);
   }
 
   /** GET /api/v3/health */
@@ -194,10 +293,22 @@ export class ArrClient {
     return url.toString();
   }
 
-  private async requestWithRetry<T>(method: string, url: string, body?: unknown): Promise<T> {
+  private getDispatcher(): Agent | undefined {
+    if (!this.skipSslVerify) return undefined;
+    // One Agent per client, created lazily and reused across requests.
+    this.dispatcher ??= new Agent({ connect: { rejectUnauthorized: false } });
+    return this.dispatcher;
+  }
+
+  private async requestWithRetry<T>(
+    method: string,
+    url: string,
+    body?: unknown,
+    maxRetries: number = this.maxRetries,
+  ): Promise<T> {
     let lastError: Error | undefined;
 
-    for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
         return await this.request<T>(method, url, body);
       } catch (error) {
@@ -209,7 +320,7 @@ export class ArrClient {
         }
 
         // Don't retry on last attempt
-        if (attempt === this.maxRetries) {
+        if (attempt === maxRetries) {
           break;
         }
 
@@ -241,6 +352,8 @@ export class ArrClient {
         method,
         headers,
         signal: controller.signal,
+        // Never follow redirects: that would forward X-Api-Key to another origin.
+        redirect: 'manual',
       };
 
       if (body !== undefined) {
@@ -248,28 +361,32 @@ export class ArrClient {
         init.body = JSON.stringify(body);
       }
 
-      // NOTE: Using undici dispatcher directly via global or custom fetch
-      // Node 18+ native fetch uses undici under the hood.
-      // Instead of changing the global dispatcher, we provide it to fetch.
-      const dispatcher = this.skipSslVerify
-        ? new Agent({
-            connect: {
-              rejectUnauthorized: false,
-            },
-          })
-        : undefined;
+      // Node's native fetch uses undici; pass a per-client dispatcher instead
+      // of changing the global one.
+      const dispatcher = this.getDispatcher();
 
       const response = await fetch(url, { ...init, dispatcher } as RequestInit & {
         dispatcher?: unknown;
       });
 
+      if (response.type === 'opaqueredirect' || (response.status >= 300 && response.status < 400)) {
+        await response.body?.cancel().catch(() => undefined);
+        throw new ArrApiError(
+          `Arr API responded with a redirect (${response.status}); redirects are not followed`,
+          response.status,
+          url,
+          undefined,
+          'redirect',
+        );
+      }
+
       if (!response.ok) {
-        const responseBody = await response.text().catch(() => '');
+        const responseBody = await readBodyCapped(response).catch(() => '');
         throw new ArrApiError(
           `Arr API error: ${response.status} ${response.statusText}`,
           response.status,
           url,
-          responseBody,
+          responseBody.slice(0, MAX_ERROR_BODY_CHARS),
         );
       }
 
@@ -278,14 +395,34 @@ export class ArrClient {
         return undefined as T;
       }
 
-      return (await response.json()) as T;
+      let text: string;
+      try {
+        text = await readBodyCapped(response);
+      } catch (error) {
+        if (error instanceof ResponseTooLargeError) {
+          throw new ArrApiError(error.message, response.status, url, undefined, 'response_too_large');
+        }
+        throw error;
+      }
+
+      try {
+        return JSON.parse(text) as T;
+      } catch {
+        throw new ArrApiError(
+          'Arr API returned an invalid JSON response',
+          response.status,
+          url,
+          undefined,
+          'invalid_json',
+        );
+      }
     } catch (error) {
       if (error instanceof ArrApiError) {
         throw error;
       }
 
       if (error instanceof DOMException && error.name === 'AbortError') {
-        throw new ArrConnectionError(`Request timed out after ${this.timeout}ms`, url);
+        throw new ArrConnectionError(`Request timed out after ${this.timeout}ms`, url, undefined, true);
       }
 
       throw new ArrConnectionError(

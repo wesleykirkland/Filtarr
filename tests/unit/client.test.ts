@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { ArrClient } from '../../src/services/arr/client.js';
+import { ArrClient, MAX_RESPONSE_BYTES } from '../../src/services/arr/client.js';
 
 // Mock fetch globally
 const mockFetch = vi.fn();
@@ -186,18 +186,136 @@ describe('ArrClient', () => {
     });
   });
 
-  it('maps testConnection success and failure responses', async () => {
-    const client = new TestArrClient({ baseUrl: 'https://example.com', apiKey: 'test-key' });
-    vi.spyOn(client, 'getSystemStatus')
-      .mockResolvedValueOnce({ appName: 'Sonarr', version: '4.0.0' } as any)
-      .mockRejectedValueOnce(new Error('denied'));
+  it('maps testConnection success and failure responses to generic categories', async () => {
+    const client = new TestArrClient({ baseUrl: 'https://example.com', apiKey: 'test-key', timeout: 1000 });
+    mockFetch.mockReset();
+    mockFetch
+      .mockResolvedValueOnce(createResponse({ body: { appName: 'Sonarr', version: '4.0.0' } }))
+      .mockResolvedValueOnce(createResponse({ ok: false, status: 401, statusText: 'Unauthorized', text: 'secret body' }))
+      .mockRejectedValueOnce(new Error('ECONNREFUSED 10.0.0.5:22'))
+      .mockRejectedValueOnce(new DOMException('aborted', 'AbortError'))
+      .mockResolvedValueOnce(createResponse({ text: 'SSH-2.0-OpenSSH_9.6 banner' }))
+      .mockResolvedValueOnce(createResponse({ ok: false, status: 503, statusText: 'Unavailable', text: 'busy' }));
 
     await expect(client.testConnection()).resolves.toEqual({
       success: true,
       appName: 'Sonarr',
       appVersion: '4.0.0',
     });
-    await expect(client.testConnection()).resolves.toEqual({ success: false, error: 'denied' });
+    await expect(client.testConnection()).resolves.toMatchObject({ success: false, errorCode: 'unauthorized' });
+    await expect(client.testConnection()).resolves.toMatchObject({ success: false, errorCode: 'unreachable' });
+    await expect(client.testConnection()).resolves.toMatchObject({ success: false, errorCode: 'timeout' });
+    const invalid = await client.testConnection();
+    expect(invalid).toMatchObject({ success: false, errorCode: 'unexpected_response' });
+    expect(JSON.stringify(invalid)).not.toContain('SSH');
+    // Retryable status still makes only one attempt for connection tests.
+    await expect(client.testConnection()).resolves.toMatchObject({ success: false, errorCode: 'unexpected_response' });
+    expect(mockFetch).toHaveBeenCalledTimes(6);
+  });
+
+  it('does not follow redirects and treats 3xx responses as errors', async () => {
+    const client = new TestArrClient({ baseUrl: 'https://example.com', apiKey: 'test-key', maxRetries: 2 });
+    mockFetch.mockReset();
+    mockFetch.mockResolvedValue({
+      ok: false,
+      status: 302,
+      statusText: 'Found',
+      headers: new Headers({ location: 'https://attacker.example/steal' }),
+      body: null,
+      text: async () => '',
+    });
+
+    const error = await client.testGet('/api/v3/system/status').catch((e: unknown) => e);
+    expect(error).toMatchObject({ name: 'ArrApiError', statusCode: 302, kind: 'redirect' });
+    expect((error as Error).message).not.toContain('attacker');
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(mockFetch.mock.calls[0][1].redirect).toBe('manual');
+  });
+
+  it('rejects responses whose content-length exceeds the size cap', async () => {
+    const client = new TestArrClient({ baseUrl: 'https://example.com', apiKey: 'test-key' });
+    const text = vi.fn(async () => '{}');
+    mockFetch.mockReset();
+    mockFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'content-length': String(MAX_RESPONSE_BYTES + 1) }),
+      body: null,
+      text,
+    });
+
+    await expect(client.testGet('/api/v3/queue')).rejects.toMatchObject({
+      name: 'ArrApiError',
+      kind: 'response_too_large',
+    });
+    expect(text).not.toHaveBeenCalled();
+  });
+
+  it('stops reading a streamed body once it exceeds the size cap', async () => {
+    const client = new TestArrClient({ baseUrl: 'https://example.com', apiKey: 'test-key' });
+    const chunk = new Uint8Array(1024 * 1024).fill(0x20);
+    let pulled = 0;
+    let cancelled = false;
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pulled++;
+        controller.enqueue(chunk);
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+    mockFetch.mockReset();
+    mockFetch.mockResolvedValue(new Response(stream, { status: 200 }));
+
+    await expect(client.testGet('/api/v3/queue')).rejects.toMatchObject({
+      name: 'ArrApiError',
+      kind: 'response_too_large',
+    });
+    expect(cancelled).toBe(true);
+    expect(pulled).toBeLessThanOrEqual(Math.ceil(MAX_RESPONSE_BYTES / chunk.byteLength) + 2);
+  });
+
+  it('parses streamed JSON bodies and does not echo invalid JSON in errors', async () => {
+    const client = new TestArrClient({ baseUrl: 'https://example.com', apiKey: 'test-key' });
+    mockFetch.mockReset();
+    mockFetch
+      .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true }), { status: 200 }))
+      .mockResolvedValueOnce(new Response('<html>internal admin page</html>', { status: 200 }));
+
+    await expect(client.testGet('/api/v3/system/status')).resolves.toEqual({ ok: true });
+    const error = await client.testGet('/api/v3/system/status').catch((e: unknown) => e);
+    expect(error).toMatchObject({ name: 'ArrApiError', kind: 'invalid_json' });
+    expect((error as Error).message).not.toContain('internal admin');
+  });
+
+  it('reuses a single Agent per client and destroys it on close', async () => {
+    const client = new TestArrClient({
+      baseUrl: 'https://example.com',
+      apiKey: 'test-key',
+      skipSslVerify: true,
+    });
+
+    await client.testGet('/api/v3/system/status');
+    await client.testGet('/api/v3/health');
+
+    const first = mockFetch.mock.calls[0][1].dispatcher;
+    expect(first.constructor.name).toBe('Agent');
+    expect(mockFetch.mock.calls[1][1].dispatcher).toBe(first);
+
+    const destroy = vi.spyOn(first, 'destroy');
+    await client.close();
+    expect(destroy).toHaveBeenCalled();
+    expect(first.destroyed).toBe(true);
+
+    await client.testGet('/api/v3/health');
+    expect(mockFetch.mock.calls[2][1].dispatcher).not.toBe(first);
+    await client.close();
+  });
+
+  it('close is a no-op without a custom dispatcher', async () => {
+    const client = new TestArrClient({ baseUrl: 'https://example.com', apiKey: 'test-key' });
+    await expect(client.close()).resolves.toBeUndefined();
   });
 
   it('routes shared endpoint helpers through the expected internal calls', async () => {

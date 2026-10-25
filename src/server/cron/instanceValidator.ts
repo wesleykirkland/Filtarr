@@ -49,7 +49,7 @@ async function validateInstances(db: Database.Database) {
           config.skipSslVerify,
         );
 
-        const result = await client.testConnection();
+        const result = await client.testConnection().finally(() => client.close());
         if (result.success) {
           logger.info(
             { instanceId: instance.id, name: instance.name },

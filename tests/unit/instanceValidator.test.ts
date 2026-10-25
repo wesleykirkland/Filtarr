@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   getInstanceConfigById: vi.fn(),
   createArrClient: vi.fn(),
   testConnection: vi.fn(),
+  close: vi.fn(),
   notifyInstanceHealthcheckFailure: vi.fn(),
 }));
 
@@ -66,7 +67,10 @@ describe('instance validator', () => {
     });
     mocks.createArrClient.mockReturnValue({
       testConnection: mocks.testConnection,
+      close: mocks.close,
     });
+    mocks.close.mockReset();
+    mocks.close.mockResolvedValue(undefined);
   });
 
   afterEach(() => {
@@ -102,5 +106,7 @@ describe('instance validator', () => {
       'Unauthorized',
     );
     expect(setTimeoutSpy).toHaveBeenNthCalledWith(2, expect.any(Function), 15 * 60 * 1000);
+    // Short-lived clients release their connection pool after the test.
+    expect(mocks.close).toHaveBeenCalledTimes(1);
   });
 });

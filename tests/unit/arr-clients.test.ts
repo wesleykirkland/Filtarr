@@ -129,4 +129,30 @@ describe('arr wrapper clients', () => {
       sortDirection: 'descending',
     });
   });
+
+  it.each([
+    ['sonarr', SonarrClient, '/api/v3/system/status'],
+    ['radarr', RadarrClient, '/api/v3/system/status'],
+    ['lidarr', LidarrClient, '/api/v1/system/status'],
+  ] as const)('%s testConnection uses its status endpoint with a single attempt', async (_name, Client, path) => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 503,
+      statusText: 'Unavailable',
+      text: async () => 'busy',
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      const client = new Client({ baseUrl: 'https://example.com', apiKey: 'key', maxRetries: 3 });
+      await expect(client.testConnection()).resolves.toMatchObject({
+        success: false,
+        errorCode: 'unexpected_response',
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(fetchMock.mock.calls[0][0]).toBe(`https://example.com${path}`);
+      await expect(client.close()).resolves.toBeUndefined();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
 });

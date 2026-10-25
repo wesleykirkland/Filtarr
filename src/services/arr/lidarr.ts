@@ -10,7 +10,6 @@ import type {
   CommandResource,
   CommandBody,
   HealthResource,
-  SystemStatusResource,
   PagingResource,
   QueueResource,
   DeleteQueueOptions,
@@ -56,9 +55,7 @@ export class LidarrClient extends ArrClient {
     return this.get<HealthResource[]>('/api/v1/health');
   }
 
-  override async getSystemStatus() {
-    return this.get<SystemStatusResource>('/api/v1/system/status');
-  }
+  protected override readonly systemStatusPath = '/api/v1/system/status';
 
   override async getQueue(page = 1, pageSize = 20) {
     return this.get<PagingResource<QueueResource>>('/api/v1/queue', {

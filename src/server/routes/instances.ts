@@ -16,6 +16,7 @@
  */
 
 import { Router, type Request, type Response } from 'express';
+import { z } from 'zod';
 import type { Database } from 'better-sqlite3';
 import {
   getAllInstances,
@@ -33,6 +34,7 @@ import { RadarrClient } from '../../services/arr/radarr.js';
 import { LidarrClient } from '../../services/arr/lidarr.js';
 import {
   SecurityPolicyError,
+  stripTrailingSlashes,
   validateArrInstanceUrl,
 } from '../../services/security.js';
 import type { ArrType } from '../../services/arr/types.js';
@@ -47,25 +49,62 @@ function validateInstanceUrl(url: string, skipSslVerify?: boolean): string {
   });
 }
 
-function validateRequiredString(value: unknown, fieldName: string): string | null {
-  if (!value || typeof value !== 'string') return `${fieldName} is required and must be a string`;
-  return null;
+const arrTypeSchema = z.enum(['sonarr', 'radarr', 'lidarr'], {
+  error: `type must be one of: ${VALID_ARR_TYPES.join(', ')}`,
+});
+const timeoutSchema = z
+  .number({ error: 'timeout must be an integer between 1000 and 300000' })
+  .int('timeout must be an integer between 1000 and 300000')
+  .min(1000, 'timeout must be an integer between 1000 and 300000')
+  .max(300000, 'timeout must be an integer between 1000 and 300000');
+const optionalPathSchema = z.string({ error: 'paths must be strings' }).nullable().optional();
+
+const createInstanceSchema = z.object({
+  name: z.string({ error: 'name is required and must be a string' }).min(1, 'name is required and must be a string'),
+  type: arrTypeSchema,
+  url: z.string({ error: 'url is required and must be a string' }).min(1, 'url is required and must be a string'),
+  apiKey: z.string({ error: 'apiKey is required and must be a string' }).min(1, 'apiKey is required and must be a string'),
+  timeout: timeoutSchema.optional(),
+  enabled: z.boolean({ error: 'enabled must be a boolean' }).optional(),
+  skipSslVerify: z.boolean({ error: 'skipSslVerify must be a boolean' }).optional(),
+  remotePath: optionalPathSchema,
+  localPath: optionalPathSchema,
+});
+
+const updateInstanceSchema = z.object({
+  name: z.string({ error: 'name must be a string' }).min(1, 'name must not be empty').optional(),
+  type: arrTypeSchema.optional(),
+  url: z.string({ error: 'url must be a string' }).min(1, 'url must not be empty').optional(),
+  apiKey: z.string({ error: 'apiKey must be a string' }).optional(),
+  timeout: timeoutSchema.optional(),
+  enabled: z.boolean({ error: 'enabled must be a boolean' }).optional(),
+  skipSslVerify: z.boolean({ error: 'skipSslVerify must be a boolean' }).optional(),
+  remotePath: optionalPathSchema,
+  localPath: optionalPathSchema,
+});
+
+const testInstanceSchema = z.object({
+  type: arrTypeSchema,
+  url: z.string({ error: 'url is required and must be a string' }).min(1, 'url is required and must be a string'),
+  apiKey: z.string({ error: 'apiKey must be a string' }).optional(),
+  instanceId: z.union([z.number().int(), z.string()]).nullable().optional(),
+  timeout: timeoutSchema.optional(),
+  skipSslVerify: z.boolean({ error: 'skipSslVerify must be a boolean' }).optional(),
+});
+
+function firstIssueMessage(error: z.ZodError): string {
+  return error.issues[0]?.message || 'Invalid input';
 }
 
-function validateCreateFields(
-  name: unknown,
-  type: unknown,
-  url: unknown,
-  apiKey: unknown,
-): string | null {
-  return (
-    validateRequiredString(name, 'name') ??
-    (!type || !VALID_ARR_TYPES.includes(type as ArrType)
-      ? `type must be one of: ${VALID_ARR_TYPES.join(', ')}`
-      : null) ??
-    validateRequiredString(url, 'url') ??
-    validateRequiredString(apiKey, 'apiKey')
-  );
+/**
+ * Canonical form of an Arr URL used to decide whether a request targets the
+ * same instance a stored API key belongs to (case-insensitive host, no
+ * trailing slashes).
+ */
+function canonicalInstanceUrl(url: string): string {
+  const parsed = new URL(stripTrailingSlashes(validateArrInstanceUrl(url, false, { fieldName: 'url' })));
+  const pathname = stripTrailingSlashes(parsed.pathname);
+  return `${parsed.protocol}//${parsed.host.toLowerCase()}${pathname}${parsed.search}`;
 }
 
 function parseInstanceId(raw: string | string[] | undefined): number | null {
@@ -100,13 +139,15 @@ const UPDATE_INSTANCE_FIELDS = [
   'enabled', 'skipSslVerify', 'remotePath', 'localPath',
 ] as const;
 
-function buildUpdateInput(body: Record<string, unknown>): UpdateInstanceInput {
+function buildUpdateInput(body: z.infer<typeof updateInstanceSchema>): UpdateInstanceInput {
   const input: UpdateInstanceInput = {};
   for (const field of UPDATE_INSTANCE_FIELDS) {
     if (body[field] !== undefined) {
       (input as Record<string, unknown>)[field] = body[field];
     }
   }
+  // An empty apiKey means "keep the stored key".
+  if (input.apiKey === '') delete input.apiKey;
   return input;
 }
 
@@ -153,27 +194,27 @@ export function createInstancesRouter(db: Database): Router {
   // POST /api/v1/instances — Create new instance
   router.post('/', (req: Request, res: Response) => {
     try {
-      const { name, type, url, apiKey, timeout, enabled } = req.body as CreateInstanceInput;
-
-      const validationError = validateCreateFields(name, type, url, apiKey);
-      if (validationError) {
-        res.status(400).json({ error: validationError });
+      const parsed = createInstanceSchema.safeParse(req.body ?? {});
+      if (!parsed.success) {
+        res.status(400).json({ error: firstIssueMessage(parsed.error) });
         return;
       }
+      const body = parsed.data;
 
-      const normalizedUrl = validateInstanceUrl(url, req.body.skipSslVerify);
+      const normalizedUrl = validateInstanceUrl(body.url, body.skipSslVerify);
 
-      const instance = createInstance(db, {
-        name,
-        type,
+      const input: CreateInstanceInput = {
+        name: body.name,
+        type: body.type,
         url: normalizedUrl,
-        apiKey,
-        timeout,
-        enabled,
-        skipSslVerify: req.body.skipSslVerify,
-        remotePath: req.body.remotePath,
-        localPath: req.body.localPath,
-      });
+        apiKey: body.apiKey,
+        timeout: body.timeout,
+        enabled: body.enabled,
+        skipSslVerify: body.skipSslVerify,
+        remotePath: body.remotePath,
+        localPath: body.localPath,
+      };
+      const instance = createInstance(db, input);
       logger.info({ instanceId: instance.id }, 'Created new Arr instance');
       recordActivityEvent(db, {
         type: 'created',
@@ -217,13 +258,13 @@ export function createInstancesRouter(db: Database): Router {
         return;
       }
 
-      const body = req.body;
-      if (body.type !== undefined && !VALID_ARR_TYPES.includes(body.type)) {
-        res.status(400).json({ error: `type must be one of: ${VALID_ARR_TYPES.join(', ')}` });
+      const parsed = updateInstanceSchema.safeParse(req.body ?? {});
+      if (!parsed.success) {
+        res.status(400).json({ error: firstIssueMessage(parsed.error) });
         return;
       }
 
-      const input = buildUpdateInput(body);
+      const input = buildUpdateInput(parsed.data);
 
       const normalizedUrl = validateInstanceUrl(
         input.url ?? current.url,
@@ -296,12 +337,22 @@ export function createInstancesRouter(db: Database): Router {
 
   // POST /api/v1/instances/test — Test connection to an unsaved instance
   router.post('/test', async (req: Request, res: Response): Promise<void> => {
+    let client: ArrClient | undefined;
     try {
-      const { type, url, timeout, skipSslVerify, instanceId } = req.body;
-      let { apiKey } = req.body;
+      const parsed = testInstanceSchema.safeParse(req.body ?? {});
+      if (!parsed.success) {
+        res.status(400).json({ error: firstIssueMessage(parsed.error) });
+        return;
+      }
+      const { type, url, timeout, skipSslVerify, instanceId } = parsed.data;
+      let apiKey = parsed.data.apiKey;
+
+      const normalizedUrl = validateInstanceUrl(url, skipSslVerify);
 
       // When editing a saved instance without re-entering the key, fall back
-      // to the stored (decrypted) key so the masked value is never sent upstream.
+      // to the stored (decrypted) key so the masked value is never sent
+      // upstream — but only when the request targets the saved instance's own
+      // URL, so a stored key can never be sent to a caller-chosen host.
       if (!apiKey && instanceId !== undefined && instanceId !== null) {
         const id = parseInstanceId(String(instanceId));
         if (id === null) {
@@ -313,24 +364,28 @@ export function createInstancesRouter(db: Database): Router {
           res.status(404).json({ error: 'Instance not found' });
           return;
         }
+        let sameUrl = false;
+        try {
+          sameUrl = canonicalInstanceUrl(normalizedUrl) === canonicalInstanceUrl(existing.url);
+        } catch {
+          sameUrl = false;
+        }
+        if (!sameUrl) {
+          res.status(400).json({
+            error: 'apiKey is required when testing a URL that differs from the saved instance URL',
+          });
+          return;
+        }
         apiKey = existing.apiKey;
       }
 
-      const validationError = validateCreateFields('test', type, url, apiKey);
-      if (validationError) {
-        res.status(400).json({ error: validationError });
+      if (!apiKey) {
+        res.status(400).json({ error: 'apiKey is required and must be a string' });
         return;
       }
 
-      const normalizedUrl = validateInstanceUrl(url, skipSslVerify);
-
-      const client = createArrClient(
-        type as ArrType,
-        normalizedUrl,
-        apiKey,
-        timeout,
-        skipSslVerify,
-      );
+      client = createArrClient(type, normalizedUrl, apiKey, timeout, skipSslVerify);
+      // testConnection makes a single attempt and only returns generic error categories.
       const result = await client.testConnection();
 
       recordActivityEvent(db, {
@@ -343,7 +398,7 @@ export function createInstancesRouter(db: Database): Router {
           instanceType: type,
           url: normalizedUrl,
           success: result.success,
-          error: result.error,
+          error: result.errorCode,
         },
       });
 
@@ -354,10 +409,9 @@ export function createInstancesRouter(db: Database): Router {
         return;
       }
       logger.error({ err: error }, 'Failed to test unsaved instance connection');
-      res.status(500).json({
-        success: false,
-        error: error instanceof Error ? error.message : 'Connection test failed',
-      });
+      res.status(500).json({ success: false, error: 'Connection test failed' });
+    } finally {
+      await client?.close().catch(() => undefined);
     }
   });
 

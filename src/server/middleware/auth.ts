@@ -17,6 +17,7 @@ import { defaultCookieSecure, type AuthConfig, type AuthMode } from '../../confi
 import { getConfig } from '../../config/index.js';
 import type { User } from '../../db/schemas/users.js';
 import { apiKeyMiddleware } from './apiKey.js';
+import { SqliteSessionStore } from '../lib/sessionStore.js';
 
 /**
  * Get the current auth mode from the database settings.
@@ -203,12 +204,14 @@ export function getOrCreateSessionSecret(config: AuthConfig): string {
   return secret;
 }
 
-function sessionMiddleware(config: AuthConfig): RequestHandler {
+function sessionMiddleware(config: AuthConfig, db: Database.Database): RequestHandler {
   const secret = getOrCreateSessionSecret(config);
 
   return session({
     name: config.forms?.cookieName || 'filtarr.sid',
     secret,
+    // Persist sessions in SQLite so logins survive restarts (MemoryStore also leaks).
+    store: new SqliteSessionStore(db),
     resave: false,
     saveUninitialized: false,
     cookie: {
@@ -279,7 +282,7 @@ export function createAuthMiddleware(
 
   // Always apply session middleware for forms/oidc auth support
   // This is needed so that sessions work after setup completion with forms mode
-  router.use(sessionMiddleware(config));
+  router.use(sessionMiddleware(config, db));
   configurePassportLocal(db);
   router.use(passport.initialize());
   router.use(passport.session());

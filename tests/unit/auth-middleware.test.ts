@@ -39,6 +39,9 @@ const state = vi.hoisted(() => {
 
 vi.mock('../../src/server/middleware/apiKey.js', () => ({ apiKeyMiddleware: state.apiKeyMiddleware }));
 vi.mock('express-session', () => ({ default: state.sessionFactory }));
+vi.mock('../../src/server/lib/sessionStore.js', () => ({
+  SqliteSessionStore: vi.fn(function SqliteSessionStore() {}),
+}));
 vi.mock('passport', () => ({
   default: {
     use: state.passportUse,

@@ -49,11 +49,11 @@ Exact required status checks to add:
 - `Validate conventional PR title`
 - `Dependency review`
 - `Analyze (javascript-typescript)`
+- `Audit production dependencies (blocking)`
 
 Checks that should stay visible but **not** required yet:
 
 - `Lint baseline (advisory)`
-- `Audit baseline (advisory)`
 
 Notes:
 

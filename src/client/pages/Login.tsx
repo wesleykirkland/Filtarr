@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { useNavigate } from 'react-router';
+import { Navigate, useNavigate } from 'react-router';
 import { Button, Card, Field, Input } from '../components/ui';
 import { useAuth } from '../hooks/useAuth';
 import { toast } from '../components/Toast';
@@ -13,8 +13,7 @@ export default function Login() {
 
   // If already authenticated or auth is disabled, redirect
   if (!isLoading && session?.authenticated) {
-    navigate('/', { replace: true });
-    return null;
+    return <Navigate to="/" replace />;
   }
 
   if (!isLoading && session?.mode === 'basic') {

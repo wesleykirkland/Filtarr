@@ -47,7 +47,7 @@ describe('CronManager', () => {
   });
 
   it('schedules only enabled valid jobs and reloads cleanly', () => {
-    state.getAllJobs.mockReturnValue([makeJob({ id: 1 }), makeJob({ id: 2, enabled: 0 }), makeJob({ id: 3, schedule: 'bad cron' })]);
+    state.getAllJobs.mockReturnValue([makeJob({ id: 1 }), makeJob({ id: 2, enabled: 0 }), makeJob({ id: 3, schedule: 'bad cron' }), makeJob({ id: 4, schedule: '* * * * * *' })]);
     state.cronValidate.mockImplementation((schedule: string) => schedule !== 'bad cron');
     const manager = new CronManager(db);
 
@@ -61,6 +61,8 @@ describe('CronManager', () => {
     manager.stop();
     expect(state.tasks[1]?.stop).toHaveBeenCalledTimes(1);
     expect(state.logger.error).toHaveBeenCalledWith({ jobId: 3, schedule: 'bad cron' }, 'Invalid cron schedule, skipping job');
+    // Legacy per-second (six-field) schedules are refused even if node-cron accepts them.
+    expect(state.logger.error).toHaveBeenCalledWith({ jobId: 4, schedule: '* * * * * *' }, 'Invalid cron schedule, skipping job');
   });
 
   it('records custom-script success and failure plus built-in skips', async () => {
@@ -95,7 +97,14 @@ describe('CronManager', () => {
     }[id] ?? null));
     state.existsSync.mockImplementation((targetPath: string) => targetPath !== '/missing');
     state.readdir.mockImplementation(async (dir: string) => {
-      if (dir === '/downloads') return [{ name: 'nested', isDirectory: () => true }, { name: 'movie.mkv', isDirectory: () => false }];
+      if (dir === '/downloads') {
+        return [
+          { name: 'nested', isDirectory: () => true },
+          { name: 'movie.mkv', isDirectory: () => false },
+          { name: '.hidden.mkv', isDirectory: () => false },
+          { name: '.git', isDirectory: () => true },
+        ];
+      }
       if (dir === '/downloads/nested') return [{ name: 'sample.txt', isDirectory: () => false }];
       return [];
     });
@@ -104,8 +113,12 @@ describe('CronManager', () => {
     manager.start();
     for (const task of state.tasks) await task.callback();
 
-    expect(state.processFile).toHaveBeenCalledWith('/downloads/movie.mkv', 'cron');
-    expect(state.processFile).toHaveBeenCalledWith('/downloads/nested/sample.txt', 'cron');
+    // Scoped to the job's filter so other cron filters never see these files.
+    expect(state.processFile).toHaveBeenCalledWith('/downloads/movie.mkv', 'cron', { filterIds: [3] });
+    expect(state.processFile).toHaveBeenCalledWith('/downloads/nested/sample.txt', 'cron', { filterIds: [3] });
+    // Dotfiles and dot-directories are skipped by the walk.
+    expect(state.processFile).toHaveBeenCalledTimes(2);
+    expect(state.readdir).not.toHaveBeenCalledWith('/downloads/.git', expect.anything());
     expect(eventStatuses()).toEqual(expect.arrayContaining(['started', 'success', 'skipped', 'failure']));
   });
 

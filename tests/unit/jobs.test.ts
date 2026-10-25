@@ -27,4 +27,31 @@ describe('job routes', () => {
 
     createdJobIds.push(res.body.id);
   });
+
+  it.each([
+    ['* * * * * *', 'five fields'],
+    ['*/5 * * * * *', 'five fields'],
+    ['0 0 * * * * *', 'five fields'],
+    ['61 * * * *', 'not a valid cron expression'],
+    ['   ', 'Cron schedule is required'],
+  ])('rejects schedule %j', async (schedule, message) => {
+    const res = await request(app)
+      .post('/api/v1/jobs')
+      .send({ name: `Bad Schedule ${Date.now()}`, schedule, type: 'built_in' });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain(message);
+  });
+
+  it('rejects per-second schedules on update', async () => {
+    const created = await request(app)
+      .post('/api/v1/jobs')
+      .send({ name: `Update Schedule ${Date.now()}`, schedule: '*/5 * * * *', type: 'built_in', enabled: false });
+    expect(created.status).toBe(201);
+    createdJobIds.push(created.body.id);
+
+    const res = await request(app).put(`/api/v1/jobs/${created.body.id}`).send({ schedule: '* * * * * *' });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain('per-second');
+  });
 });

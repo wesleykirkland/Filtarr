@@ -15,12 +15,14 @@ export const FILTER_JOB_CONCURRENCY = 4;
 type JobRow = ReturnType<typeof getAllJobs>[0];
 
 /**
- * Recursively yields every non-directory entry below `dir` using async fs
+ * Recursively yields every non-hidden, non-directory entry below `dir` using async fs
  * calls so large trees do not block the event loop.
  */
 async function* walkFiles(dir: string): AsyncGenerator<string> {
   const entries = await fs.promises.readdir(dir, { withFileTypes: true });
   for (const entry of entries) {
+    // Hidden files and directories are never part of a scheduled filter run.
+    if (entry.name.startsWith('.')) continue;
     const fullPath = path.join(dir, entry.name);
     if (entry.isDirectory()) {
       yield* walkFiles(fullPath);
@@ -103,7 +105,8 @@ export class CronManager {
   }
 
   private scheduleJob(job: JobRow) {
-    if (!cron.validate(job.schedule)) {
+    // Five-field expressions only; a seconds field would allow sub-minute runs.
+    if (job.schedule.trim().split(/\s+/).length !== 5 || !cron.validate(job.schedule)) {
       logger.error(
         { jobId: job.id, schedule: job.schedule },
         'Invalid cron schedule, skipping job',
@@ -236,7 +239,7 @@ export class CronManager {
         async (fullPath) => {
           queuedFiles += 1;
           try {
-            await this.filterEngine.processFile(fullPath, 'cron');
+            await this.filterEngine.processFile(fullPath, 'cron', { filterIds: [filter.id] });
           } catch (err) {
             failedFiles += 1;
             logger.error({ err, fullPath }, 'Scheduled filter failed to process file');

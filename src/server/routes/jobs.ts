@@ -1,6 +1,7 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import type Database from 'better-sqlite3';
 import { z } from 'zod';
+import cron from 'node-cron';
 import { getAllJobs, getJobById, createJob, updateJob, deleteJob } from '../../db/schemas/jobs.js';
 import { SecurityPolicyError, assertCustomScriptsEnabled } from '../../services/security.js';
 import { recordActivityEvent } from '../lib/activity.js';
@@ -9,10 +10,23 @@ import { reloadScheduler } from '../cron/scheduler.js';
 
 const JOB_TYPES = ['custom_script', 'built_in', 'filter_run'] as const;
 
+/**
+ * Standard five-field cron expressions only: a sixth (seconds) field would allow
+ * jobs to run more often than once per minute.
+ */
+const cronScheduleSchema = z
+  .string()
+  .trim()
+  .min(1, 'Cron schedule is required')
+  .refine((value) => value.split(/\s+/).length === 5, {
+    message: 'Cron schedule must have exactly five fields (minute hour day month weekday); per-second schedules are not allowed',
+  })
+  .refine((value) => cron.validate(value), { message: 'Cron schedule is not a valid cron expression' });
+
 const createJobSchema = z.object({
   name: z.string().min(1, 'Name is required'),
   description: z.string().optional(),
-  schedule: z.string().min(1, 'Cron schedule is required'), // Could add a regex to validate basic cron
+  schedule: cronScheduleSchema,
   type: z.enum(JOB_TYPES),
   payload: z.string().optional(),
   enabled: z.boolean().optional(),
@@ -21,7 +35,7 @@ const createJobSchema = z.object({
 const updateJobSchema = z.object({
   name: z.string().min(1).optional(),
   description: z.string().optional(),
-  schedule: z.string().min(1).optional(),
+  schedule: cronScheduleSchema.optional(),
   type: z.enum(JOB_TYPES).optional(),
   payload: z.string().optional(),
   enabled: z.boolean().optional(),
@@ -80,7 +94,7 @@ export function createJobsRoutes(db: Database.Database): Router {
       if (err instanceof z.ZodError) {
         res.status(400).json({ error: err.issues[0]?.message || 'Invalid input' });
       } else if (err instanceof SecurityPolicyError) {
-        res.status(400).json({ error: err.message });
+        res.status(403).json({ error: err.message });
       } else if (err instanceof Error && err.message.includes('UNIQUE constraint failed')) {
         res.status(409).json({ error: 'A job with this name already exists' });
       } else {
@@ -126,7 +140,7 @@ export function createJobsRoutes(db: Database.Database): Router {
       if (err instanceof z.ZodError) {
         res.status(400).json({ error: err.issues[0]?.message || 'Invalid input' });
       } else if (err instanceof SecurityPolicyError) {
-        res.status(400).json({ error: err.message });
+        res.status(403).json({ error: err.message });
       } else if (err instanceof Error && err.message.includes('not found')) {
         res.status(404).json({ error: err.message });
       } else if (err instanceof Error && err.message.includes('UNIQUE constraint failed')) {

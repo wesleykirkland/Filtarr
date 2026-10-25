@@ -70,7 +70,7 @@ describe('instances routes', () => {
     expect((await request(app).get('/bad')).status).toBe(400);
     expect((await request(app).put('/bad').send({})).status).toBe(400);
     expect((await request(app).delete('/bad')).status).toBe(400);
-    expect((await request(app).get('/bad/test')).status).toBe(400);
+    expect((await request(app).post('/bad/test')).status).toBe(400);
 
     expect((await request(app).post('/').send({ type: 'sonarr', url: 'https://sonarr.example.com', apiKey: 'x' })).body.error).toContain('name is required');
     expect((await request(app).post('/').send({ name: 'Main', type: 'readarr', url: 'https://readarr.example.com', apiKey: 'x' })).status).toBe(400);
@@ -136,9 +136,9 @@ describe('instances routes', () => {
 
     state.sonarrTest.mockReset();
     state.sonarrTest.mockResolvedValueOnce({ success: true }).mockImplementationOnce(async () => { throw new Error('offline'); });
-    expect((await request(app).get('/7/test')).body).toEqual({ success: true });
-    expect((await request(app).get('/8/test')).status).toBe(404);
-    expect((await request(app).get('/7/test')).body).toEqual({ success: false, error: 'offline' });
+    expect((await request(app).post('/7/test')).body).toEqual({ success: true });
+    expect((await request(app).post('/8/test')).status).toBe(404);
+    expect((await request(app).post('/7/test')).body).toEqual({ success: false, error: 'offline' });
   });
 
   it('falls back to the stored api key only when testing the saved instance URL', async () => {

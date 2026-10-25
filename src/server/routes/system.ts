@@ -35,7 +35,7 @@ publicSystemRoutes.get('/health', (_req, res) => {
 });
 
 // Paths that should never be browseable for security reasons
-const BLOCKED_BROWSE_PATHS = ['/proc', '/sys', '/dev'];
+export const BLOCKED_BROWSE_PATHS: readonly string[] = ['/proc', '/sys', '/dev'];
 
 // Root directory that the filesystem browser is allowed to access.
 // This should be configured to a non-sensitive directory in production.
@@ -48,7 +48,7 @@ export function isBrowseRootConfigured(): boolean {
   return Boolean(process.env['FILTARR_BROWSE_ROOT']);
 }
 
-function isContainedIn(candidate: string, root: string): boolean {
+export function isContainedIn(candidate: string, root: string): boolean {
   if (candidate === root) return true;
   const prefix = root.endsWith(path.sep) ? root : root + path.sep;
   return candidate.startsWith(prefix);
@@ -58,7 +58,7 @@ function isContainedIn(candidate: string, root: string): boolean {
  * Resolve symlinks for the deepest existing ancestor of `target`, then re-append
  * the non-existent remainder. Lets us root-check paths that don't exist yet.
  */
-function realpathOfNearestAncestor(target: string): string {
+export function realpathOfNearestAncestor(target: string): string {
   let current = target;
   const remainder: string[] = [];
   for (;;) {

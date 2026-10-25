@@ -10,7 +10,9 @@ import {
   isBlocklistBehavior,
   type BlocklistBehavior,
 } from '../../shared/blocklistBehavior.js';
-import { isPathWithinTarget, normalizeFilterTargetPath } from './filterPaths.js';
+import { recordActivityEvent } from '../lib/activity.js';
+import { getFilterPathViolation, isPathWithinTarget, normalizeFilterTargetPath } from './filterPaths.js';
+import { getRegexPayloadViolation, parseExtensionPayload, parseSizePayload } from './filterRules.js';
 import { NotificationService } from './NotificationService.js';
 import { normalizeScriptRuntime, runConfiguredScript } from './scriptRunner.js';
 
@@ -32,6 +34,9 @@ export interface FileEvent {
 
 export type FilterEventType = 'watcher' | 'cron' | 'manual';
 
+/** Filenames longer than this are never tested against regex rules. */
+export const MAX_REGEX_SUBJECT_LENGTH = 512;
+
 interface ProcessFileOptions {
   filterIds?: number[];
 }
@@ -39,6 +44,7 @@ interface ProcessFileOptions {
 export class FilterEngine {
   private readonly db: Database.Database;
   private readonly notificationService: NotificationService;
+  private readonly regexCache = new Map<number, { payload: string; regex: RegExp | null }>();
 
   constructor(db: Database.Database) {
     this.db = db;
@@ -117,28 +123,34 @@ export class FilterEngine {
     file: FileEvent,
     eventType: FilterEventType,
   ): Promise<boolean> {
-    // 1. Check target path if specified
+    // 1. Check target path. Watcher and cron filters must have a permitted target.
     const hasConfiguredTargetPath = typeof filter.target_path === 'string' && filter.target_path.trim().length > 0;
     if (hasConfiguredTargetPath) {
       if (!isPathWithinTarget(file.path, filter.target_path as string)) {
         return false;
       }
-    } else if (eventType === 'watcher') {
+      if (eventType !== 'manual') {
+        const violation = getFilterPathViolation(filter.target_path as string, 'Target path');
+        if (violation) {
+          logger.warn({ filterId: filter.id, violation }, 'Skipping filter with disallowed target path');
+          return false;
+        }
+      }
+    } else if (eventType !== 'manual') {
       return false;
     }
 
     // 2. Evaluate rule
     switch (filter.rule_type) {
       case 'extension': {
-        const allowed = filter.rule_payload
-          .toLowerCase()
-          .split(',')
-          .map((e) => e.trim());
+        if (!file.extension) return false;
+        const allowed = parseExtensionPayload(filter.rule_payload) ?? [];
         return allowed.includes(file.extension);
       }
       case 'regex': {
-        const regex = new RegExp(filter.rule_payload || '', 'i');
-        return regex.test(file.name);
+        if (file.name.length > MAX_REGEX_SUBJECT_LENGTH) return false;
+        const regex = this.getCompiledRegex(filter);
+        return regex ? regex.test(file.name) : false;
       }
       case 'size': {
         return this.evaluateSizeRule(filter.rule_payload, file.size);
@@ -153,28 +165,113 @@ export class FilterEngine {
     }
   }
 
+  /** Compile (and cache per filter) a regex rule; unsafe or invalid payloads never match. */
+  private getCompiledRegex(filter: FilterRow): RegExp | null {
+    const payload = filter.rule_payload || '';
+    const cached = this.regexCache.get(filter.id);
+    if (cached && cached.payload === payload) return cached.regex;
+
+    const violation = getRegexPayloadViolation(payload);
+    if (violation) {
+      logger.warn({ filterId: filter.id, violation }, 'Regex rule rejected; filter will not match');
+    }
+    const regex = violation ? null : new RegExp(payload, 'i');
+    this.regexCache.set(filter.id, { payload, regex });
+    return regex;
+  }
+
   private evaluateSizeRule(payload: string, fileSize: number): boolean {
-    // e.g. >100MB, <1KB, =500B
-    const match = /^([><=])?\s*(\d+(?:\.\d+)?)\s*([KMGT]B|B)?$/i.exec(payload);
-    if (!match) return false;
+    // e.g. >100MB, <1KB, =500B, >2G
+    const parsed = parseSizePayload(payload);
+    if (!parsed) return false;
 
-    const operator = match[1] || '=';
-    const value = Number.parseFloat(match[2] || '0');
-    const unit = (match[3] || 'B').toUpperCase();
+    if (parsed.operator === '>') return fileSize > parsed.bytes;
+    if (parsed.operator === '<') return fileSize < parsed.bytes;
+    return fileSize === parsed.bytes;
+  }
 
-    const units: Record<string, number> = {
-      B: 1,
-      KB: 1024,
-      MB: 1024 * 1024,
-      GB: 1024 * 1024 * 1024,
-      TB: 1024 * 1024 * 1024 * 1024,
-    };
+  /**
+   * Resolve the real location of `file` (symlinks in its directory chain resolved,
+   * the entry itself left as-is) and confirm it is still inside the filter's
+   * target path and not in a blocked location. Returns null when unsafe.
+   */
+  private resolveContainedSource(filter: FilterRow, file: FileEvent): string | null {
+    const targetPath = normalizeFilterTargetPath(filter.target_path);
+    if (!targetPath) {
+      logger.warn({ filterId: filter.id, file: file.path }, 'Skipping file action: filter has no target path');
+      return null;
+    }
 
-    const bytes = value * (units[unit] || 1);
+    let realSource: string;
+    let realTarget: string;
+    try {
+      realSource = path.join(fs.realpathSync(path.dirname(path.resolve(file.path))), path.basename(file.path));
+      realTarget = fs.realpathSync(targetPath);
+    } catch (err) {
+      logger.warn(
+        { filterId: filter.id, file: file.path, err: err instanceof Error ? err.message : String(err) },
+        'Skipping file action: path not resolvable',
+      );
+      return null;
+    }
 
-    if (operator === '>') return fileSize > bytes;
-    if (operator === '<') return fileSize < bytes;
-    return fileSize === bytes;
+    if (
+      !isPathWithinTarget(realSource, realTarget) ||
+      realSource === realTarget ||
+      getFilterPathViolation(realSource, 'File path')
+    ) {
+      logger.warn(
+        { filterId: filter.id, file: file.path, realPath: realSource, targetPath: realTarget },
+        'Skipping file action: file resolves outside the filter target path',
+      );
+      return null;
+    }
+    return realSource;
+  }
+
+  private moveFile(filter: FilterRow, source: string, destinationDir: string) {
+    const violation = getFilterPathViolation(destinationDir, 'Move destination');
+    if (violation) {
+      logger.warn({ filterId: filter.id, destination: destinationDir, violation }, 'Skipping move: destination not allowed');
+      return;
+    }
+
+    const destDir = path.resolve(destinationDir.trim());
+    fs.mkdirSync(destDir, { recursive: true });
+    const realDestDir = fs.realpathSync(destDir);
+    const realViolation = getFilterPathViolation(realDestDir, 'Move destination');
+    if (realViolation) {
+      logger.warn({ filterId: filter.id, destination: realDestDir, violation: realViolation }, 'Skipping move: destination not allowed');
+      return;
+    }
+
+    const dest = path.join(realDestDir, path.basename(source));
+    let destinationExists = true;
+    try {
+      fs.lstatSync(dest);
+    } catch {
+      destinationExists = false;
+    }
+    if (destinationExists) {
+      logger.warn({ filterId: filter.id, from: source, to: dest }, 'Skipping move: destination file already exists');
+      recordActivityEvent(this.db, {
+        type: 'run',
+        source: 'filters',
+        message: `Filter "${filter.name}" did not move ${path.basename(source)} because the destination already exists`,
+        details: { filterId: filter.id, status: 'skipped', from: source, to: dest },
+      });
+      return;
+    }
+
+    try {
+      fs.renameSync(source, dest);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'EXDEV') throw err;
+      // Cross-device: copy without clobbering, then remove the source.
+      fs.copyFileSync(source, dest, fs.constants.COPYFILE_EXCL);
+      fs.unlinkSync(source);
+    }
+    logger.info({ from: source, to: dest }, 'Moved file per filter action');
   }
 
   private async executeAction(filter: FilterRow, file: FileEvent) {
@@ -182,23 +279,22 @@ export class FilterEngine {
     const actionPayload = filter.action_payload;
 
     switch (actionType) {
-      case 'delete':
-        if (fs.existsSync(file.path)) {
-          fs.unlinkSync(file.path);
-          logger.info({ file: file.path }, 'Deleted file per filter action');
-        }
+      case 'delete': {
+        if (!fs.existsSync(file.path)) break;
+        const source = this.resolveContainedSource(filter, file);
+        if (!source) break;
+        fs.unlinkSync(source);
+        logger.info({ file: source }, 'Deleted file per filter action');
         break;
+      }
 
-      case 'move':
-        if (actionPayload && fs.existsSync(file.path)) {
-          const dest = path.join(actionPayload, file.name);
-          if (!fs.existsSync(actionPayload)) {
-            fs.mkdirSync(actionPayload, { recursive: true });
-          }
-          fs.renameSync(file.path, dest);
-          logger.info({ from: file.path, to: dest }, 'Moved file per filter action');
-        }
+      case 'move': {
+        if (!actionPayload || !fs.existsSync(file.path)) break;
+        const source = this.resolveContainedSource(filter, file);
+        if (!source) break;
+        this.moveFile(filter, source, actionPayload);
         break;
+      }
 
       case 'blocklist':
         await this.handleBlocklist(filter, file);

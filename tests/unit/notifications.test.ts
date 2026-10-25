@@ -26,6 +26,7 @@ describe('Filter notification overrides', () => {
         .send({
           name: `Test Slack Notification Filter ${Date.now()}`,
           triggerSource: 'watcher',
+          targetPath: '/downloads',
           ruleType: 'extension',
           rulePayload: 'exe',
           actionType: 'notify',
@@ -50,6 +51,7 @@ describe('Filter notification overrides', () => {
         .send({
           name: 'Test Webhook Only Filter',
           triggerSource: 'watcher',
+          targetPath: '/downloads',
           ruleType: 'extension',
           rulePayload: 'iso',
           actionType: 'notify',
@@ -74,6 +76,7 @@ describe('Filter notification overrides', () => {
         .send({
           name: `Shell Script Filter ${Date.now()}`,
           triggerSource: 'watcher',
+          targetPath: '/downloads',
           ruleType: 'script',
           rulePayload: 'echo true',
           actionType: 'script',
@@ -104,6 +107,7 @@ describe('Filter notification overrides', () => {
         .send({
           name: `Test Full Update Filter ${Date.now()}`,
           triggerSource: 'watcher',
+          targetPath: '/downloads',
           ruleType: 'extension',
           rulePayload: 'mkv',
           actionType: 'notify',
@@ -147,6 +151,7 @@ describe('Filter notification overrides', () => {
         .send({
           name: `Test Update Slack Filter ${Date.now()}`,
           triggerSource: 'watcher',
+          targetPath: '/downloads',
           ruleType: 'regex',
           rulePayload: String.raw`.*\.sample$`,
           actionType: 'delete',
@@ -209,6 +214,7 @@ describe('Filter notification overrides', () => {
         .send({
           name: `Test Inherited Notifications ${Date.now()}`,
           triggerSource: 'watcher',
+          targetPath: '/downloads',
           ruleType: 'extension',
           rulePayload: 'avi',
           actionType: 'notify',

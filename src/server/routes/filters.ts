@@ -7,6 +7,7 @@ import {
   createFilter,
   updateFilter,
   deleteFilter,
+  type FilterRow,
 } from '../../db/schemas/filters.js';
 import { FILTER_PRESETS } from '../lib/filterPresets.js';
 import { logger } from '../lib/logger.js';
@@ -17,6 +18,83 @@ import {
   DEFAULT_BLOCKLIST_BEHAVIOR,
   isBlocklistBehavior,
 } from '../../shared/blocklistBehavior.js';
+import { getFilterPathViolation } from '../services/filterPaths.js';
+import {
+  getRegexPayloadViolation,
+  normalizeSizePayload,
+  parseExtensionPayload,
+} from '../services/filterRules.js';
+
+class FilterInputError extends Error {}
+
+interface FilterPolicyInput {
+  triggerSource?: string;
+  ruleType?: string;
+  rulePayload?: string;
+  actionType?: string;
+  actionPayload?: string;
+  targetPath?: string;
+}
+
+/**
+ * Validate and normalize rule payloads, target paths and move destinations against
+ * the effective (merged) filter state. Only fields touched by the request (or
+ * whose meaning changes with it) are checked so unrelated edits such as toggling
+ * `enabled` keep working on legacy rows. Throws FilterInputError on rejection.
+ */
+function applyFilterInputPolicy<T extends FilterPolicyInput>(data: T, current?: FilterRow | null): T {
+  const result = { ...data };
+
+  if (data.ruleType !== undefined || data.rulePayload !== undefined) {
+    const ruleType = data.ruleType ?? current?.rule_type;
+    const rulePayload = data.rulePayload ?? current?.rule_payload ?? '';
+    if (ruleType === 'regex') {
+      const violation = getRegexPayloadViolation(rulePayload);
+      if (violation) throw new FilterInputError(violation);
+    } else if (ruleType === 'size') {
+      const normalized = normalizeSizePayload(rulePayload);
+      if (!normalized) {
+        throw new FilterInputError(
+          'Size rule must look like ">100MB" (operator <, > or =, then a number and a unit of B, KB, MB, GB or TB)',
+        );
+      }
+      result.rulePayload = normalized;
+    } else if (ruleType === 'extension') {
+      const extensions = parseExtensionPayload(rulePayload, true);
+      if (!extensions) {
+        throw new FilterInputError(
+          'Extension rule must be a comma-separated list of extensions using only letters and digits (e.g. "exe, msi")',
+        );
+      }
+      result.rulePayload = extensions.join(',');
+    }
+  }
+
+  if (data.triggerSource !== undefined || data.targetPath !== undefined) {
+    const triggerSource = data.triggerSource ?? current?.trigger_source;
+    const targetPath = (data.targetPath ?? current?.target_path ?? '').trim();
+    if (!targetPath && (triggerSource === 'watcher' || triggerSource === 'cron')) {
+      throw new FilterInputError('Target path is required for watcher and cron filters');
+    }
+    if (targetPath) {
+      const violation = getFilterPathViolation(targetPath, 'Target path');
+      if (violation) throw new FilterInputError(violation);
+    }
+    if (data.targetPath !== undefined) result.targetPath = data.targetPath.trim();
+  }
+
+  if (data.actionType !== undefined || data.actionPayload !== undefined) {
+    const actionType = data.actionType ?? current?.action_type;
+    if (actionType === 'move') {
+      const destination = (data.actionPayload ?? current?.action_payload ?? '').trim();
+      const violation = getFilterPathViolation(destination, 'Move destination');
+      if (violation) throw new FilterInputError(violation);
+      result.actionPayload = destination;
+    }
+  }
+
+  return result;
+}
 
 /**
  * For blocklist filters, default a missing/empty actionPayload to the default
@@ -126,7 +204,7 @@ export function createFiltersRoutes(db: Database.Database): Router {
   // POST /api/v1/filters
   router.post('/', (req: Request, res: Response, next: NextFunction): void => {
     try {
-      const data = createFilterSchema.parse(req.body);
+      const data = applyFilterInputPolicy(createFilterSchema.parse(req.body));
       if (data.ruleType === 'script' || data.actionType === 'script') {
         assertCustomScriptsEnabled('Custom script filters');
       }
@@ -137,6 +215,8 @@ export function createFiltersRoutes(db: Database.Database): Router {
     } catch (err: unknown) {
       if (err instanceof z.ZodError) {
         res.status(400).json({ error: err.issues[0]?.message || 'Invalid input' });
+      } else if (err instanceof FilterInputError) {
+        res.status(400).json({ error: err.message });
       } else if (err instanceof SecurityPolicyError) {
         res.status(403).json({ error: err.message });
       } else if (err instanceof Error && err.message.includes('UNIQUE constraint failed')) {
@@ -155,10 +235,11 @@ export function createFiltersRoutes(db: Database.Database): Router {
         res.status(400).json({ error: 'Invalid ID' });
         return;
       }
-      const data = updateFilterSchema.parse(req.body);
+      const parsed = updateFilterSchema.parse(req.body);
       // Block introducing or editing script logic while the feature is disabled.
       // Other edits (e.g. disabling an existing script filter) remain allowed.
       const current = getFilterById(db, id);
+      const data = applyFilterInputPolicy(parsed, current);
       const ruleIsScript = (data.ruleType ?? current?.rule_type) === 'script';
       const actionIsScript = (data.actionType ?? current?.action_type) === 'script';
       const touchesScript =
@@ -177,6 +258,8 @@ export function createFiltersRoutes(db: Database.Database): Router {
     } catch (err: unknown) {
       if (err instanceof z.ZodError) {
         res.status(400).json({ error: err.issues[0]?.message || 'Invalid input' });
+      } else if (err instanceof FilterInputError) {
+        res.status(400).json({ error: err.message });
       } else if (err instanceof SecurityPolicyError) {
         res.status(403).json({ error: err.message });
       } else if (

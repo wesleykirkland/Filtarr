@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   AuthConfigSchema,
-  BasicAuthConfigSchema,
   FormsAuthConfigSchema,
   OidcAuthConfigSchema,
   loadAuthConfigFromEnv,
@@ -30,11 +29,7 @@ describe('auth config helpers', () => {
     });
   });
 
-  it('validates basic, forms, and oidc schemas', () => {
-    expect(() => BasicAuthConfigSchema.parse({ username: 'admin', password: 'short' })).toThrow(
-      'Password must be at least 8 characters',
-    );
-
+  it('validates forms and oidc schemas', () => {
     expect(FormsAuthConfigSchema.parse({})).toEqual({
       sessionMaxAge: 86_400_000,
       cookieName: 'filtarr.sid',
@@ -64,12 +59,8 @@ describe('auth config helpers', () => {
     process.env['FILTARR_OIDC_SCOPES'] = 'openid,profile,groups';
     process.env['FILTARR_CORS_ORIGIN'] = 'https://app.example.com';
 
+    // Auth mode and credentials live in the database, never in env.
     expect(loadAuthConfigFromEnv()).toEqual({
-      mode: 'forms',
-      basic: {
-        username: 'admin',
-        password: 'supersecret',
-      },
       forms: {
         sessionSecret: 'a'.repeat(32),
         sessionMaxAge: 9000,
@@ -115,9 +106,11 @@ describe('auth config helpers', () => {
     expect(loadAuthConfigFromEnv()).toEqual({ trustProxy: 2, cookieSecure: false });
   });
 
-  it('throws when an invalid auth mode is provided in the environment', () => {
+  it('ignores auth mode and credential env vars', () => {
     process.env['FILTARR_AUTH_MODE'] = 'ldap';
+    process.env['FILTARR_AUTH_USERNAME'] = 'admin';
+    process.env['FILTARR_AUTH_PASSWORD'] = 'supersecret';
 
-    expect(() => loadAuthConfigFromEnv()).toThrow();
+    expect(loadAuthConfigFromEnv()).toEqual({});
   });
 });

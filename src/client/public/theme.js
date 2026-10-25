@@ -2,8 +2,8 @@
 // Served as a same-origin file so the CSP (script-src 'self') allows it.
 (function () {
   try {
-    var saved = localStorage.getItem('darkMode');
-    var dark =
+    const saved = localStorage.getItem('darkMode');
+    const dark =
       saved === null
         ? typeof globalThis.matchMedia === 'function' &&
           globalThis.matchMedia('(prefers-color-scheme: dark)').matches

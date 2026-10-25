@@ -13,10 +13,7 @@ import {
   type AuthMode,
   type OidcAuthConfig,
 } from '../../config/auth.js';
-import {
-  NotificationService,
-  type NotificationChannel,
-} from '../services/NotificationService.js';
+import { NotificationService, type NotificationChannel } from '../services/NotificationService.js';
 import {
   BackupDirectoryError,
   BackupImportValidationError,
@@ -24,11 +21,7 @@ import {
   type BackupSettingsState,
 } from '../services/settingsBackup.js';
 import { reloadSettingsBackupScheduler } from '../cron/settingsBackup.js';
-import {
-  decryptStoredSecret,
-  encryptStoredSecret,
-  maskApiKey,
-} from '../../services/encryption.js';
+import { decryptStoredSecret, encryptStoredSecret, maskApiKey } from '../../services/encryption.js';
 import { getAuthMode } from '../lib/authMode.js';
 import { routerRateLimiter } from '../middleware/requestPolicy.js';
 import { validateWebhookUrl } from '../../services/security.js';
@@ -72,8 +65,9 @@ const backupImportSchema = z.object({
 });
 
 function getSettingValue(db: Database.Database, key: string): string | undefined {
-  return db.prepare<[string], { value: string }>('SELECT value FROM settings WHERE key = ?').get(key)
-    ?.value;
+  return db
+    .prepare<[string], { value: string }>('SELECT value FROM settings WHERE key = ?')
+    .get(key)?.value;
 }
 
 function getSettingString(db: Database.Database, key: string, defaultValue = ''): string {
@@ -154,6 +148,49 @@ function getOidcSettings(db: Database.Database): OidcAuthConfig {
 /**
  * Check if any admin users exist in the database.
  */
+function upsertBooleanSetting(db: Database.Database, key: string, value: unknown): void {
+  if (typeof value === 'boolean') upsertSetting(db, key, value ? '1' : '0');
+}
+
+async function matchesAnyHash(
+  password: unknown,
+  hashes: readonly { password_hash: string }[],
+): Promise<boolean> {
+  if (typeof password !== 'string' || password.length === 0) return false;
+  for (const { password_hash } of hashes) {
+    if (await bcrypt.compare(password, password_hash)) return true;
+  }
+  return false;
+}
+
+/** Validate and persist OIDC settings. Returns an error message, or null on success. */
+function saveOidcSettings(db: Database.Database, oidc: Partial<OidcAuthConfig>): string | null {
+  const existingOidc = getOidcSettings(db);
+  const clientSecretUpdate = getSecretUpdate(oidc.clientSecret);
+  const oidcCandidate = {
+    issuerUrl: oidc.issuerUrl?.trim() ?? existingOidc.issuerUrl,
+    clientId: oidc.clientId?.trim() ?? existingOidc.clientId,
+    clientSecret: clientSecretUpdate ?? existingOidc.clientSecret,
+    callbackUrl: oidc.callbackUrl?.trim() ?? existingOidc.callbackUrl,
+    scopes: normalizeScopes(oidc.scopes ?? existingOidc.scopes),
+  };
+
+  const parsedOidc = OidcAuthConfigSchema.safeParse(oidcCandidate);
+  if (!parsedOidc.success) {
+    return parsedOidc.error.issues[0]?.message || 'Invalid OIDC configuration';
+  }
+
+  upsertSetting(db, 'oidc_issuer_url', parsedOidc.data.issuerUrl);
+  upsertSetting(db, 'oidc_client_id', parsedOidc.data.clientId);
+  // Only rewrite the secret when a new one was supplied (or it only exists in env so far).
+  if (clientSecretUpdate !== undefined || getSettingValue(db, 'oidc_client_secret') === undefined) {
+    upsertSecretSetting(db, 'oidc_client_secret', parsedOidc.data.clientSecret);
+  }
+  upsertSetting(db, 'oidc_callback_url', parsedOidc.data.callbackUrl);
+  upsertSetting(db, 'oidc_scopes', parsedOidc.data.scopes.join(','));
+  return null;
+}
+
 function hasAdminUser(db: Database.Database): boolean {
   try {
     const result = db.prepare<[], { count: number }>('SELECT COUNT(*) as count FROM users').get();
@@ -224,47 +261,17 @@ export function createSettingsRoutes(
             `SELECT password_hash FROM users WHERE password_hash IS NOT NULL AND password_hash != ''`,
           )
           .all();
-        if (adminHashes.length > 0) {
-          let verified = false;
-          if (typeof currentPassword === 'string' && currentPassword.length > 0) {
-            for (const { password_hash } of adminHashes) {
-              if (await bcrypt.compare(currentPassword, password_hash)) {
-                verified = true;
-                break;
-              }
-            }
-          }
-          if (!verified) {
-            res.status(401).json({ error: 'Current password is incorrect' });
-            return;
-          }
+        if (adminHashes.length > 0 && !(await matchesAnyHash(currentPassword, adminHashes))) {
+          res.status(401).json({ error: 'Current password is incorrect' });
+          return;
         }
 
         if (oidc) {
-          const existingOidc = getOidcSettings(db);
-          const clientSecretUpdate = getSecretUpdate(oidc?.clientSecret);
-          const oidcCandidate = {
-            issuerUrl: oidc?.issuerUrl?.trim() ?? existingOidc.issuerUrl,
-            clientId: oidc?.clientId?.trim() ?? existingOidc.clientId,
-            clientSecret: clientSecretUpdate ?? existingOidc.clientSecret,
-            callbackUrl: oidc?.callbackUrl?.trim() ?? existingOidc.callbackUrl,
-            scopes: normalizeScopes(oidc?.scopes ?? existingOidc.scopes),
-          };
-
-          const parsedOidc = OidcAuthConfigSchema.safeParse(oidcCandidate);
-          if (!parsedOidc.success) {
-            res.status(400).json({ error: parsedOidc.error.issues[0]?.message || 'Invalid OIDC configuration' });
+          const oidcError = saveOidcSettings(db, oidc);
+          if (oidcError) {
+            res.status(400).json({ error: oidcError });
             return;
           }
-
-          upsertSetting(db, 'oidc_issuer_url', parsedOidc.data.issuerUrl);
-          upsertSetting(db, 'oidc_client_id', parsedOidc.data.clientId);
-          // Only rewrite the secret when a new one was supplied (or it only exists in env so far).
-          if (clientSecretUpdate !== undefined || getSettingValue(db, 'oidc_client_secret') === undefined) {
-            upsertSecretSetting(db, 'oidc_client_secret', parsedOidc.data.clientSecret);
-          }
-          upsertSetting(db, 'oidc_callback_url', parsedOidc.data.callbackUrl);
-          upsertSetting(db, 'oidc_scopes', parsedOidc.data.scopes.join(','));
         }
 
         // If switching TO basic/forms and no admin exists, require username/password
@@ -314,10 +321,9 @@ export function createSettingsRoutes(
   router.get('/app', (_req: Request, res: Response): void => {
     try {
       const result = db
-        .prepare<
-          [],
-          { value: string }
-        >(`SELECT value FROM settings WHERE key = 'validation_interval_minutes'`)
+        .prepare<[], { value: string }>(
+          `SELECT value FROM settings WHERE key = 'validation_interval_minutes'`,
+        )
         .get();
       const interval = Number.parseInt(result?.value || '15', 10);
       res.json({
@@ -379,12 +385,8 @@ export function createSettingsRoutes(
   // POST /api/v1/settings/notifications/test — send a channel-specific test notification
   router.post('/notifications/test', async (req: Request, res: Response): Promise<void> => {
     try {
-      const {
-        channel,
-        defaultWebhookUrl,
-        defaultSlackToken,
-        defaultSlackChannel,
-      } = req.body as Partial<NotificationTestRequest>;
+      const { channel, defaultWebhookUrl, defaultSlackToken, defaultSlackChannel } =
+        req.body as Partial<NotificationTestRequest>;
 
       if (channel !== 'slack' && channel !== 'webhook') {
         res.status(400).json({ error: 'Invalid notification channel' });
@@ -430,18 +432,15 @@ export function createSettingsRoutes(
         try {
           validateWebhookUrl(webhookUrlUpdate, { fieldName: 'defaultWebhookUrl' });
         } catch (err) {
-          res.status(400).json({ error: err instanceof Error ? err.message : 'Invalid webhook URL' });
+          res
+            .status(400)
+            .json({ error: err instanceof Error ? err.message : 'Invalid webhook URL' });
           return;
         }
       }
 
-      if (typeof slackEnabled === 'boolean') {
-        upsertSetting(db, 'slack_enabled', slackEnabled ? '1' : '0');
-      }
-
-      if (typeof webhookEnabled === 'boolean') {
-        upsertSetting(db, 'webhook_enabled', webhookEnabled ? '1' : '0');
-      }
+      upsertBooleanSetting(db, 'slack_enabled', slackEnabled);
+      upsertBooleanSetting(db, 'webhook_enabled', webhookEnabled);
 
       if (webhookUrlUpdate !== undefined) {
         upsertSecretSetting(db, 'default_webhook_url', webhookUrlUpdate);
@@ -517,7 +516,9 @@ export function createSettingsRoutes(
       }
       const message = err instanceof Error ? err.message : 'Failed to update backup settings';
       const statusCode = message.includes('positive integer') ? 400 : 500;
-      res.status(statusCode).json({ error: statusCode === 400 ? message : 'Failed to update backup settings' });
+      res
+        .status(statusCode)
+        .json({ error: statusCode === 400 ? message : 'Failed to update backup settings' });
     }
   });
 

@@ -11,6 +11,7 @@ import passport from 'passport';
 import { Strategy as LocalStrategy } from 'passport-local';
 import bcrypt from 'bcrypt';
 import crypto from 'node:crypto';
+import { inspect } from 'node:util';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type Database from 'better-sqlite3';
@@ -63,8 +64,7 @@ export const GENERIC_AUTH_FAILURE_MESSAGE = 'Invalid credentials';
 export type CredentialFailureReason = 'invalid' | 'locked' | 'unknown_user';
 
 export type CredentialCheckResult =
-  | { ok: true; user: User }
-  | { ok: false; reason: CredentialFailureReason };
+  { ok: true; user: User } | { ok: false; reason: CredentialFailureReason };
 
 async function dummyCompare(password: string): Promise<void> {
   try {
@@ -335,7 +335,13 @@ export async function invalidateAllSessions(): Promise<void> {
             resolve();
             return;
           }
-          store.clear((err?: unknown) => (err ? reject(err) : resolve()));
+          store.clear((err?: unknown) => {
+            if (!err) {
+              resolve();
+              return;
+            }
+            reject(err instanceof Error ? err : new Error(`Session store clear failed: ${inspect(err)}`));
+          });
         }),
     ),
   );

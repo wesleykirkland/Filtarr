@@ -128,7 +128,7 @@ const REDACTION_NOTES = [
   'users, sessions, api_keys, and events rows => omitted from export and left untouched on import',
   `only these settings keys are restored on import: ${[...RESTORABLE_SETTING_KEYS].join(', ')}; all other settings (including setup_complete and auth_mode) are left untouched`,
   'blank secret settings in a backup do not overwrite secrets already configured on import',
-  'non-blank secret settings in a backup are re-encrypted with this server\'s key on import (undecryptable values are ignored)',
+  "non-blank secret settings in a backup are re-encrypted with this server's key on import (undecryptable values are ignored)",
   'imported filters and jobs are validated like API input; custom-script filters and jobs require FILTARR_ENABLE_CUSTOM_SCRIPTS=true',
 ] as const;
 const BACKUP_FILE_PATTERN = /^filtarr-settings-\d{8}-\d{6}\.sql$/;
@@ -194,6 +194,25 @@ function toOptionalBoolean(value: unknown): unknown {
   return typeof value === 'number' ? value !== 0 : value;
 }
 
+const SQL_CLOSING_QUOTE: Record<string, string> = { "'": "'", '"': '"', '`': '`', '[': ']' };
+
+/** Index of the quote character closing the quoted value that opens at `start`. */
+function findClosingQuote(sql: string, start: number, close: string): number {
+  let j = start + 1;
+  while (j < sql.length) {
+    if (sql[j] === close) {
+      // Doubled quote is an escaped quote (not applicable to [...] identifiers).
+      if (close !== ']' && sql[j + 1] === close) {
+        j += 2;
+        continue;
+      }
+      return j;
+    }
+    j += 1;
+  }
+  throw new Error('Backup SQL contains an unterminated quoted value');
+}
+
 /**
  * Split a SQL script into statements on `;`, honouring SQLite quoting rules.
  * Semicolons and comment markers inside single-quoted strings (where `''`
@@ -207,60 +226,33 @@ export function splitSqlStatements(sql: string): string[] {
   let i = 0;
   const length = sql.length;
 
-  const closingQuote: Record<string, string> = { "'": "'", '"': '"', '`': '`', '[': ']' };
-
   while (i < length) {
     const char = sql[i] as string;
     const next = sql[i + 1];
 
-    if (char in closingQuote) {
-      const close = closingQuote[char] as string;
-      let j = i + 1;
-      while (j < length) {
-        if (sql[j] === close) {
-          // Doubled quote is an escaped quote (not applicable to [...] identifiers).
-          if (close !== ']' && sql[j + 1] === close) {
-            j += 2;
-            continue;
-          }
-          break;
-        }
-        j += 1;
-      }
-      if (j >= length) {
-        throw new Error('Backup SQL contains an unterminated quoted value');
-      }
-      current += sql.slice(i, j + 1);
-      i = j + 1;
-      continue;
-    }
-
-    if (char === '-' && next === '-') {
+    if (char in SQL_CLOSING_QUOTE) {
+      const end = findClosingQuote(sql, i, SQL_CLOSING_QUOTE[char] as string);
+      current += sql.slice(i, end + 1);
+      i = end + 1;
+    } else if (char === '-' && next === '-') {
       const newline = sql.indexOf('\n', i);
       i = newline === -1 ? length : newline;
-      continue;
-    }
-
-    if (char === '/' && next === '*') {
+    } else if (char === '/' && next === '*') {
       const end = sql.indexOf('*/', i + 2);
       if (end === -1) {
         throw new Error('Backup SQL contains an unterminated comment');
       }
       current += ' ';
       i = end + 2;
-      continue;
-    }
-
-    if (char === ';') {
+    } else if (char === ';') {
       const trimmed = current.trim();
       if (trimmed.length > 0) statements.push(trimmed);
       current = '';
       i += 1;
-      continue;
+    } else {
+      current += char;
+      i += 1;
     }
-
-    current += char;
-    i += 1;
   }
 
   const trailing = current.trim();
@@ -287,13 +279,19 @@ export class SettingsBackupService {
   public getState(): BackupSettingsState {
     const directory = this.getDirectorySetting();
     const backups = this.listBackups(directory);
-    const lastBackupAt = this.getLatestTimestamp(this.getSettingValue('backup_last_run_at'), backups[0]?.createdAt);
+    const lastBackupAt = this.getLatestTimestamp(
+      this.getSettingValue('backup_last_run_at'),
+      backups[0]?.createdAt,
+    );
     const enabled = this.getBooleanSetting('backup_enabled', true);
 
     return {
       enabled,
       directory,
-      retentionCount: this.getPositiveIntegerSetting('backup_retention_count', DEFAULT_RETENTION_COUNT),
+      retentionCount: this.getPositiveIntegerSetting(
+        'backup_retention_count',
+        DEFAULT_RETENTION_COUNT,
+      ),
       frequency: 'daily',
       lastBackupAt,
       nextBackupAt: enabled ? this.getNextBackupAt(lastBackupAt) : null,
@@ -348,7 +346,10 @@ export class SettingsBackupService {
       directory = this.resolveBackupDirectory(directory, true);
     } catch (error) {
       this.upsertSetting('backup_last_error', BACKUP_DIRECTORY_ERROR_MESSAGE);
-      logger.error({ err: error, directory, reason }, 'Refusing to write backup outside the data directory');
+      logger.error(
+        { err: error, directory, reason },
+        'Refusing to write backup outside the data directory',
+      );
       throw error;
     }
 
@@ -475,7 +476,10 @@ export class SettingsBackupService {
         const field = parsed.error.issues[0]?.path.join('.') || 'row';
         throw new BackupImportValidationError(`${label} failed validation (${field})`);
       }
-      if (!scriptsAllowed && (parsed.data.ruleType === 'script' || parsed.data.actionType === 'script')) {
+      if (
+        !scriptsAllowed &&
+        (parsed.data.ruleType === 'script' || parsed.data.actionType === 'script')
+      ) {
         throw new BackupImportValidationError(
           `${label} uses a custom script, which is disabled unless FILTARR_ENABLE_CUSTOM_SCRIPTS=true`,
         );
@@ -529,13 +533,7 @@ export class SettingsBackupService {
     const deleteOrder = [...restoredTables].reverse();
     const insertOrder = [...restoredTables];
 
-    const importedSettings = new Map<string, string>();
-    for (const row of this.selectAll(sourceDb, 'settings')) {
-      const key = typeof row['key'] === 'string' ? row['key'] : '';
-      if (RESTORABLE_SETTING_KEYS.has(key) && typeof row['value'] === 'string') {
-        importedSettings.set(key, row['value']);
-      }
-    }
+    const importedSettings = this.readImportedSettings(sourceDb);
 
     const restore = this.db.transaction(() => {
       for (const table of deleteOrder) {
@@ -543,43 +541,11 @@ export class SettingsBackupService {
       }
 
       for (const table of insertOrder) {
-        const columns = this.getTableColumns(sourceDb, table);
-        if (columns.length === 0) continue;
-
-        for (const row of this.selectAll(sourceDb, table)) {
-          const normalizedRow = this.normalizeImportedRow(table, row);
-          const placeholders = columns.map(() => '?').join(', ');
-          const columnList = columns.map((column) => this.quoteIdentifier(column)).join(', ');
-          const values = columns.map((column) => normalizedRow[column]);
-
-          this.db
-            .prepare(
-              `INSERT INTO ${this.quoteIdentifier(table)} (${columnList}) VALUES (${placeholders})`,
-            )
-            .run(...values);
-        }
+        this.restoreTableRows(sourceDb, table);
       }
 
       for (const key of RESTORABLE_SETTING_KEYS) {
-        const imported = importedSettings.get(key);
-
-        if (BLANKED_SETTING_KEYS.has(key)) {
-          // Secrets: a usable imported value is re-encrypted with this server's
-          // key; otherwise whatever is configured now is kept.
-          const secret = this.toStoredImportedSecret(imported);
-          if (secret !== null) {
-            this.upsertSetting(key, secret);
-          } else if (imported !== undefined && this.getSettingValue(key) === undefined) {
-            this.upsertSetting(key, '');
-          }
-          continue;
-        }
-
-        if (imported === undefined) {
-          this.db.prepare('DELETE FROM settings WHERE key = ?').run(key);
-        } else {
-          this.upsertSetting(key, key === 'backup_directory' ? this.normalizeDirectory(imported) : imported);
-        }
+        this.restoreSettingKey(key, importedSettings.get(key));
       }
     });
 
@@ -592,6 +558,61 @@ export class SettingsBackupService {
     } finally {
       if (foreignKeysWereOn) this.db.pragma('foreign_keys = ON');
     }
+  }
+
+  private readImportedSettings(sourceDb: Database.Database): Map<string, string> {
+    const importedSettings = new Map<string, string>();
+    for (const row of this.selectAll(sourceDb, 'settings')) {
+      const key = typeof row['key'] === 'string' ? row['key'] : '';
+      if (RESTORABLE_SETTING_KEYS.has(key) && typeof row['value'] === 'string') {
+        importedSettings.set(key, row['value']);
+      }
+    }
+    return importedSettings;
+  }
+
+  private restoreTableRows(
+    sourceDb: Database.Database,
+    table: (typeof EXPORT_TABLES)[number],
+  ): void {
+    const columns = this.getTableColumns(sourceDb, table);
+    if (columns.length === 0) return;
+
+    for (const row of this.selectAll(sourceDb, table)) {
+      const normalizedRow = this.normalizeImportedRow(table, row);
+      const placeholders = columns.map(() => '?').join(', ');
+      const columnList = columns.map((column) => this.quoteIdentifier(column)).join(', ');
+      const values = columns.map((column) => normalizedRow[column]);
+
+      this.db
+        .prepare(
+          `INSERT INTO ${this.quoteIdentifier(table)} (${columnList}) VALUES (${placeholders})`,
+        )
+        .run(...values);
+    }
+  }
+
+  private restoreSettingKey(key: string, imported: string | undefined): void {
+    if (BLANKED_SETTING_KEYS.has(key)) {
+      // Secrets: a usable imported value is re-encrypted with this server's
+      // key; otherwise whatever is configured now is kept.
+      const secret = this.toStoredImportedSecret(imported);
+      if (secret !== null) {
+        this.upsertSetting(key, secret);
+      } else if (imported !== undefined && this.getSettingValue(key) === undefined) {
+        this.upsertSetting(key, '');
+      }
+      return;
+    }
+
+    if (imported === undefined) {
+      this.db.prepare('DELETE FROM settings WHERE key = ?').run(key);
+      return;
+    }
+    this.upsertSetting(
+      key,
+      key === 'backup_directory' ? this.normalizeDirectory(imported) : imported,
+    );
   }
 
   /**
@@ -635,9 +656,9 @@ export class SettingsBackupService {
       const columns = this.getTableColumns(this.db, table);
       if (columns.length === 0 || TABLES_WITHOUT_EXPORTED_ROWS.has(table)) continue;
 
-      const rows = this.db
-        .prepare(`SELECT * FROM ${this.quoteIdentifier(table)}`)
-        .all() as Array<Record<string, unknown>>;
+      const rows = this.db.prepare(`SELECT * FROM ${this.quoteIdentifier(table)}`).all() as Array<
+        Record<string, unknown>
+      >;
 
       for (const row of rows) {
         const redactedRow = this.redactExportRow(table, row);
@@ -713,17 +734,19 @@ export class SettingsBackupService {
     return row;
   }
 
-  private selectAll(db: Database.Database, table: (typeof EXPORT_TABLES)[number]): Array<Record<string, unknown>> {
+  private selectAll(
+    db: Database.Database,
+    table: (typeof EXPORT_TABLES)[number],
+  ): Array<Record<string, unknown>> {
     if (this.getTableColumns(db, table).length === 0) return [];
-    return db.prepare(`SELECT * FROM ${this.quoteIdentifier(table)}`).all() as Array<Record<string, unknown>>;
+    return db.prepare(`SELECT * FROM ${this.quoteIdentifier(table)}`).all() as Array<
+      Record<string, unknown>
+    >;
   }
 
   private getSchemaRows(type: SqliteSchemaRow['type']): SqliteSchemaRow[] {
     return this.db
-      .prepare<
-        [SqliteSchemaRow['type']],
-        SqliteSchemaRow
-      >(
+      .prepare<[SqliteSchemaRow['type']], SqliteSchemaRow>(
         `SELECT type, name, sql
          FROM sqlite_master
          WHERE type = ?
@@ -736,10 +759,13 @@ export class SettingsBackupService {
       .filter((row) => EXPORT_TABLES.includes(row.name as (typeof EXPORT_TABLES)[number]));
   }
 
-  private getTableColumns(db: Database.Database, tableName: (typeof EXPORT_TABLES)[number]): string[] {
-    return (db.prepare(`PRAGMA table_info(${this.quoteIdentifier(tableName)})`).all() as TableColumnRow[]).map(
-      (column) => column.name,
-    );
+  private getTableColumns(
+    db: Database.Database,
+    tableName: (typeof EXPORT_TABLES)[number],
+  ): string[] {
+    return (
+      db.prepare(`PRAGMA table_info(${this.quoteIdentifier(tableName)})`).all() as TableColumnRow[]
+    ).map((column) => column.name);
   }
 
   private listBackups(directory: string): BackupFileInfo[] {
@@ -765,7 +791,9 @@ export class SettingsBackupService {
   private pruneBackups(directory: string, retentionCount: number): void {
     // Only prune files this service wrote; never touch other *.sql files that
     // happen to live in the configured directory.
-    const backups = this.listBackups(directory).filter((backup) => BACKUP_FILE_PATTERN.test(backup.fileName));
+    const backups = this.listBackups(directory).filter((backup) =>
+      BACKUP_FILE_PATTERN.test(backup.fileName),
+    );
     backups.slice(retentionCount).forEach((backup) => fs.rmSync(backup.filePath));
   }
 
@@ -800,7 +828,9 @@ export class SettingsBackupService {
   }
 
   private getDirectorySetting(): string {
-    return this.normalizeDirectory(this.getSettingValue('backup_directory') ?? this.defaultDirectory);
+    return this.normalizeDirectory(
+      this.getSettingValue('backup_directory') ?? this.defaultDirectory,
+    );
   }
 
   private normalizeDirectory(directory: string): string {
@@ -870,15 +900,18 @@ export class SettingsBackupService {
   }
 
   private getSettingValue(key: string): string | undefined {
-    return this.db.prepare<[string], { value: string }>('SELECT value FROM settings WHERE key = ?').get(key)
-      ?.value;
+    return this.db
+      .prepare<[string], { value: string }>('SELECT value FROM settings WHERE key = ?')
+      .get(key)?.value;
   }
 
   private upsertSetting(key: string, value: string): void {
-    this.db.prepare(
-      `INSERT OR REPLACE INTO settings (key, value, updated_at)
+    this.db
+      .prepare(
+        `INSERT OR REPLACE INTO settings (key, value, updated_at)
        VALUES (?, ?, datetime('now'))`,
-    ).run(key, value);
+      )
+      .run(key, value);
   }
 
   private toSqlLiteral(value: unknown): string {
@@ -895,6 +928,10 @@ export class SettingsBackupService {
   }
 
   private formatFileTimestamp(isoString: string): string {
-    return isoString.replaceAll(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z').replace('T', '-').replace('Z', '');
+    return isoString
+      .replaceAll(/[-:]/g, '')
+      .replace(/\.\d{3}Z$/, 'Z')
+      .replace('T', '-')
+      .replace('Z', '');
   }
 }

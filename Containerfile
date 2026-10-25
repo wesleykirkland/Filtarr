@@ -3,13 +3,15 @@
 #   docker buildx imagetools inspect node:24-alpine --format '{{json .Manifest.Digest}}'
 
 # Stage 1: Build
-FROM node:24-alpine@sha256:06d7adf3e0ef61a13f1d28682726366f97a15aa1888c934d3ecec86c33918b53 AS builder
+# node:24-alpine, pinned by digest only (tag kept here for humans; renovate updates the digest)
+FROM node@sha256:06d7adf3e0ef61a13f1d28682726366f97a15aa1888c934d3ecec86c33918b53 AS builder
 
 WORKDIR /app
 
 COPY package.json package-lock.json ./
-RUN apk add --no-cache --virtual .build-deps python3 make g++ && \
-    npm ci && \
+RUN apk add --no-cache --virtual .build-deps g++ make python3 && \
+    npm ci --ignore-scripts && \
+    npm rebuild bcrypt better-sqlite3 && \
     apk del .build-deps
 
 COPY tsconfig.json vite.config.ts ./
@@ -18,7 +20,8 @@ COPY src/ ./src/
 RUN npm run build:all
 
 # Stage 2: Production
-FROM node:24-alpine@sha256:06d7adf3e0ef61a13f1d28682726366f97a15aa1888c934d3ecec86c33918b53 AS runtime
+# node:24-alpine, same digest as the builder stage
+FROM node@sha256:06d7adf3e0ef61a13f1d28682726366f97a15aa1888c934d3ecec86c33918b53 AS runtime
 
 ARG OCI_VERSION=0.1.0
 ARG OCI_REVISION=unknown
@@ -43,8 +46,9 @@ WORKDIR /app
 
 COPY package.json package-lock.json ./
 RUN apk add --no-cache bash && \
-    apk add --no-cache --virtual .build-deps python3 make g++ && \
-    npm ci --omit=dev && \
+    apk add --no-cache --virtual .build-deps g++ make python3 && \
+    npm ci --omit=dev --ignore-scripts && \
+    npm rebuild bcrypt better-sqlite3 && \
     apk del .build-deps && \
     npm cache clean --force
 

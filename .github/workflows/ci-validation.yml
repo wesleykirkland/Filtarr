@@ -37,7 +37,7 @@ jobs:
           cache-dependency-path: package-lock.json
 
       - name: Install dependencies deterministically
-        run: npm ci
+        run: npm ci --ignore-scripts
 
       - name: Verify lockfile remains unchanged
         run: git diff --exit-code -- package-lock.json
@@ -84,7 +84,7 @@ jobs:
           cache-dependency-path: package-lock.json
 
       - name: Install dependencies deterministically
-        run: npm ci
+        run: npm ci --ignore-scripts
 
       - name: Verify lockfile remains unchanged
         run: git diff --exit-code -- package-lock.json
@@ -125,7 +125,7 @@ jobs:
           cache-dependency-path: package-lock.json
 
       - name: Install dependencies deterministically
-        run: npm ci
+        run: npm ci --ignore-scripts
 
       - name: Verify lockfile remains unchanged
         run: git diff --exit-code -- package-lock.json

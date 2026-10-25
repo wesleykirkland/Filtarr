@@ -73,80 +73,118 @@ export function parseExtensionPayload(payload: string, strict = false): string[]
  * `(mkv|mp4)+`; such rules can be written without the outer quantifier.
  */
 export function findUnsafeRegexConstruct(source: string): string | null {
-  interface GroupState {
-    risky: boolean;
-  }
-  const stack: GroupState[] = [{ risky: false }];
+  const stack: RegexGroupState[] = [{ risky: false }];
   let inClass = false;
 
-  const quantifierAt = (index: number): { length: number; repeats: boolean } | null => {
-    const ch = source[index];
-    if (ch === '*' || ch === '+') return { length: 1, repeats: true };
-    if (ch === '?') return { length: 1, repeats: false };
-    if (ch === '{') {
-      const m = /^\{(\d*)(,?)(\d*)\}/.exec(source.slice(index));
-      if (!m) return null;
-      const max = m[2] ? (m[3] ? Number(m[3]) : Infinity) : Number(m[1]);
-      return { length: m[0].length, repeats: max > 1 };
-    }
-    return null;
-  };
-
-  for (let i = 0; i < source.length; i += 1) {
+  let i = 0;
+  while (i < source.length) {
     const ch = source[i];
-    const top = stack[stack.length - 1] as GroupState;
+    const top = stack.at(-1) as RegexGroupState;
+    // Index of the last character consumed by this step; the loop resumes after it.
+    let last = i;
 
     if (ch === '\\') {
-      const next = source[i + 1] ?? '';
-      if (!inClass && (/[1-9]/.test(next) || next === 'k')) {
+      if (!inClass && isBackreferenceEscape(source[i + 1] ?? '')) {
         return 'backreferences are not allowed';
       }
-      i += 1;
-      continue;
-    }
-    if (inClass) {
+      last = i + 1;
+    } else if (inClass) {
       if (ch === ']') inClass = false;
-      continue;
-    }
-    if (ch === '[') {
+    } else if (ch === '[') {
       inClass = true;
-      continue;
-    }
-    if (ch === '(') {
+    } else if (ch === '(') {
       stack.push({ risky: false });
       // Skip group modifiers so their `?` is not mistaken for a quantifier.
-      const modifier = /^\?(?::|=|!|<=|<!|<[A-Za-z_$][\w$]*>)/.exec(source.slice(i + 1));
-      if (modifier) i += modifier[0].length;
-      continue;
-    }
-    if (ch === '|') {
+      last = i + groupModifierLength(source, i + 1);
+    } else if (ch === '|') {
       top.risky = true;
-      continue;
-    }
-    if (ch === ')') {
-      const closed = stack.length > 1 ? (stack.pop() as GroupState) : top;
-      const parent = stack[stack.length - 1] as GroupState;
-      const quantifier = quantifierAt(i + 1);
+    } else if (ch === ')') {
+      const closed = stack.length > 1 ? (stack.pop() as RegexGroupState) : top;
+      const parent = stack.at(-1) as RegexGroupState;
+      const result = closeGroup(source, i, closed, parent);
+      if (typeof result === 'string') return result;
+      last = result;
+    } else {
+      const quantifier = quantifierAt(source, i);
       if (quantifier) {
-        if (quantifier.repeats && closed.risky) {
-          return 'nested quantifiers or quantified alternations are not allowed';
-        }
-        parent.risky = true;
-        i += quantifier.length;
-        if (source[i + 1] === '?') i += 1; // lazy modifier
-      } else if (closed.risky) {
-        parent.risky = true;
+        top.risky = true;
+        last = skipLazyModifier(source, i + quantifier.length - 1);
       }
-      continue;
     }
-    const quantifier = quantifierAt(i);
-    if (quantifier) {
-      top.risky = true;
-      i += quantifier.length - 1;
-      if (source[i + 1] === '?') i += 1; // lazy modifier
-    }
+
+    i = last + 1;
   }
   return null;
+}
+
+interface RegexGroupState {
+  risky: boolean;
+}
+
+function isBackreferenceEscape(next: string): boolean {
+  return /[1-9]/.test(next) || next === 'k';
+}
+
+function groupModifierLength(source: string, index: number): number {
+  const modifier = /^\?(?::|=|!|<=|<!|<[A-Za-z_$][\w$]*>)/.exec(source.slice(index, index + 64));
+  return modifier ? modifier[0].length : 0;
+}
+
+/** If a lazy `?` follows position `index`, return its index; otherwise `index`. */
+function skipLazyModifier(source: string, index: number): number {
+  return source[index + 1] === '?' ? index + 1 : index;
+}
+
+/**
+ * Handle a `)` at `index`. Returns an error message for an unsafe quantified
+ * group, otherwise the index of the last character consumed.
+ */
+function closeGroup(
+  source: string,
+  index: number,
+  closed: RegexGroupState,
+  parent: RegexGroupState,
+): string | number {
+  const quantifier = quantifierAt(source, index + 1);
+  if (!quantifier) {
+    if (closed.risky) parent.risky = true;
+    return index;
+  }
+  if (quantifier.repeats && closed.risky) {
+    return 'nested quantifiers or quantified alternations are not allowed';
+  }
+  parent.risky = true;
+  return skipLazyModifier(source, index + quantifier.length);
+}
+
+function quantifierAt(source: string, index: number): { length: number; repeats: boolean } | null {
+  const ch = source[index];
+  if (ch === '*' || ch === '+') return { length: 1, repeats: true };
+  if (ch === '?') return { length: 1, repeats: false };
+  if (ch === '{') return braceQuantifierAt(source, index);
+  return null;
+}
+
+/** Parse `{n}`, `{n,}`, `{n,m}` or `{,m}` at `index` without regex backtracking. */
+function braceQuantifierAt(
+  source: string,
+  index: number,
+): { length: number; repeats: boolean } | null {
+  const close = source.indexOf('}', index);
+  if (close === -1) return null;
+  const parts = source.slice(index + 1, close).split(',');
+  const [min = '', max = ''] = parts;
+  if (parts.length > 2 || !isDigits(min) || !isDigits(max)) return null;
+  let upper = Number(min);
+  if (parts.length === 2) upper = max ? Number(max) : Infinity;
+  return { length: close - index + 1, repeats: upper > 1 };
+}
+
+function isDigits(value: string): boolean {
+  for (const ch of value) {
+    if (ch < '0' || ch > '9') return false;
+  }
+  return true;
 }
 
 /**

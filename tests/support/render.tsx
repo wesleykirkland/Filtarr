@@ -15,19 +15,19 @@ export async function render(ui: ReactElement): Promise<RenderResult> {
   document.body.appendChild(container);
 
   const root: Root = createRoot(container);
-  await act(async () => {
+  await act(() => {
     root.render(ui);
   });
 
   return {
     container,
     rerender: async (nextUi: ReactElement) => {
-      await act(async () => {
+      await act(() => {
         root.render(nextUi);
       });
     },
     unmount: async () => {
-      await act(async () => {
+      await act(() => {
         root.unmount();
       });
       container.remove();
@@ -40,7 +40,7 @@ export async function click(element: Element | null): Promise<void> {
     throw new TypeError('Expected an HTMLElement to click');
   }
 
-  await act(async () => {
+  await act(() => {
     element.dispatchEvent(new MouseEvent('click', { bubbles: true }));
   });
 }
@@ -54,7 +54,11 @@ export async function waitFor(
   const startedAt = Date.now();
   let lastError: unknown;
 
-  while (Date.now() - startedAt <= timeoutMs) {
+  const poll = async (): Promise<void> => {
+    if (Date.now() - startedAt > timeoutMs) {
+      throw lastError instanceof Error ? lastError : new Error('Timed out waiting for condition');
+    }
+
     try {
       await act(async () => {
         await Promise.resolve();
@@ -69,7 +73,8 @@ export async function waitFor(
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, intervalMs));
     });
-  }
+    return poll();
+  };
 
-  throw lastError instanceof Error ? lastError : new Error('Timed out waiting for condition');
+  await poll();
 }

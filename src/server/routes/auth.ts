@@ -6,7 +6,13 @@ import type Database from 'better-sqlite3';
 import type { AuthConfig } from '../../config/auth.js';
 import { getAuthMode } from '../lib/authMode.js';
 import { destroyAllSessions } from '../lib/sessionStore.js';
-import { requireAuth } from '../middleware/auth.js';
+import {
+  invalidateAllSessions,
+  isSessionAuthenticated,
+  logCredentialFailure,
+  requireAuth,
+  verifyUserCredentials,
+} from '../middleware/auth.js';
 import { authRateLimiter } from '../middleware/security.js';
 import {
   API_KEY_SCOPES,
@@ -17,12 +23,6 @@ import {
   hasScope,
   requireScope,
 } from '../middleware/apiKey.js';
-import {
-  invalidateAllSessions,
-  isSessionAuthenticated,
-  logCredentialFailure,
-  verifyUserCredentials,
-} from '../middleware/auth.js';
 import { type ApiKey, toApiKeyResponse } from '../../db/schemas/users.js';
 
 const PASSWORD_BCRYPT_ROUNDS = 12;
@@ -46,14 +46,18 @@ const changePasswordSchema = z.object({
  */
 function checkKeyOwnership(req: Request, res: Response, targetKeyId: number): boolean {
   if (req.apiKey && !hasScope(req.apiKey.scopes, 'admin') && req.apiKey.apiKeyId !== targetKeyId) {
-    res.status(403).json({ error: "API keys without the 'admin' scope can only manage themselves" });
+    res
+      .status(403)
+      .json({ error: "API keys without the 'admin' scope can only manage themselves" });
     return false;
   }
   return true;
 }
 
 function parseKeyId(raw: unknown): number | null {
-  const id = typeof raw === 'number' ? raw : typeof raw === 'string' && /^\d+$/.test(raw) ? Number(raw) : NaN;
+  let id = Number.NaN;
+  if (typeof raw === 'number') id = raw;
+  else if (typeof raw === 'string' && /^\d+$/.test(raw)) id = Number(raw);
   return Number.isSafeInteger(id) && id > 0 ? id : null;
 }
 
@@ -269,10 +273,9 @@ export function createAuthRoutes(db: Database.Database, config: AuthConfig): Rou
   // Listing and creating keys need 'admin'; rotate/revoke are checked per key below.
   router.get('/api-keys', requireScope('admin'), (req: Request, res: Response): void => {
     const keys = db
-      .prepare<
-        [],
-        ApiKey
-      >('SELECT * FROM api_keys WHERE revoked_at IS NULL ORDER BY created_at DESC')
+      .prepare<[], ApiKey>(
+        'SELECT * FROM api_keys WHERE revoked_at IS NULL ORDER BY created_at DESC',
+      )
       .all();
     res.json(keys.map(toApiKeyResponse));
   });

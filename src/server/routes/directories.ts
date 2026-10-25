@@ -11,6 +11,7 @@ import {
 } from '../../db/schemas/directories.js';
 import { recordActivityEvent } from '../lib/activity.js';
 import { logger } from '../lib/logger.js';
+import { parseIdParam, sendRouteError } from '../lib/routeHelpers.js';
 import { reloadWatcher } from '../services/watcher.js';
 import { isBrowseRootConfigured, isPathWithinBrowseRoot } from './system.js';
 
@@ -20,11 +21,9 @@ const createDirectorySchema = z.object({
   enabled: z.boolean().optional(),
 });
 
-const updateDirectorySchema = z.object({
-  path: z.string().min(1).optional(),
-  recursive: z.boolean().optional(),
-  enabled: z.boolean().optional(),
-});
+const updateDirectorySchema = createDirectorySchema.partial();
+
+const DIRECTORY_CONFLICT_MESSAGE = 'A directory with this path already exists';
 
 /**
  * Normalize a watched-directory path. Returns an error message when the path is
@@ -57,11 +56,8 @@ export function createDirectoriesRoutes(db: Database.Database): Router {
   // GET /api/v1/directories/:id
   router.get('/:id', (req: Request, res: Response, next: NextFunction): void => {
     try {
-      const id = Number.parseInt((req.params['id'] as string) || '', 10);
-      if (Number.isNaN(id)) {
-        res.status(400).json({ error: 'Invalid ID' });
-        return;
-      }
+      const id = parseIdParam(req, res);
+      if (id === null) return;
       const dir = getDirectoryById(db, id);
       if (!dir) {
         res.status(404).json({ error: 'Directory not found' });
@@ -93,27 +89,18 @@ export function createDirectoriesRoutes(db: Database.Database): Router {
         message: `Added watched directory ${dir.path}`,
         details: { directoryId: dir.id, path: dir.path, recursive: dir.recursive, enabled: dir.enabled },
       });
-      reloadWatcher();
+      void reloadWatcher();
       res.status(201).json(dir);
-    } catch (err: any) {
-      if (err instanceof z.ZodError) {
-        res.status(400).json({ error: err.issues[0]?.message || 'Invalid input' });
-      } else if (err instanceof Error && err.message.includes('UNIQUE constraint failed')) {
-        res.status(409).json({ error: 'A directory with this path already exists' });
-      } else {
-        next(err);
-      }
+    } catch (err) {
+      sendRouteError(err, res, next, { conflictMessage: DIRECTORY_CONFLICT_MESSAGE });
     }
   });
 
   // PUT /api/v1/directories/:id
   router.put('/:id', (req: Request, res: Response, next: NextFunction): void => {
     try {
-      const id = Number.parseInt((req.params['id'] as string) || '', 10);
-      if (Number.isNaN(id)) {
-        res.status(400).json({ error: 'Invalid ID' });
-        return;
-      }
+      const id = parseIdParam(req, res);
+      if (id === null) return;
       const data = updateDirectorySchema.parse(req.body);
 
       if (data.path !== undefined) {
@@ -139,29 +126,18 @@ export function createDirectoriesRoutes(db: Database.Database): Router {
           changedFields: Object.keys(data),
         },
       });
-      reloadWatcher();
+      void reloadWatcher();
       res.json(dir);
-    } catch (err: any) {
-      if (err instanceof z.ZodError) {
-        res.status(400).json({ error: err.issues[0]?.message || 'Invalid input' });
-      } else if (err instanceof Error && err.message.includes('not found')) {
-        res.status(404).json({ error: err.message });
-      } else if (err instanceof Error && err.message.includes('UNIQUE constraint failed')) {
-        res.status(409).json({ error: 'A directory with this path already exists' });
-      } else {
-        next(err);
-      }
+    } catch (err) {
+      sendRouteError(err, res, next, { conflictMessage: DIRECTORY_CONFLICT_MESSAGE, notFound: true });
     }
   });
 
   // DELETE /api/v1/directories/:id
   router.delete('/:id', (req: Request, res: Response, next: NextFunction): void => {
     try {
-      const id = Number.parseInt((req.params['id'] as string) || '', 10);
-      if (Number.isNaN(id)) {
-        res.status(400).json({ error: 'Invalid ID' });
-        return;
-      }
+      const id = parseIdParam(req, res);
+      if (id === null) return;
       const current = getDirectoryById(db, id);
       const success = deleteDirectory(db, id);
       if (!success) {
@@ -178,7 +154,7 @@ export function createDirectoriesRoutes(db: Database.Database): Router {
           ? { directoryId: current.id, path: current.path, recursive: current.recursive }
           : { directoryId: id },
       });
-      reloadWatcher();
+      void reloadWatcher();
       res.json({ success: true, message: 'Directory deleted successfully' });
     } catch (err) {
       next(err);

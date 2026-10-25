@@ -11,8 +11,16 @@ import {
   type BlocklistBehavior,
 } from '../../shared/blocklistBehavior.js';
 import { recordActivityEvent } from '../lib/activity.js';
-import { getFilterPathViolation, isPathWithinTarget, normalizeFilterTargetPath } from './filterPaths.js';
-import { getRegexPayloadViolation, parseExtensionPayload, parseSizePayload } from './filterRules.js';
+import {
+  getFilterPathViolation,
+  isPathWithinTarget,
+  normalizeFilterTargetPath,
+} from './filterPaths.js';
+import {
+  getRegexPayloadViolation,
+  parseExtensionPayload,
+  parseSizePayload,
+} from './filterRules.js';
 import { NotificationService } from './NotificationService.js';
 import { normalizeScriptRuntime, runConfiguredScript } from './scriptRunner.js';
 
@@ -124,21 +132,7 @@ export class FilterEngine {
     eventType: FilterEventType,
   ): Promise<boolean> {
     // 1. Check target path. Watcher and cron filters must have a permitted target.
-    const hasConfiguredTargetPath = typeof filter.target_path === 'string' && filter.target_path.trim().length > 0;
-    if (hasConfiguredTargetPath) {
-      if (!isPathWithinTarget(file.path, filter.target_path as string)) {
-        return false;
-      }
-      if (eventType !== 'manual') {
-        const violation = getFilterPathViolation(filter.target_path as string, 'Target path');
-        if (violation) {
-          logger.warn({ filterId: filter.id, violation }, 'Skipping filter with disallowed target path');
-          return false;
-        }
-      }
-    } else if (eventType !== 'manual') {
-      return false;
-    }
+    if (!this.passesTargetPathCheck(filter, file, eventType)) return false;
 
     // 2. Evaluate rule
     switch (filter.rule_type) {
@@ -165,11 +159,34 @@ export class FilterEngine {
     }
   }
 
+  private passesTargetPathCheck(
+    filter: FilterRow,
+    file: FileEvent,
+    eventType: FilterEventType,
+  ): boolean {
+    const targetPath = filter.target_path;
+    if (typeof targetPath !== 'string' || targetPath.trim().length === 0) {
+      return eventType === 'manual';
+    }
+    if (!isPathWithinTarget(file.path, targetPath)) return false;
+    if (eventType === 'manual') return true;
+
+    const violation = getFilterPathViolation(targetPath, 'Target path');
+    if (violation) {
+      logger.warn(
+        { filterId: filter.id, violation },
+        'Skipping filter with disallowed target path',
+      );
+      return false;
+    }
+    return true;
+  }
+
   /** Compile (and cache per filter) a regex rule; unsafe or invalid payloads never match. */
   private getCompiledRegex(filter: FilterRow): RegExp | null {
     const payload = filter.rule_payload || '';
     const cached = this.regexCache.get(filter.id);
-    if (cached && cached.payload === payload) return cached.regex;
+    if (cached?.payload === payload) return cached.regex;
 
     const violation = getRegexPayloadViolation(payload);
     if (violation) {
@@ -198,18 +215,28 @@ export class FilterEngine {
   private resolveContainedSource(filter: FilterRow, file: FileEvent): string | null {
     const targetPath = normalizeFilterTargetPath(filter.target_path);
     if (!targetPath) {
-      logger.warn({ filterId: filter.id, file: file.path }, 'Skipping file action: filter has no target path');
+      logger.warn(
+        { filterId: filter.id, file: file.path },
+        'Skipping file action: filter has no target path',
+      );
       return null;
     }
 
     let realSource: string;
     let realTarget: string;
     try {
-      realSource = path.join(fs.realpathSync(path.dirname(path.resolve(file.path))), path.basename(file.path));
+      realSource = path.join(
+        fs.realpathSync(path.dirname(path.resolve(file.path))),
+        path.basename(file.path),
+      );
       realTarget = fs.realpathSync(targetPath);
     } catch (err) {
       logger.warn(
-        { filterId: filter.id, file: file.path, err: err instanceof Error ? err.message : String(err) },
+        {
+          filterId: filter.id,
+          file: file.path,
+          err: err instanceof Error ? err.message : String(err),
+        },
         'Skipping file action: path not resolvable',
       );
       return null;
@@ -232,7 +259,10 @@ export class FilterEngine {
   private moveFile(filter: FilterRow, source: string, destinationDir: string) {
     const violation = getFilterPathViolation(destinationDir, 'Move destination');
     if (violation) {
-      logger.warn({ filterId: filter.id, destination: destinationDir, violation }, 'Skipping move: destination not allowed');
+      logger.warn(
+        { filterId: filter.id, destination: destinationDir, violation },
+        'Skipping move: destination not allowed',
+      );
       return;
     }
 
@@ -241,7 +271,10 @@ export class FilterEngine {
     const realDestDir = fs.realpathSync(destDir);
     const realViolation = getFilterPathViolation(realDestDir, 'Move destination');
     if (realViolation) {
-      logger.warn({ filterId: filter.id, destination: realDestDir, violation: realViolation }, 'Skipping move: destination not allowed');
+      logger.warn(
+        { filterId: filter.id, destination: realDestDir, violation: realViolation },
+        'Skipping move: destination not allowed',
+      );
       return;
     }
 
@@ -253,7 +286,10 @@ export class FilterEngine {
       destinationExists = false;
     }
     if (destinationExists) {
-      logger.warn({ filterId: filter.id, from: source, to: dest }, 'Skipping move: destination file already exists');
+      logger.warn(
+        { filterId: filter.id, from: source, to: dest },
+        'Skipping move: destination file already exists',
+      );
       recordActivityEvent(this.db, {
         type: 'run',
         source: 'filters',

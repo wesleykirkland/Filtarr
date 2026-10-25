@@ -60,10 +60,16 @@ const timeoutSchema = z
 const optionalPathSchema = z.string({ error: 'paths must be strings' }).nullable().optional();
 
 const createInstanceSchema = z.object({
-  name: z.string({ error: 'name is required and must be a string' }).min(1, 'name is required and must be a string'),
+  name: z
+    .string({ error: 'name is required and must be a string' })
+    .min(1, 'name is required and must be a string'),
   type: arrTypeSchema,
-  url: z.string({ error: 'url is required and must be a string' }).min(1, 'url is required and must be a string'),
-  apiKey: z.string({ error: 'apiKey is required and must be a string' }).min(1, 'apiKey is required and must be a string'),
+  url: z
+    .string({ error: 'url is required and must be a string' })
+    .min(1, 'url is required and must be a string'),
+  apiKey: z
+    .string({ error: 'apiKey is required and must be a string' })
+    .min(1, 'apiKey is required and must be a string'),
   timeout: timeoutSchema.optional(),
   enabled: z.boolean({ error: 'enabled must be a boolean' }).optional(),
   skipSslVerify: z.boolean({ error: 'skipSslVerify must be a boolean' }).optional(),
@@ -85,7 +91,9 @@ const updateInstanceSchema = z.object({
 
 const testInstanceSchema = z.object({
   type: arrTypeSchema,
-  url: z.string({ error: 'url is required and must be a string' }).min(1, 'url is required and must be a string'),
+  url: z
+    .string({ error: 'url is required and must be a string' })
+    .min(1, 'url is required and must be a string'),
   apiKey: z.string({ error: 'apiKey must be a string' }).optional(),
   instanceId: z.union([z.number().int(), z.string()]).nullable().optional(),
   timeout: timeoutSchema.optional(),
@@ -102,7 +110,9 @@ function firstIssueMessage(error: z.ZodError): string {
  * trailing slashes).
  */
 function canonicalInstanceUrl(url: string): string {
-  const parsed = new URL(stripTrailingSlashes(validateArrInstanceUrl(url, false, { fieldName: 'url' })));
+  const parsed = new URL(
+    stripTrailingSlashes(validateArrInstanceUrl(url, false, { fieldName: 'url' })),
+  );
   const pathname = stripTrailingSlashes(parsed.pathname);
   return `${parsed.protocol}//${parsed.host.toLowerCase()}${pathname}${parsed.search}`;
 }
@@ -135,8 +145,15 @@ export function createArrClient(
 }
 
 const UPDATE_INSTANCE_FIELDS = [
-  'name', 'type', 'url', 'apiKey', 'timeout',
-  'enabled', 'skipSslVerify', 'remotePath', 'localPath',
+  'name',
+  'type',
+  'url',
+  'apiKey',
+  'timeout',
+  'enabled',
+  'skipSslVerify',
+  'remotePath',
+  'localPath',
 ] as const;
 
 function buildUpdateInput(body: z.infer<typeof updateInstanceSchema>): UpdateInstanceInput {
@@ -149,6 +166,36 @@ function buildUpdateInput(body: z.infer<typeof updateInstanceSchema>): UpdateIns
   // An empty apiKey means "keep the stored key".
   if (input.apiKey === '') delete input.apiKey;
   return input;
+}
+
+type StoredApiKeyResult = { apiKey: string } | { status: number; error: string };
+
+/**
+ * Look up the stored API key of a saved instance for a connection test, but only when the
+ * tested URL matches the saved instance's own URL.
+ */
+function resolveStoredApiKey(
+  db: Database,
+  instanceId: number | string,
+  normalizedUrl: string,
+): StoredApiKeyResult {
+  const id = parseInstanceId(String(instanceId));
+  if (id === null) return { status: 400, error: 'Invalid instance ID' };
+  const existing = getInstanceConfigById(db, id);
+  if (!existing) return { status: 404, error: 'Instance not found' };
+  let sameUrl: boolean;
+  try {
+    sameUrl = canonicalInstanceUrl(normalizedUrl) === canonicalInstanceUrl(existing.url);
+  } catch {
+    sameUrl = false;
+  }
+  if (!sameUrl) {
+    return {
+      status: 400,
+      error: 'apiKey is required when testing a URL that differs from the saved instance URL',
+    };
+  }
+  return { apiKey: existing.apiKey };
 }
 
 /**
@@ -354,29 +401,12 @@ export function createInstancesRouter(db: Database): Router {
       // upstream — but only when the request targets the saved instance's own
       // URL, so a stored key can never be sent to a caller-chosen host.
       if (!apiKey && instanceId !== undefined && instanceId !== null) {
-        const id = parseInstanceId(String(instanceId));
-        if (id === null) {
-          res.status(400).json({ error: 'Invalid instance ID' });
+        const stored = resolveStoredApiKey(db, instanceId, normalizedUrl);
+        if ('error' in stored) {
+          res.status(stored.status).json({ error: stored.error });
           return;
         }
-        const existing = getInstanceConfigById(db, id);
-        if (!existing) {
-          res.status(404).json({ error: 'Instance not found' });
-          return;
-        }
-        let sameUrl = false;
-        try {
-          sameUrl = canonicalInstanceUrl(normalizedUrl) === canonicalInstanceUrl(existing.url);
-        } catch {
-          sameUrl = false;
-        }
-        if (!sameUrl) {
-          res.status(400).json({
-            error: 'apiKey is required when testing a URL that differs from the saved instance URL',
-          });
-          return;
-        }
-        apiKey = existing.apiKey;
+        apiKey = stored.apiKey;
       }
 
       if (!apiKey) {
@@ -455,7 +485,10 @@ export function createInstancesRouter(db: Database): Router {
 
       res.json(result);
     } catch (error) {
-      logger.error({ err: error, id: req.params['id'] }, 'Failed to test saved instance connection');
+      logger.error(
+        { err: error, id: req.params['id'] },
+        'Failed to test saved instance connection',
+      );
       res.status(500).json({
         success: false,
         error: error instanceof Error ? error.message : 'Connection test failed',

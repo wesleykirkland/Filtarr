@@ -49,58 +49,120 @@ interface FilterPolicyInput {
  * whose meaning changes with it) are checked so unrelated edits such as toggling
  * `enabled` keep working on legacy rows. Throws FilterInputError on rejection.
  */
-function applyFilterInputPolicy<T extends FilterPolicyInput>(data: T, current?: FilterRow | null): T {
+function applyFilterInputPolicy<T extends FilterPolicyInput>(
+  data: T,
+  current?: FilterRow | null,
+): T {
   const result = { ...data };
-
-  if (data.ruleType !== undefined || data.rulePayload !== undefined) {
-    const ruleType = data.ruleType ?? current?.rule_type;
-    const rulePayload = data.rulePayload ?? current?.rule_payload ?? '';
-    if (ruleType === 'regex') {
-      const violation = getRegexPayloadViolation(rulePayload);
-      if (violation) throw new FilterInputError(violation);
-    } else if (ruleType === 'size') {
-      const normalized = normalizeSizePayload(rulePayload);
-      if (!normalized) {
-        throw new FilterInputError(
-          'Size rule must look like ">100MB" (operator <, > or =, then a number and a unit of B, KB, MB, GB or TB)',
-        );
-      }
-      result.rulePayload = normalized;
-    } else if (ruleType === 'extension') {
-      const extensions = parseExtensionPayload(rulePayload, true);
-      if (!extensions) {
-        throw new FilterInputError(
-          'Extension rule must be a comma-separated list of extensions using only letters and digits (e.g. "exe, msi")',
-        );
-      }
-      result.rulePayload = extensions.join(',');
-    }
-  }
-
-  if (data.triggerSource !== undefined || data.targetPath !== undefined) {
-    const triggerSource = data.triggerSource ?? current?.trigger_source;
-    const targetPath = (data.targetPath ?? current?.target_path ?? '').trim();
-    if (!targetPath && (triggerSource === 'watcher' || triggerSource === 'cron')) {
-      throw new FilterInputError('Target path is required for watcher and cron filters');
-    }
-    if (targetPath) {
-      const violation = getFilterPathViolation(targetPath, 'Target path');
-      if (violation) throw new FilterInputError(violation);
-    }
-    if (data.targetPath !== undefined) result.targetPath = data.targetPath.trim();
-  }
-
-  if (data.actionType !== undefined || data.actionPayload !== undefined) {
-    const actionType = data.actionType ?? current?.action_type;
-    if (actionType === 'move') {
-      const destination = (data.actionPayload ?? current?.action_payload ?? '').trim();
-      const violation = getFilterPathViolation(destination, 'Move destination');
-      if (violation) throw new FilterInputError(violation);
-      result.actionPayload = destination;
-    }
-  }
-
+  applyRulePolicy(data, current, result);
+  applyTargetPathPolicy(data, current, result);
+  applyActionPolicy(data, current, result);
   return result;
+}
+
+function applyRulePolicy(
+  data: FilterPolicyInput,
+  current: FilterRow | null | undefined,
+  result: FilterPolicyInput,
+): void {
+  if (data.ruleType === undefined && data.rulePayload === undefined) return;
+
+  const ruleType = data.ruleType ?? current?.rule_type;
+  const rulePayload = data.rulePayload ?? current?.rule_payload ?? '';
+  if (ruleType === 'regex') {
+    const violation = getRegexPayloadViolation(rulePayload);
+    if (violation) throw new FilterInputError(violation);
+  } else if (ruleType === 'size') {
+    const normalized = normalizeSizePayload(rulePayload);
+    if (!normalized) {
+      throw new FilterInputError(
+        'Size rule must look like ">100MB" (operator <, > or =, then a number and a unit of B, KB, MB, GB or TB)',
+      );
+    }
+    result.rulePayload = normalized;
+  } else if (ruleType === 'extension') {
+    const extensions = parseExtensionPayload(rulePayload, true);
+    if (!extensions) {
+      throw new FilterInputError(
+        'Extension rule must be a comma-separated list of extensions using only letters and digits (e.g. "exe, msi")',
+      );
+    }
+    result.rulePayload = extensions.join(',');
+  }
+}
+
+function applyTargetPathPolicy(
+  data: FilterPolicyInput,
+  current: FilterRow | null | undefined,
+  result: FilterPolicyInput,
+): void {
+  if (data.triggerSource === undefined && data.targetPath === undefined) return;
+
+  const triggerSource = data.triggerSource ?? current?.trigger_source;
+  const targetPath = (data.targetPath ?? current?.target_path ?? '').trim();
+  if (!targetPath && (triggerSource === 'watcher' || triggerSource === 'cron')) {
+    throw new FilterInputError('Target path is required for watcher and cron filters');
+  }
+  if (targetPath) {
+    const violation = getFilterPathViolation(targetPath, 'Target path');
+    if (violation) throw new FilterInputError(violation);
+  }
+  if (data.targetPath !== undefined) result.targetPath = data.targetPath.trim();
+}
+
+function applyActionPolicy(
+  data: FilterPolicyInput,
+  current: FilterRow | null | undefined,
+  result: FilterPolicyInput,
+): void {
+  if (data.actionType === undefined && data.actionPayload === undefined) return;
+
+  const actionType = data.actionType ?? current?.action_type;
+  if (actionType === 'move') {
+    const destination = (data.actionPayload ?? current?.action_payload ?? '').trim();
+    const violation = getFilterPathViolation(destination, 'Move destination');
+    if (violation) throw new FilterInputError(violation);
+    result.actionPayload = destination;
+  }
+}
+
+/** Whether an update introduces or edits script logic (blocked while scripts are disabled). */
+function touchesScriptLogic(
+  data: FilterPolicyInput & { scriptRuntime?: string },
+  current: FilterRow | null | undefined,
+): boolean {
+  if (data.ruleType === 'script' || data.actionType === 'script') return true;
+  const ruleIsScript = (data.ruleType ?? current?.rule_type) === 'script';
+  const actionIsScript = (data.actionType ?? current?.action_type) === 'script';
+  return (
+    (ruleIsScript && data.rulePayload !== undefined) ||
+    (actionIsScript && data.actionPayload !== undefined) ||
+    ((ruleIsScript || actionIsScript) && data.scriptRuntime !== undefined)
+  );
+}
+
+function hasErrorCode(err: unknown, ...codes: string[]): boolean {
+  return codes.includes((err as { code?: string }).code ?? '');
+}
+
+/** Map a thrown create/update error to an HTTP response; unknown errors go to `next`. */
+function respondToFilterWriteError(err: unknown, res: Response, next: NextFunction): void {
+  const message = err instanceof Error ? err.message : '';
+  if (err instanceof z.ZodError) {
+    res.status(400).json({ error: err.issues[0]?.message || 'Invalid input' });
+  } else if (err instanceof FilterInputError) {
+    res.status(400).json({ error: err.message });
+  } else if (err instanceof SecurityPolicyError) {
+    res.status(403).json({ error: err.message });
+  } else if (hasErrorCode(err, 'FILTER_INSTANCE_NOT_FOUND', 'SQLITE_CONSTRAINT_FOREIGNKEY')) {
+    res.status(400).json({ error: message || 'Invalid linked instance' });
+  } else if (message.includes('not found')) {
+    res.status(404).json({ error: message });
+  } else if (message.includes('UNIQUE constraint failed')) {
+    res.status(409).json({ error: 'A filter with this name already exists' });
+  } else {
+    next(err);
+  }
 }
 
 /**
@@ -129,7 +191,7 @@ function normalizeBlocklistPayload<T extends { actionType?: string; actionPayloa
   return data;
 }
 
-export const createFilterSchema = z.object({
+const filterFields = {
   name: z.string().min(1, 'Name is required'),
   description: z.string().optional(),
   triggerSource: z.enum(['watcher', 'cron', 'manual']),
@@ -137,7 +199,7 @@ export const createFilterSchema = z.object({
   rulePayload: z.string().min(1, 'Rule payload is required'),
   actionType: z.enum(['blocklist', 'delete', 'move', 'script', 'notify']),
   actionPayload: z.string().optional(),
-  scriptRuntime: z.enum(['shell', 'javascript']).default('shell'),
+  scriptRuntime: z.enum(['shell', 'javascript']),
   targetPath: z.string().optional(),
   notifyOnMatch: z.boolean().optional(),
   notifyWebhookUrl: z.string().url().optional().or(z.literal('')),
@@ -148,28 +210,13 @@ export const createFilterSchema = z.object({
   instanceId: z.number().int().optional(),
   enabled: z.boolean().optional(),
   sortOrder: z.number().int().optional(),
-}).transform(normalizeBlocklistPayload);
+};
 
-const updateFilterSchema = z.object({
-  name: z.string().min(1).optional(),
-  description: z.string().optional(),
-  triggerSource: z.enum(['watcher', 'cron', 'manual']).optional(),
-  ruleType: z.enum(['regex', 'extension', 'size', 'script']).optional(),
-  rulePayload: z.string().min(1).optional(),
-  actionType: z.enum(['blocklist', 'delete', 'move', 'script', 'notify']).optional(),
-  actionPayload: z.string().optional(),
-  scriptRuntime: z.enum(['shell', 'javascript']).optional(),
-  targetPath: z.string().optional(),
-  notifyOnMatch: z.boolean().optional(),
-  notifyWebhookUrl: z.string().url().optional().or(z.literal('')),
-  notifySlack: z.boolean().optional(),
-  notifySlackToken: z.string().optional(),
-  notifySlackChannel: z.string().optional(),
-  overrideNotifications: z.boolean().optional(),
-  instanceId: z.number().int().optional(),
-  enabled: z.boolean().optional(),
-  sortOrder: z.number().int().optional(),
-}).transform(normalizeBlocklistPayload);
+export const createFilterSchema = z
+  .object({ ...filterFields, scriptRuntime: filterFields.scriptRuntime.default('shell') })
+  .transform(normalizeBlocklistPayload);
+
+const updateFilterSchema = z.object(filterFields).partial().transform(normalizeBlocklistPayload);
 
 export type FilterResponse = FilterRow & {
   hasNotifyWebhookUrl: boolean;
@@ -268,20 +315,10 @@ export function createFiltersRoutes(db: Database.Database): Router {
       }
       const filter = createFilter(db, data);
       logger.info({ filterId: filter.id, name: filter.name }, 'Filter created');
-      reloadWatcher();
+      void reloadWatcher();
       res.status(201).json(toFilterResponse(filter));
     } catch (err: unknown) {
-      if (err instanceof z.ZodError) {
-        res.status(400).json({ error: err.issues[0]?.message || 'Invalid input' });
-      } else if (err instanceof FilterInputError) {
-        res.status(400).json({ error: err.message });
-      } else if (err instanceof SecurityPolicyError) {
-        res.status(403).json({ error: err.message });
-      } else if (err instanceof Error && err.message.includes('UNIQUE constraint failed')) {
-        res.status(409).json({ error: 'A filter with this name already exists' });
-      } else {
-        next(err);
-      }
+      respondToFilterWriteError(err, res, next);
     }
   });
 
@@ -303,40 +340,15 @@ export function createFiltersRoutes(db: Database.Database): Router {
       // Other edits (e.g. disabling an existing script filter) remain allowed.
       const current = getFilterById(db, id);
       const data = applyFilterInputPolicy(parsed, current);
-      const ruleIsScript = (data.ruleType ?? current?.rule_type) === 'script';
-      const actionIsScript = (data.actionType ?? current?.action_type) === 'script';
-      const touchesScript =
-        data.ruleType === 'script' ||
-        data.actionType === 'script' ||
-        (ruleIsScript && data.rulePayload !== undefined) ||
-        (actionIsScript && data.actionPayload !== undefined) ||
-        ((ruleIsScript || actionIsScript) && data.scriptRuntime !== undefined);
-      if (touchesScript) {
+      if (touchesScriptLogic(data, current)) {
         assertCustomScriptsEnabled('Custom script filters');
       }
       const filter = updateFilter(db, id, data);
       logger.info({ filterId: filter.id }, 'Filter updated');
-      reloadWatcher();
+      void reloadWatcher();
       res.json(toFilterResponse(filter));
     } catch (err: unknown) {
-      if (err instanceof z.ZodError) {
-        res.status(400).json({ error: err.issues[0]?.message || 'Invalid input' });
-      } else if (err instanceof FilterInputError) {
-        res.status(400).json({ error: err.message });
-      } else if (err instanceof SecurityPolicyError) {
-        res.status(403).json({ error: err.message });
-      } else if (
-        (err as { code?: string }).code === 'FILTER_INSTANCE_NOT_FOUND' ||
-        (err as { code?: string }).code === 'SQLITE_CONSTRAINT_FOREIGNKEY'
-      ) {
-        res.status(400).json({ error: err instanceof Error ? err.message : 'Invalid linked instance' });
-      } else if (err instanceof Error && err.message.includes('not found')) {
-        res.status(404).json({ error: err.message });
-      } else if (err instanceof Error && err.message.includes('UNIQUE constraint failed')) {
-        res.status(409).json({ error: 'A filter with this name already exists' });
-      } else {
-        next(err);
-      }
+      respondToFilterWriteError(err, res, next);
     }
   });
 
@@ -354,7 +366,7 @@ export function createFiltersRoutes(db: Database.Database): Router {
         return;
       }
       logger.info({ filterId: id }, 'Filter deleted');
-      reloadWatcher();
+      void reloadWatcher();
       res.json({ success: true, message: 'Filter deleted successfully' });
     } catch (err) {
       if (err instanceof Error && err.message.includes('Built-in filters')) {

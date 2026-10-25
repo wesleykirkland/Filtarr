@@ -74,6 +74,11 @@ services:
       # See docs/security-custom-scripts.md for security implications
       # FILTARR_ENABLE_CUSTOM_SCRIPTS: ${FILTARR_ENABLE_CUSTOM_SCRIPTS:-false}
 
+      # Security: Filesystem root (strongly recommended)
+      # Confines the directory picker, filter target paths and move destinations
+      # to this directory. Set it to the common parent of your media mounts.
+      # FILTARR_BROWSE_ROOT: ${FILTARR_BROWSE_ROOT:-/downloads}
+
     # User/Group ID mapping (optional - uncomment to match host user)
     # user: "1001:1001"
 

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { Modal } from './Modal';
@@ -15,6 +15,9 @@ interface BrowseResponse {
   parent: string | null;
   entries: BrowseEntry[];
 }
+
+/** Delay before browsing a path typed into the Selected Path input. */
+const TYPED_PATH_BROWSE_DELAY_MS = 300;
 
 interface FilesystemPickerProps {
   /** Currently selected path */
@@ -35,7 +38,22 @@ export function FilesystemPicker({ value, onSelect, onClose }: FilesystemPickerP
     retry: false,
   });
 
+  const typedBrowseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancelTypedBrowse = () => {
+    if (typedBrowseTimer.current) {
+      clearTimeout(typedBrowseTimer.current);
+      typedBrowseTimer.current = null;
+    }
+  };
+  useEffect(
+    () => () => {
+      if (typedBrowseTimer.current) clearTimeout(typedBrowseTimer.current);
+    },
+    [],
+  );
+
   const navigate = (p: string) => {
+    cancelTypedBrowse();
     setBrowsePath(p);
     setPending(p);
   };
@@ -116,8 +134,14 @@ export function FilesystemPicker({ value, onSelect, onClose }: FilesystemPickerP
             id="selected-path"
             value={pending}
             onChange={(e) => {
-              setPending(e.target.value);
-              setBrowsePath(e.target.value);
+              const next = e.target.value;
+              setPending(next);
+              // Debounce so typing a path doesn't fire one browse request per keystroke.
+              cancelTypedBrowse();
+              typedBrowseTimer.current = setTimeout(() => {
+                typedBrowseTimer.current = null;
+                setBrowsePath(next);
+              }, TYPED_PATH_BROWSE_DELAY_MS);
             }}
             className="font-mono"
           />

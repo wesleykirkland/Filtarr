@@ -121,11 +121,15 @@ describe('layout and filesystem picker', () => {
       expect(document.body.textContent).toContain('movies');
     });
 
-    await setInputValue(document.body.querySelector('#selected-path') as HTMLInputElement, '/manual');
+    const selectedPath = document.body.querySelector('#selected-path') as HTMLInputElement;
+    await setInputValue(selectedPath, '/ma');
+    await setInputValue(selectedPath, '/manual');
     await waitFor(() => {
       expect(api.get).toHaveBeenCalledWith('/system/browse?path=%2Fmanual');
       expect(document.body.textContent).toContain('No subdirectories here');
     });
+    // Intermediate keystrokes are debounced away.
+    expect(api.get).not.toHaveBeenCalledWith('/system/browse?path=%2Fma');
 
     await view.unmount();
   });

@@ -4,17 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Filtarr</title>
-    <script>
-      (function () {
-        try {
-          var saved = localStorage.getItem('darkMode');
-          var dark = saved === null ? (typeof globalThis.matchMedia === 'function' && globalThis.matchMedia('(prefers-color-scheme: dark)').matches) : saved === 'true';
-          document.documentElement.classList.add(dark ? 'dark' : 'light');
-        } catch {
-          document.documentElement.classList.add('light');
-        }
-      })();
-    </script>
+    <script src="/theme.js"></script>
   </head>
   <body>
     <div id="root"></div>

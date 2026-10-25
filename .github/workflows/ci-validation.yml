@@ -27,10 +27,10 @@ jobs:
       contents: read
     steps:
       - name: Check out repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Use Node.js ${{ env.NODE_VERSION }}
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
@@ -41,6 +41,11 @@ jobs:
 
       - name: Verify lockfile remains unchanged
         run: git diff --exit-code -- package-lock.json
+
+      - name: Audit production dependencies
+        # Blocking: this job is a required status check, so a high-severity advisory in a
+        # runtime dependency fails the PR.
+        run: npm audit --omit=dev --audit-level=high
 
       - name: Typecheck
         run: npm run typecheck
@@ -69,10 +74,10 @@ jobs:
       contents: read
     steps:
       - name: Check out repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Use Node.js ${{ env.NODE_VERSION }}
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
@@ -110,10 +115,10 @@ jobs:
       contents: read
     steps:
       - name: Check out repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Use Node.js ${{ env.NODE_VERSION }}
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
@@ -125,22 +130,11 @@ jobs:
       - name: Verify lockfile remains unchanged
         run: git diff --exit-code -- package-lock.json
 
-      - name: Run production audit baseline
+      - name: Audit all dependencies (advisory)
         shell: bash
         run: |
-          set +e
-          npm audit --omit=dev --audit-level=high
-          status=$?
-          set -e
-
-          if [ "$status" -ne 0 ]; then
-            {
-              echo "### Advisory npm audit baseline"
-              echo
-              echo '- `npm audit --omit=dev --audit-level=high` currently reports a known pre-existing high-severity advisory.'
-              echo "- Keep this job non-blocking until the dependency is updated in a separate approved dependency-maintenance task."
-            } >> "$GITHUB_STEP_SUMMARY"
-            echo "::warning title=Advisory npm audit baseline::Production npm audit currently reports a known pre-existing high-severity advisory; see logs."
+          if ! npm audit --audit-level=high; then
+            echo "::warning title=Advisory dependency audit::npm audit reports high-severity advisories in development dependencies; see logs."
           fi
 
   dependency-review:
@@ -152,9 +146,9 @@ jobs:
       contents: read
     steps:
       - name: Check out repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Review dependency changes
-        uses: actions/dependency-review-action@v5.0.0
+        uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
         with:
           config-file: ./.github/dependency-review-config.yml

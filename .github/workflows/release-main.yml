@@ -30,11 +30,18 @@ jobs:
       )
     runs-on: ubuntu-latest
     timeout-minutes: 40
+    # semantic-release runs with a repo-write token only; image publishing lives in a
+    # separate job so the npx-resolved release tooling never sees package or OIDC tokens.
     permissions:
       contents: write
-      packages: write
-      attestations: write
-      id-token: write
+    outputs:
+      published: ${{ steps.release_version.outputs.published }}
+      version: ${{ steps.release_version.outputs.version }}
+      git_tag: ${{ steps.release_version.outputs.git_tag }}
+      release_sha: ${{ steps.context.outputs.release_sha }}
+      release_ref_name: ${{ steps.context.outputs.release_ref_name }}
+      image: ${{ steps.context.outputs.image }}
+      created_at: ${{ steps.context.outputs.created_at }}
     steps:
       - name: Derive release context
         id: context
@@ -65,16 +72,24 @@ jobs:
           } >> "${GITHUB_OUTPUT}"
 
       - name: Check out repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ steps.context.outputs.release_sha }}
           fetch-depth: 0
 
-      - name: Fetch release tags
-        run: git fetch --force --tags origin
+      - name: Switch to the validated release commit
+        # The commit comes from the CI run on a push to main (guarded by the job `if`).
+        # Require it to be an ancestor of main before checking it out, so a stray
+        # workflow_run from any other ref can never be released.
+        shell: bash
+        env:
+          RELEASE_SHA: ${{ steps.context.outputs.release_sha }}
+        run: |
+          git fetch --force --tags origin
+          git merge-base --is-ancestor "${RELEASE_SHA}" origin/main
+          git checkout --detach "${RELEASE_SHA}"
 
       - name: Use Node.js ${{ env.NODE_VERSION }}
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ env.NODE_VERSION }}
 
@@ -94,6 +109,7 @@ jobs:
           GITHUB_REF: ${{ steps.context.outputs.release_ref }}
           GITHUB_REF_NAME: ${{ steps.context.outputs.release_ref_name }}
           GITHUB_SHA: ${{ steps.context.outputs.release_sha }}
+        # Exact version pin; this job holds only contents:write (see job comment).
         run: npx --yes semantic-release@25.0.3
 
       - name: Determine release outcome
@@ -113,71 +129,15 @@ jobs:
           echo "published=true" >> "${GITHUB_OUTPUT}"
           echo "git_tag=${current_tag}" >> "${GITHUB_OUTPUT}"
           echo "version=${current_tag#v}" >> "${GITHUB_OUTPUT}"
-
-      - name: Set up QEMU
-        if: steps.release_version.outputs.published == 'true'
-        uses: docker/setup-qemu-action@v4
-
-      - name: Set up Docker Buildx
-        if: steps.release_version.outputs.published == 'true'
-        uses: docker/setup-buildx-action@v4
-
-      - name: Log in to GHCR
-        if: steps.release_version.outputs.published == 'true'
-        uses: docker/login-action@v4
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build and push release image
-        if: steps.release_version.outputs.published == 'true'
-        id: build
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          file: Containerfile
-          push: true
-          provenance: false
-          platforms: linux/amd64,linux/arm64
-          tags: |
-            ${{ steps.context.outputs.image }}:${{ steps.release_version.outputs.version }}
-            ${{ steps.context.outputs.image }}:latest
-          build-args: |
-            OCI_VERSION=${{ steps.release_version.outputs.version }}
-            OCI_REVISION=${{ steps.context.outputs.release_sha }}
-            OCI_CREATED=${{ steps.context.outputs.created_at }}
-            OCI_REF_NAME=${{ steps.context.outputs.release_ref_name }}
-            OCI_SOURCE=${{ github.server_url }}/${{ github.repository }}
-
-      - name: Attest pushed image
-        if: steps.release_version.outputs.published == 'true'
-        uses: actions/attest@v4
-        with:
-          subject-name: ${{ steps.context.outputs.image }}
-          subject-digest: ${{ steps.build.outputs.digest }}
-          push-to-registry: true
-          create-storage-record: false
-
-      - name: Summarize release result
+      - name: Summarize release outcome
         if: always()
         shell: bash
         env:
           PUBLISHED: ${{ steps.release_version.outputs.published }}
           GIT_TAG: ${{ steps.release_version.outputs.git_tag }}
-          VERSION: ${{ steps.release_version.outputs.version }}
-          IMAGE: ${{ steps.context.outputs.image }}
-          DIGEST: ${{ steps.build.outputs.digest }}
         run: |
           if [ "${PUBLISHED}" = "true" ]; then
-            {
-              echo "### Published release"
-              echo
-              echo "- Git tag: \`${GIT_TAG}\`"
-              echo "- Image: \`${IMAGE}:${VERSION}\`"
-              echo "- Image: \`${IMAGE}:latest\`"
-              echo "- Digest: \`${DIGEST}\`"
-            } >> "${GITHUB_STEP_SUMMARY}"
+            echo "### Release ${GIT_TAG} created; image publication runs in the next job." >> "${GITHUB_STEP_SUMMARY}"
           else
             {
               echo "### No release published"
@@ -185,3 +145,85 @@ jobs:
               echo "Semantic-release found no new stable version for this main-branch commit, so GHCR publication was skipped."
             } >> "${GITHUB_STEP_SUMMARY}"
           fi
+
+  publish-image:
+    name: Publish GHCR image
+    needs: release
+    if: needs.release.outputs.published == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: read
+      packages: write
+      attestations: write
+      id-token: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Switch to the released commit
+        shell: bash
+        env:
+          RELEASE_SHA: ${{ needs.release.outputs.release_sha }}
+        run: |
+          git merge-base --is-ancestor "${RELEASE_SHA}" origin/main
+          git checkout --detach "${RELEASE_SHA}"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Log in to GHCR
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push release image
+        id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: Containerfile
+          push: true
+          provenance: false
+          platforms: linux/amd64,linux/arm64
+          tags: |
+            ${{ needs.release.outputs.image }}:${{ needs.release.outputs.version }}
+            ${{ needs.release.outputs.image }}:latest
+          build-args: |
+            OCI_VERSION=${{ needs.release.outputs.version }}
+            OCI_REVISION=${{ needs.release.outputs.release_sha }}
+            OCI_CREATED=${{ needs.release.outputs.created_at }}
+            OCI_REF_NAME=${{ needs.release.outputs.release_ref_name }}
+            OCI_SOURCE=${{ github.server_url }}/${{ github.repository }}
+
+      - name: Attest pushed image
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-name: ${{ needs.release.outputs.image }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+          create-storage-record: false
+
+      - name: Summarize published image
+        shell: bash
+        env:
+          GIT_TAG: ${{ needs.release.outputs.git_tag }}
+          VERSION: ${{ needs.release.outputs.version }}
+          IMAGE: ${{ needs.release.outputs.image }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          {
+            echo "### Published release"
+            echo
+            echo "- Git tag: \`${GIT_TAG}\`"
+            echo "- Image: \`${IMAGE}:${VERSION}\`"
+            echo "- Image: \`${IMAGE}:latest\`"
+            echo "- Digest: \`${DIGEST}\`"
+          } >> "${GITHUB_STEP_SUMMARY}"

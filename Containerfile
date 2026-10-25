@@ -1,5 +1,9 @@
+# Base images are pinned to the multi-arch index digest of node:24-alpine; Renovate
+# keeps the digest current. Resolve manually with:
+#   docker buildx imagetools inspect node:24-alpine --format '{{json .Manifest.Digest}}'
+
 # Stage 1: Build
-FROM node:24-alpine AS builder
+FROM node:24-alpine@sha256:06d7adf3e0ef61a13f1d28682726366f97a15aa1888c934d3ecec86c33918b53 AS builder
 
 WORKDIR /app
 
@@ -14,7 +18,7 @@ COPY src/ ./src/
 RUN npm run build:all
 
 # Stage 2: Production
-FROM node:24-alpine AS runtime
+FROM node:24-alpine@sha256:06d7adf3e0ef61a13f1d28682726366f97a15aa1888c934d3ecec86c33918b53 AS runtime
 
 ARG OCI_VERSION=0.1.0
 ARG OCI_REVISION=unknown
@@ -47,8 +51,10 @@ RUN apk add --no-cache bash && \
 COPY --from=builder /app/dist ./dist
 COPY src/db/migrations ./dist/db/migrations
 
+# /app (code and node_modules) stays root-owned and read-only for the app user;
+# only the data dir (/config) and /downloads are writable.
 RUN mkdir -p /config /downloads && \
-    chown -R filtarr:filtarr /app /config /downloads
+    chown filtarr:filtarr /config /downloads
 
 USER filtarr
 

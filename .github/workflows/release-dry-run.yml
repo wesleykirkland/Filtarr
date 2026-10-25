@@ -6,21 +6,24 @@ on:
 env:
   NODE_VERSION: 24.22.1
 
-permissions:
-  contents: write
+permissions: {}
 
 jobs:
   semantic-release-dry-run:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    # semantic-release runs `git push --dry-run` even in dry-run mode and aborts with
+    # EGITNOPERMISSION on a read-only token, so this one job keeps contents: write.
+    permissions:
+      contents: write
     steps:
       - name: Check out repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
       - name: Use Node.js ${{ env.NODE_VERSION }}
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ env.NODE_VERSION }}
 

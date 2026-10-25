@@ -53,7 +53,7 @@ Exact required status checks to add:
 Checks that should stay visible but **not** required yet:
 
 - `Lint baseline (advisory)`
-- `Audit baseline (advisory)`
+- `Audit baseline (advisory)` (the blocking production audit runs as a step inside `Validate app and container (blocking)`)
 
 Notes:
 

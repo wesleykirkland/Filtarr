@@ -156,6 +156,7 @@ describe('app-level setup and host guards', () => {
   });
 
   afterEach(() => {
+    delete process.env['FILTARR_ALLOWED_HOSTS'];
     closeDatabase(db);
     fs.rmSync(tempDir, { recursive: true, force: true });
   });
@@ -181,5 +182,24 @@ describe('app-level setup and host guards', () => {
     for (let i = 0; i < 8; i += 1) {
       expect((await request(app).get('/api/v1/setup/status')).status).toBe(200);
     }
+  });
+
+  it('enforces FILTARR_ALLOWED_HOSTS with 421 and implicitly allows loopback hosts', async () => {
+    process.env['FILTARR_ALLOWED_HOSTS'] = 'filtarr.example.com';
+    const app = createApp(db);
+
+    const rejected = await request(app).get('/api/v1/health').set('Host', 'attacker.example');
+    expect(rejected.status).toBe(421);
+    expect(rejected.body).toEqual({ error: 'Misdirected request: host not allowed' });
+
+    expect((await request(app).get('/api/v1/health').set('Host', 'Filtarr.Example.com:9898')).status).toBe(200);
+    expect((await request(app).get('/api/v1/health').set('Host', 'localhost:9898')).status).toBe(200);
+    expect((await request(app).get('/api/v1/health').set('Host', '127.0.0.1')).status).toBe(200);
+    expect((await request(app).get('/api/v1/health').set('Host', '[::1]:9898')).status).toBe(200);
+  });
+
+  it('accepts any host when FILTARR_ALLOWED_HOSTS is unset', async () => {
+    const app = createApp(db);
+    expect((await request(app).get('/api/v1/health').set('Host', 'anything.example')).status).toBe(200);
   });
 });

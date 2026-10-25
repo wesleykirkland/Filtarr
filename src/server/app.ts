@@ -16,9 +16,12 @@ import { applySecurityMiddleware } from './middleware/security.js';
 import { publicSystemRoutes, protectedSystemRoutes } from './routes/system.js';
 import { getDatabase } from '../db/index.js';
 import { errorHandler } from './middleware/errorHandler.js';
-import { loadAuthConfigFromEnv } from '../config/auth.js';
+import { isHostAllowed, loadAuthConfigFromEnv } from '../config/auth.js';
+import { logger } from './lib/logger.js';
 import type { AuthMode, AuthConfig } from '../config/auth.js';
 import type { Database } from 'better-sqlite3';
+
+let warnedAllowedHostsUnset = false;
 
 /** Get the current auth configuration from database settings */
 function getAuthConfig(db: Database): AuthConfig {
@@ -32,6 +35,7 @@ function getAuthConfig(db: Database): AuthConfig {
     corsOrigin: envConfig.corsOrigin ?? 'same-origin',
     trustProxy: envConfig.trustProxy,
     cookieSecure: envConfig.cookieSecure,
+    allowedHosts: envConfig.allowedHosts,
   };
 
   // For forms mode, we need session config
@@ -60,6 +64,25 @@ export function createApp(db: Database = getDatabase()): express.Application {
   // This drives req.ip (rate limiting) and req.secure (Secure session cookies behind TLS proxies).
   if (authConfig.trustProxy !== undefined) {
     app.set('trust proxy', authConfig.trustProxy);
+  }
+
+  // DNS-rebinding defense: reject requests whose Host header is not allowlisted.
+  // Mounted before every other middleware/route.
+  const { allowedHosts } = authConfig;
+  if (allowedHosts) {
+    app.use((req, res, next) => {
+      if (isHostAllowed(req.headers.host, allowedHosts)) {
+        next();
+        return;
+      }
+      res.status(421).json({ error: 'Misdirected request: host not allowed' });
+    });
+  } else if (process.env['NODE_ENV'] === 'production' && !warnedAllowedHostsUnset) {
+    warnedAllowedHostsUnset = true;
+    logger.warn(
+      'FILTARR_ALLOWED_HOSTS is not set; requests for any Host header are accepted. ' +
+        'Set it to the hostname(s) you use to reach Filtarr to protect against DNS rebinding.',
+    );
   }
 
   applySecurityMiddleware(app, authConfig);

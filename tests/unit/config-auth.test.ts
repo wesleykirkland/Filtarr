@@ -4,6 +4,8 @@ import {
   FormsAuthConfigSchema,
   OidcAuthConfigSchema,
   loadAuthConfigFromEnv,
+  isHostAllowed,
+  parseAllowedHosts,
   parseCookieSecure,
   parseTrustProxy,
 } from '../../src/config/auth.js';
@@ -112,5 +114,36 @@ describe('auth config helpers', () => {
     process.env['FILTARR_AUTH_PASSWORD'] = 'supersecret';
 
     expect(loadAuthConfigFromEnv()).toEqual({});
+  });
+
+  it('parses FILTARR_ALLOWED_HOSTS entries with optional ports, case-insensitively', () => {
+    expect(parseAllowedHosts(undefined)).toBeUndefined();
+    expect(parseAllowedHosts('  , ')).toBeUndefined();
+    expect(parseAllowedHosts('Filtarr.Example.com, 192.168.1.10:9898, [fd00::1]:9898')).toEqual([
+      { hostname: 'filtarr.example.com' },
+      { hostname: '192.168.1.10', port: '9898' },
+      { hostname: '[fd00::1]', port: '9898' },
+    ]);
+
+    process.env['FILTARR_ALLOWED_HOSTS'] = 'filtarr.lan';
+    expect(loadAuthConfigFromEnv().allowedHosts).toEqual([{ hostname: 'filtarr.lan' }]);
+    delete process.env['FILTARR_ALLOWED_HOSTS'];
+    expect(loadAuthConfigFromEnv().allowedHosts).toBeUndefined();
+  });
+
+  it('matches Host headers against the allowlist and always allows loopback names', () => {
+    const allowed = parseAllowedHosts('filtarr.example.com, nas.lan:9898') ?? [];
+
+    expect(isHostAllowed('filtarr.example.com', allowed)).toBe(true);
+    expect(isHostAllowed('FILTARR.example.com:443', allowed)).toBe(true);
+    expect(isHostAllowed('nas.lan:9898', allowed)).toBe(true);
+    expect(isHostAllowed('nas.lan:8080', allowed)).toBe(false);
+    expect(isHostAllowed('nas.lan', allowed)).toBe(false);
+    expect(isHostAllowed('evil.example.com', allowed)).toBe(false);
+    expect(isHostAllowed(undefined, allowed)).toBe(false);
+
+    expect(isHostAllowed('localhost:9898', allowed)).toBe(true);
+    expect(isHostAllowed('127.0.0.1', allowed)).toBe(true);
+    expect(isHostAllowed('[::1]:9898', allowed)).toBe(true);
   });
 });

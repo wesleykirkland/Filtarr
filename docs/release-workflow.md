@@ -1,6 +1,6 @@
 # Release Workflow
 
-Filtarr uses a **three-stage automated release workflow** with semantic versioning, automated changelog generation, and Docker image publishing to GitHub Container Registry (GHCR).
+Filtarr uses a **three-stage automated release workflow** with semantic versioning, generated GitHub Release notes, and Docker image publishing to GitHub Container Registry (GHCR).
 
 ## Overview
 
@@ -9,7 +9,7 @@ Filtarr uses a **three-stage automated release workflow** with semantic versioni
 │ Stage 1: PR Preview (Pre-merge)                                │
 │ • Publishes Docker images for each PR commit                   │
 │ • Tags: pr-#, pr-#-<sha>                                        │
-│ • Cleanup: Preserves pr-# tag, deletes pr-#-<sha> tags         │
+│ • Cleanup: deletes all pr-# / pr-#-<sha> images on close       │
 └─────────────────────────────────────────────────────────────────┘
                               ↓
 ┌─────────────────────────────────────────────────────────────────┐
@@ -20,11 +20,11 @@ Filtarr uses a **three-stage automated release workflow** with semantic versioni
 └─────────────────────────────────────────────────────────────────┘
                               ↓
 ┌─────────────────────────────────────────────────────────────────┐
-│ Stage 3: Stable Release (Manual trigger)                       │
-│ • Triggered by manually creating a GitHub Release              │
+│ Stage 3: Stable Release (Automatic on main)                    │
+│ • Runs after CI validation succeeds for a push to main         │
 │ • Runs semantic-release to determine version                   │
-│ • Generates/updates CHANGELOG.md                               │
-│ • Creates Git tag (v1.2.3)                                      │
+│ • Creates Git tag (v1.2.3) and GitHub Release with notes       │
+│ • Skips publishing when no release-worthy commits exist        │
 │ • Publishes Docker images with tags: <version>, latest         │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -48,19 +48,21 @@ Filtarr uses a **three-stage automated release workflow** with semantic versioni
   - `pr-<number>-<short-sha>` (immutable tag for specific commit)
 
 **On PR close/merge:**
-- Deletes all `pr-<number>-<sha>` tags (immutable commit-specific tags)
-- **Preserves** `pr-<number>` tag as a permanent reference point
+- Deletes every GHCR package version whose tags are *all* preview tags for that PR
+  (`pr-<number>` and `pr-<number>-<sha>`), including the version carrying the moving `pr-<number>` tag
+- Skips (with a workflow warning) any version that also carries a non-preview tag, such as `develop` or a release tag
+- Fork PRs never publish preview images, so there is nothing to clean up for them
 
 ### Example
 ```bash
 # PR #42 with commits abc1234, def5678, ghi9012
-https://github.com/wesleykirkland/Filtarr/pkgs/container/filtarr/737659665?tag=pr-42           # Always points to latest (ghi9012)
-https://github.com/wesleykirkland/Filtarr/pkgs/container/filtarr/737659665?tag=pr-42-abc1234   # Deleted on PR close
-https://github.com/wesleykirkland/Filtarr/pkgs/container/filtarr/737659665?tag=pr-42-def5678   # Deleted on PR close
-https://github.com/wesleykirkland/Filtarr/pkgs/container/filtarr/737659665?tag=pr-42-ghi9012   # Deleted on PR close
+ghcr.io/wesleykirkland/filtarr:pr-42           # Moving tag, points to latest (ghi9012)
+ghcr.io/wesleykirkland/filtarr:pr-42-abc1234   # Immutable per-commit tag
+ghcr.io/wesleykirkland/filtarr:pr-42-def5678   # Immutable per-commit tag
+ghcr.io/wesleykirkland/filtarr:pr-42-ghi9012   # Immutable per-commit tag
 ```
 
-After PR is closed, only `pr-42` remains as a reference.
+After the PR is closed or merged, all of the above are deleted; no `pr-42` tag is kept.
 
 ---
 
@@ -94,36 +96,28 @@ ghcr.io/wesleykirkland/filtarr:abc1234   # Immutable reference to this commit
 **Workflow:** `.github/workflows/release-main.yml`
 
 ### When it runs
-- Manually triggered by creating a GitHub Release
-- Can also be triggered via `workflow_dispatch` for testing
+- Automatically, via `workflow_run`, after the `CI validation` workflow completes **successfully** for a **push** to `main`
+- Manually via `workflow_dispatch`, only when dispatched on `main`
+- Runs are serialized (`concurrency: release-main`), never cancelled mid-flight
 
 ### What it does
-1. Runs `semantic-release` to analyze commits since last release
-2. Determines version bump (major/minor/patch) based on conventional commits
-3. Generates/updates `CHANGELOG.md`
-4. Creates Git tag (e.g., `v1.2.3`)
-5. Updates the GitHub Release with generated notes
-6. Builds and publishes Docker images with tags:
+1. Runs `semantic-release` (configured in `.releaserc.json`) against the CI-validated commit
+2. Determines the version bump (major/minor/patch) from conventional commits since the last `v*` tag
+3. If a release is due, creates the Git tag (e.g., `v1.2.3`) and a GitHub Release with generated notes
+   (`@semantic-release/github`; no `CHANGELOG.md` is generated or committed)
+4. Only if a **new** tag was created, builds and publishes multi-arch (amd64/arm64) Docker images with tags:
    - `<version>` (e.g., `1.2.3`)
    - `latest` (always points to most recent stable release)
+5. Attests the pushed image and writes a run summary
+
+If no commit since the last release warrants a version bump (e.g., only `docs:`/`chore:`/`test:`),
+nothing is tagged or published.
 
 ### How to create a release
 
-1. **Navigate to GitHub Releases**
-   - Go to `https://github.com/owner/filtarr/releases`
-   - Click "Draft a new release"
-
-2. **Create the release**
-   - Click "Choose a tag" → Type a new tag (e.g., `v1.2.3`)
-   - **Important:** Select `main` as the target branch
-   - Add a release title (e.g., "Release 1.2.3")
-   - Optionally add release notes (semantic-release will enhance them)
-   - Click "Publish release"
-
-3. **Workflow runs automatically**
-   - The `release-main.yml` workflow triggers
-   - Semantic-release analyzes commits and updates the release
-   - Docker images are published with version and `latest` tags
+There is no manual step: merge a PR with a release-worthy conventional title (`feat:`, `fix:`, `perf:`,
+or a breaking change) into `main`. Once CI validation passes on that push, the release is cut automatically.
+Do **not** create GitHub Releases or `v*` tags by hand; semantic-release owns them.
 
 ### Example
 ```bash
@@ -160,7 +154,7 @@ Add `BREAKING CHANGE:` in the commit body or use `!` after the type (e.g., `feat
 
 | Stage          | Tags                          | Lifecycle                    |
 |----------------|-------------------------------|------------------------------|
-| PR Preview     | `pr-#`, `pr-#-<sha>`          | `pr-#` preserved, `pr-#-<sha>` deleted on close |
+| PR Preview     | `pr-#`, `pr-#-<sha>`          | All deleted when the PR closes |
 | Develop Build  | `develop`, `<sha>`            | `develop` moves, `<sha>` persists |
 | Stable Release | `<version>`, `latest`         | Immutable version, `latest` moves |
 
@@ -169,8 +163,8 @@ Add `BREAKING CHANGE:` in the commit body or use `!` after the type (e.g., `feat
 ## Troubleshooting
 
 ### Release not created
-- Ensure you're creating the release from the `main` branch
-- Check that commits follow conventional commit format
+- Confirm the `CI validation` run for the push to `main` succeeded (the release only runs after it)
+- Check that commits since the last tag include a release-worthy type (`feat:`, `fix:`, `perf:`, breaking change)
 - Run the "Release dry run" workflow to preview what would be released
 
 ### Docker images not published
@@ -178,9 +172,9 @@ Add `BREAKING CHANGE:` in the commit body or use `!` after the type (e.g., `feat
 - Verify GHCR permissions are correctly configured
 - Ensure `GITHUB_TOKEN` has `packages: write` permission
 
-### Changelog not updated
-- Verify `.releaserc.json` includes `@semantic-release/changelog` and `@semantic-release/git` plugins
-- Check that the workflow has `contents: write` permission
+### Release notes
+- Release notes live on the GitHub Release created by `@semantic-release/github`; the repository does not
+  keep a `CHANGELOG.md`. Adding one would require the `@semantic-release/changelog` and `@semantic-release/git` plugins.
 
 ---
 
@@ -192,4 +186,3 @@ Add `BREAKING CHANGE:` in the commit body or use `!` after the type (e.g., `feat
 - `.github/workflows/release-dry-run.yml` - Test semantic-release without publishing
 - `.github/workflows/conventional-pr-title.yml` - Enforce conventional commits
 - `.releaserc.json` - Semantic-release configuration
-- `CHANGELOG.md` - Auto-generated changelog

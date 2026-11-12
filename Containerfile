@@ -4,7 +4,7 @@
 
 # Stage 1: Build
 # node:24-alpine, pinned by digest only (tag kept here for humans; renovate updates the digest)
-FROM node@sha256:06d7adf3e0ef61a13f1d28682726366f97a15aa1888c934d3ecec86c33918b53 AS builder
+FROM node@sha256:e18c3ccdf7d71619990b0e85639f506e2028a95410999cab24cc373cbd10e0ac AS builder
 
 WORKDIR /app
 
@@ -21,7 +21,7 @@ RUN npm run build:all
 
 # Stage 2: Production
 # node:24-alpine, same digest as the builder stage
-FROM node@sha256:06d7adf3e0ef61a13f1d28682726366f97a15aa1888c934d3ecec86c33918b53 AS runtime
+FROM node@sha256:e18c3ccdf7d71619990b0e85639f506e2028a95410999cab24cc373cbd10e0ac AS runtime
 
 ARG OCI_VERSION=0.1.0
 ARG OCI_REVISION=unknown
